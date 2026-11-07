@@ -23,7 +23,7 @@ from __future__ import annotations
 import copy
 import logging
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -64,6 +64,16 @@ class CheckSet:
 def make_check(name: str, criticality: str, function: str, **arguments: object) -> dict[str, Any]:
     """Returns a DQX check, in its metadata representation."""
     return {"name": name, "criticality": criticality, "check": {"function": function, "arguments": arguments}}
+
+
+def literal_values(values: Iterable[object]) -> list[object]:
+    """Returns values for the ``allowed`` (or ``forbidden``) list of a DQX check.
+
+    DQX reads a string of these lists as a SQL expression: ``"open"`` is the column
+    ``open``, and ``"1"`` the number 1. Strings are therefore returned as SQL string
+    literals; other values (numbers, booleans) are returned unchanged.
+    """
+    return [string_literal(value) if isinstance(value, str) else value for value in values]
 
 
 def build_checks(table: Table, context: ServiceContext, *, include_configured: bool = True) -> CheckSet:
@@ -146,7 +156,7 @@ class _ContractChecks:
         if prop.unique and keys != (column,):
             self._add(f"{column}_is_not_unique", "unique", "is_unique", columns=[column])
         if prop.enum:
-            allowed = [value.value for value in prop.enum]
+            allowed = literal_values(value.value for value in prop.enum)
             self._add(f"{column}_is_not_in_enum", "enum", "is_in_list", column=column, allowed=allowed)
         self._logical_type_options(prop)
         for relationship in prop.relationships:
@@ -290,7 +300,7 @@ class _ContractChecks:
                         criticality,
                         "is_in_list",
                         column=column,
-                        allowed=list(rule.arguments["validValues"]),
+                        allowed=literal_values(rule.arguments["validValues"]),
                     )
                 )
             if rule.arguments.get("pattern"):

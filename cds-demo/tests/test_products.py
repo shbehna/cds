@@ -196,8 +196,10 @@ def test_domain_checks_are_valid_for_dqx(data_context: DataContext) -> None:
         checks = build_checks(table, context).checks
         assert not dqx.DQEngine.validate_checks(checks).has_errors, table.name
 
-    entreprise = [check["name"] for check in build_checks(data_context.get_table("entreprise"), context).checks]
-    assert "code_premiere_activite_is_not_in_domain" in entreprise
+    entreprise = {check["name"]: check for check in build_checks(data_context.get_table("entreprise"), context).checks}
+    # DQX reads bare strings as SQL: the codes are passed as string literals, not as the numbers 100 and 110.
+    arguments = entreprise["code_premiere_activite_is_not_in_domain"]["check"]["arguments"]
+    assert arguments["allowed"] == ["'0100'", "'0110'"]
 
 
 def test_cli_validates_the_products(capsys: pytest.CaptureFixture[str]) -> None:

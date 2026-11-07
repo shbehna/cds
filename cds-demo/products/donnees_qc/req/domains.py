@@ -7,6 +7,8 @@ from collections import defaultdict
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
+from cds import literal_values
+
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
@@ -45,7 +47,10 @@ def domain_checks(
             {
                 "name": f"{column}_is_not_in_domain",
                 "criticality": "warn",
-                "check": {"function": "is_in_list", "arguments": {"column": column, "allowed": sorted(codes[domain])}},
+                "check": {
+                    "function": "is_in_list",
+                    "arguments": {"column": column, "allowed": literal_values(sorted(codes[domain]))},
+                },
             }
         )
     return checks

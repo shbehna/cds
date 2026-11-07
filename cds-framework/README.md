@@ -197,7 +197,9 @@ The quality service infers checks from the contracts:
 
 The `quality_checks` of a contract configuration add DQX checks. They can be a
 function, called with injected parameters, to compute checks at run time, for example
-from a reference table.
+from a reference table. DQX reads the strings of an `allowed` list as SQL expressions
+(`"open"` is a column, `"0100"` the number 100): pass the values through
+`cds.literal_values` to compare them as strings.
 
 ### History tables
 

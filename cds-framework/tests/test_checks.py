@@ -3,7 +3,7 @@ from conftest import CUSTOMER, ORDER, MakeProject
 from fakes import FakeDataFrame, FakeSpark, Row
 
 from cds import ConfigurationError, ContractError, DataContext, ServiceContext
-from cds.services.checks import CheckSet, build_checks, make_check
+from cds.services.checks import CheckSet, build_checks, literal_values, make_check
 
 RULES = """
     apiVersion: v3.2.0
@@ -92,7 +92,7 @@ def test_checks_inferred_from_a_contract(context: ServiceContext) -> None:
             ref_columns=["customer_id"],
             ref_table="`dev`.`sales_orders`.`customer`",
         ),
-        make_check("status_is_not_in_enum", "error", "is_in_list", column="status", allowed=["open", "closed"]),
+        make_check("status_is_not_in_enum", "error", "is_in_list", column="status", allowed=["'open'", "'closed'"]),
         make_check("amount_is_out_of_range", "error", "is_not_less_than", column="amount", limit=0),
         make_check("primary_key_is_not_unique", "error", "is_unique", columns=["order_id", "line"]),
     ]
@@ -147,6 +147,10 @@ def test_configured_checks(make_project: MakeProject, spark: FakeSpark) -> None:
     configured = checks_of(context, "customer").checks[-1]
 
     assert configured["check"]["arguments"] == {"column": "name", "allowed": ["a"]}
+
+
+def test_literal_values() -> None:
+    assert literal_values(["open", "1", "l'eau", 2, 1.5, True]) == ["'open'", "'1'", "'l\\'eau'", 2, 1.5, True]
 
 
 @pytest.mark.parametrize(

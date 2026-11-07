@@ -39,6 +39,7 @@ from cds.services import (
     TableResult,
     TransformationService,
 )
+from cds.services.checks import literal_values
 
 try:
     __version__ = version("cds-framework")
@@ -79,5 +80,6 @@ __all__ = [
     "Table",
     "TableResult",
     "TransformationService",
+    "literal_values",
     "run_service",
 ]
