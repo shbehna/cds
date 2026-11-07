@@ -1,0 +1,95 @@
+apiVersion: v3.2.0
+kind: DataContract
+id: donnees_qc.req.etablissement
+version: 1.0.0
+name: Établissement
+description:
+  purpose: Lieux au Québec où les entreprises exercent leurs activités, une ligne par établissement.
+schema:
+  - name: etablissement
+    physicalType: table
+    businessName: Établissement
+    description: Établissements des entreprises immatriculées au Québec (fichier source Etablissements.csv).
+    properties:
+      - name: numero_entreprise
+        businessName: Numéro d'entreprise du Québec (NEQ)
+        description: Numéro de l'entreprise de l'établissement. Colonne source NEQ.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 1
+        relationships:
+          - to: entreprise.numero_entreprise
+      - name: numero_etablissement
+        description: Numéro de l'établissement au sein de son entreprise (suffixe du numéro de l'établissement). Colonne source NO_SUF_ETAB.
+        logicalType: integer
+        physicalType: INT
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 2
+        logicalTypeOptions:
+          minimum: 1
+      - name: indicateur_etablissement_principal
+        description: Indique s'il s'agit de l'établissement principal de l'entreprise. Colonne source IND_ETAB_PRINC.
+        logicalType: boolean
+        physicalType: BOOLEAN
+        required: true
+      - name: indicateur_salon_bronzage
+        description: Indique si un salon de bronzage est exploité dans l'établissement. Colonne source IND_SALON_BRONZ.
+        logicalType: boolean
+        physicalType: BOOLEAN
+        required: true
+      - name: indicateur_vente_tabac
+        description: Indique si du tabac est vendu au détail dans l'établissement. Colonne source IND_VENTE_TABAC_DETL.
+        logicalType: boolean
+        physicalType: BOOLEAN
+        required: true
+      - name: indicateur_dispense_adresse
+        description: Indique si l'entreprise est dispensée de fournir l'adresse, auquel cas l'adresse est vide. Colonne source IND_DISP.
+        logicalType: boolean
+        physicalType: BOOLEAN
+      - name: adresse_ligne_1
+        description: Adresse de l'établissement, ligne 1. Colonne source LIGN1_ADR.
+        logicalType: string
+        physicalType: STRING
+      - name: adresse_ligne_2
+        description: Adresse de l'établissement, ligne 2. Colonne source LIGN2_ADR.
+        logicalType: string
+        physicalType: STRING
+      - name: adresse_ligne_3
+        description: Adresse de l'établissement, ligne 3. Colonne source LIGN3_ADR.
+        logicalType: string
+        physicalType: STRING
+      - name: adresse_ligne_4
+        description: Adresse de l'établissement, ligne 4. Colonne source LIGN4_ADR.
+        logicalType: string
+        physicalType: STRING
+      - name: code_premiere_activite
+        description: Code de la première activité économique de l'établissement (domaine de valeur ACT_ECON). Colonne source COD_ACT_ECON.
+        logicalType: string
+        physicalType: STRING
+      - name: description_premiere_activite
+        description: Description de la première activité économique de l'établissement. Colonne source DESC_ACT_ECON_ETAB.
+        logicalType: string
+        physicalType: STRING
+      - name: rang_premiere_activite
+        description: Rang de la première activité économique de l'établissement. Colonne source NO_ACT_ECON_ETAB.
+        logicalType: integer
+        physicalType: INT
+      - name: code_deuxieme_activite
+        description: Code de la deuxième activité économique de l'établissement (domaine de valeur ACT_ECON). Colonne source COD_ACT_ECON2.
+        logicalType: string
+        physicalType: STRING
+      - name: description_deuxieme_activite
+        description: Description de la deuxième activité économique de l'établissement. Colonne source DESC_ACT_ECON_ETAB2.
+        logicalType: string
+        physicalType: STRING
+      - name: rang_deuxieme_activite
+        description: Rang de la deuxième activité économique de l'établissement. Colonne source NO_ACT_ECON_ETAB2.
+        logicalType: integer
+        physicalType: INT
+      - name: nom_etablissement
+        description: Nom désignant l'établissement. Colonne source NOM_ETAB.
+        logicalType: string
+        physicalType: STRING

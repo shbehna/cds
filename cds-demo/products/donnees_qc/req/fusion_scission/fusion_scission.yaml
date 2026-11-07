@@ -1,0 +1,71 @@
+apiVersion: v3.2.0
+kind: DataContract
+id: donnees_qc.req.fusion_scission
+version: 1.0.0
+name: Fusion et scission
+description:
+  purpose: >-
+    Relations entre entreprises issues des fusions, des scissions, des conversions et des intégrations.
+    Le registre ne publie aucune clé unique pour ces relations : la table n'a pas de clé primaire, et
+    son historique n'est donc pas conservé.
+schema:
+  - name: fusion_scission
+    physicalType: table
+    businessName: Fusion et scission
+    description: Fusions et scissions entre entreprises (fichier source FusionScissions.csv).
+    properties:
+      - name: numero_entreprise
+        businessName: Numéro d'entreprise du Québec (NEQ)
+        description: Numéro de l'entreprise issue de la fusion, au dossier de laquelle la relation est inscrite. Colonne source NEQ.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        relationships:
+          - to: entreprise.numero_entreprise
+      - name: numero_entreprise_liee
+        description: Numéro de l'entreprise liée par la relation, par exemple une entreprise qui fait partie de la fusion. Colonne source NEQ_ASSUJ_REL.
+        logicalType: string
+        physicalType: STRING
+        relationships:
+          - to: entreprise.numero_entreprise
+      - name: nom_entreprise_liee
+        description: Nom de l'entreprise liée par la relation. Colonne source DENOMN_SOC.
+        logicalType: string
+        physicalType: STRING
+      - name: code_relation
+        description: Code de la relation entre les entreprises (domaine de valeur RELA_ASSUJ). Colonne source COD_RELA_ASSUJ.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        enum:
+          - { value: "CO", label: "Conversion" }
+          - { value: "FO", label: "Fusion ordinaire" }
+          - { value: "FS", label: "Fusion simplifiée" }
+          - { value: "IN", label: "Intégration" }
+          - { value: "RP", label: "Remplacé par" }
+          - { value: "SC", label: "Scission" }
+      - name: date_effet
+        description: Date de début de la relation entre les entreprises. Colonne source DAT_EFCTVT.
+        logicalType: date
+        physicalType: DATE
+        required: true
+      - name: indicateur_dispense_adresse
+        description: Indique si l'entreprise liée est dispensée de fournir son adresse, auquel cas l'adresse est vide. Colonne source IND_DISP.
+        logicalType: boolean
+        physicalType: BOOLEAN
+      - name: adresse_ligne_1
+        description: Adresse de l'entreprise liée, ligne 1. Colonne source LIGN1_ADR.
+        logicalType: string
+        physicalType: STRING
+      - name: adresse_ligne_2
+        description: Adresse de l'entreprise liée, ligne 2. Colonne source LIGN2_ADR.
+        logicalType: string
+        physicalType: STRING
+      - name: adresse_ligne_3
+        description: Adresse de l'entreprise liée, ligne 3. Colonne source LIGN3_ADR.
+        logicalType: string
+        physicalType: STRING
+      - name: adresse_ligne_4
+        description: Adresse de l'entreprise liée, ligne 4. Colonne source LIGN4_ADR.
+        logicalType: string
+        physicalType: STRING

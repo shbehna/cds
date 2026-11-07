@@ -1,0 +1,18 @@
+# Variables of the nprod deployment. Check the values marked PLACEHOLDER before the
+# first deployment. Secrets are never stored here: see README.md.
+config:
+  # Databricks workspace, and application (client) id of the deployment service principal.
+  # Its OAuth secret is read from the DATABRICKS_CLIENT_SECRET environment variable.
+  databricks:host: https://dbc-1e8aa6f9-7f19.cloud.databricks.com
+  databricks:clientId: bf175dc4-c86b-4e88-83e9-9194c485a080
+  # CDS environment id, which is also the Unity Catalog catalog of the data products.
+  cds-demo:environment: nprod
+  # PLACEHOLDER: folder of the REQ CSV files (Entreprise.csv, Nom.csv...) in the ext catalog.
+  cds-demo:sourcePath: /Volumes/ext/donnees_qc/req
+  # Workspace folder receiving the notebooks, the data products and the framework wheel.
+  cds-demo:workspaceRoot: /Shared/cds-demo/nprod
+  # Serverless environment version of the job, and DQX version installed in it.
+  cds-demo:environmentVersion: "5"
+  cds-demo:dqxVersion: 0.17.0
+  # Number of tables processed in parallel by each service.
+  cds-demo:maxWorkers: "4"

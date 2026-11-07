@@ -1,0 +1,17 @@
+[project]
+name = "cds-demo"
+version = "0.1.0"
+description = "Demo of the CDS framework: the Registraire des entreprises du Québec (REQ) data product."
+readme = "README.md"
+requires-python = "==3.12.*"
+# The data products (products/) use the framework as a library. They are deployed as
+# workspace files, next to the framework wheel: this project is not packaged.
+dependencies = [
+    "cds-framework[dqx]",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+cds-framework = { workspace = true }

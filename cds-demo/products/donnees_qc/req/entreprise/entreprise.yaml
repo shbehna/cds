@@ -1,0 +1,227 @@
+apiVersion: v3.2.0
+kind: DataContract
+id: donnees_qc.req.entreprise
+version: 1.0.0
+name: Entreprise
+description:
+  purpose: Informations générales sur les entreprises immatriculées au Québec, une ligne par entreprise.
+schema:
+  - name: entreprise
+    physicalType: table
+    businessName: Entreprise
+    description: Entreprises inscrites au registre du Registraire des entreprises du Québec (fichier source Entreprise.csv).
+    quality:
+      - metric: rowCount
+        mustBeGreaterThan: 1000000
+        severity: warning
+        description: Le registre compte des millions d'entreprises. Un nombre de lignes inférieur signale un fichier tronqué.
+      - type: custom
+        engine: dqx
+        name: periode_responsabilite_limitee_valide
+        description: La responsabilité limitée prend fin après son début.
+        severity: warning
+        implementation:
+          check:
+            function: sql_expression
+            arguments:
+              expression: date_fin_responsabilite_limitee >= date_debut_responsabilite_limitee
+              msg: La responsabilité limitée prend fin avant son début
+    properties:
+      - name: numero_entreprise
+        businessName: Numéro d'entreprise du Québec (NEQ)
+        description: Numéro de 10 chiffres attribué à l'entreprise lors de son immatriculation au registre. Colonne source NEQ.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 1
+        logicalTypeOptions:
+          pattern: "^[0-9]{10}$"
+      - name: indicateur_faillite
+        description: Indique si l'entreprise est en faillite. Colonne source IND_FAIL.
+        logicalType: boolean
+        physicalType: BOOLEAN
+      - name: date_immatriculation
+        description: Date à laquelle le numéro d'entreprise du Québec a été attribué à l'entreprise. Elle ne change jamais. Colonne source DAT_IMMAT.
+        logicalType: date
+        physicalType: DATE
+        required: true
+      - name: code_regime_juridique
+        description: Code du régime juridique sous lequel l'entreprise est constituée (domaine de valeur REGIM_JURI). Colonne source COD_REGIM_JURI.
+        logicalType: string
+        physicalType: STRING
+      - name: code_intervalle_employes
+        description: Intervalle du nombre d'employés de l'entreprise au Québec (domaine de valeur INTVAL_EMPLO_QUE). Colonne source COD_INTVAL_EMPLO_QUE.
+        logicalType: string
+        physicalType: STRING
+        enum:
+          - { value: "A", label: "De 1 à 5" }
+          - { value: "B", label: "De 6 à 10" }
+          - { value: "C", label: "De 11 à 25" }
+          - { value: "D", label: "De 26 à 49" }
+          - { value: "E", label: "De 50 à 99" }
+          - { value: "F", label: "De 100 à 249" }
+          - { value: "G", label: "De 250 à 499" }
+          - { value: "H", label: "De 500 à 749" }
+          - { value: "I", label: "De 750 à 999" }
+          - { value: "J", label: "De 1000 à 2499" }
+          - { value: "K", label: "De 2500 à 4999" }
+          - { value: "L", label: "Plus de 5000" }
+          - { value: "N", label: "Non déclaré" }
+          - { value: "O", label: "Aucun" }
+          - { value: "P", label: "Non déclaré" }
+      - name: date_cessation_prevue
+        description: Date prévue de la cessation de l'existence de l'entreprise. Colonne source DAT_CESS_PREVU.
+        logicalType: date
+        physicalType: DATE
+      - name: code_statut_immatriculation
+        description: Code du statut de l'immatriculation (domaine de valeur STAT_IMMAT). Colonne source COD_STAT_IMMAT.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        enum:
+          - { value: "AI", label: "Avis d'intention de constitution" }
+          - { value: "IM", label: "Immatriculée" }
+          - { value: "NI", label: "Non immatriculée" }
+          - { value: "RD", label: "Radiée sur demande" }
+          - { value: "RO", label: "Radiée d'office" }
+          - { value: "RX", label: "Radiée d'office (article 59)" }
+      - name: code_forme_juridique
+        description: Code de la forme juridique de l'entreprise (domaine de valeur FORM_JURI). Colonne source COD_FORME_JURI.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        enum:
+          - { value: "APE", label: "Personne morale sans but lucratif" }
+          - { value: "ASS", label: "Association" }
+          - { value: "AU", label: "Autre" }
+          - { value: "AUG", label: "Groupement de personnes" }
+          - { value: "CIE", label: "Société par actions ou compagnie" }
+          - { value: "COP", label: "Coopérative" }
+          - { value: "IND", label: "Entreprise individuelle" }
+          - { value: "MUT", label: "Mutuelle d'assurance" }
+          - { value: "SEC", label: "Société en commandite" }
+          - { value: "SENC", label: "Société en nom collectif" }
+          - { value: "SENCRL", label: "Société en nom collectif à responsabilité limitée" }
+          - { value: "SEP", label: "Société en participation" }
+          - { value: "SMU", label: "Société de secours mutuel" }
+          - { value: "SOC", label: "Société non constituée au Québec" }
+          - { value: "SYC", label: "Syndicat de copropriété" }
+          - { value: "SYP", label: "Syndicat professionnel" }
+      - name: date_statut_immatriculation
+        description: Date de la dernière mise à jour du statut de l'immatriculation. Colonne source DAT_STAT_IMMAT.
+        logicalType: date
+        physicalType: DATE
+        required: true
+      - name: code_regime_juridique_constitution
+        description: Code du régime juridique de l'entreprise lors de sa constitution (domaine de valeur REGIM_JURI). Colonne source COD_REGIM_JURI_CONSTI.
+        logicalType: string
+        physicalType: STRING
+      - name: date_depot_declaration
+        description: Date du dépôt de la dernière déclaration de mise à jour annuelle. Colonne source DAT_DEPO_DECLR.
+        logicalType: date
+        physicalType: DATE
+      - name: annee_declaration
+        description: Année visée par la dernière déclaration de mise à jour annuelle déposée. Colonne source AN_DECL.
+        logicalType: integer
+        physicalType: INT
+      - name: annee_production
+        description: Année de production de la déclaration de mise à jour annuelle. Colonne source AN_PROD.
+        logicalType: integer
+        physicalType: INT
+      - name: date_limite_production
+        description: Date limite de production de la déclaration de mise à jour annuelle. Colonne source DAT_LIMIT_PROD.
+        logicalType: date
+        physicalType: DATE
+      - name: annee_production_precedente
+        description: Année de production de la déclaration de mise à jour annuelle précédente. Colonne source AN_PROD_PRE.
+        logicalType: integer
+        physicalType: INT
+      - name: date_limite_production_precedente
+        description: Date limite de production de la déclaration de mise à jour annuelle précédente. Colonne source DAT_LIMIT_PROD_PRE.
+        logicalType: date
+        physicalType: DATE
+      - name: date_mise_a_jour_index_noms
+        description: Date et heure de la dernière mise à jour de l'index des noms. Colonne source DAT_MAJ_INDEX_NOM.
+        logicalType: timestamp
+        physicalType: TIMESTAMP
+      - name: code_premiere_activite
+        description: Code de la première activité économique de l'entreprise (domaine de valeur ACT_ECON). Colonne source COD_ACT_ECON_CAE.
+        logicalType: string
+        physicalType: STRING
+      - name: rang_premiere_activite
+        description: Rang de la première activité économique de l'entreprise. Colonne source NO_ACT_ECON_ASSUJ.
+        logicalType: integer
+        physicalType: INT
+      - name: description_premiere_activite
+        description: Description de la première activité économique de l'entreprise. Colonne source DESC_ACT_ECON_ASSUJ.
+        logicalType: string
+        physicalType: STRING
+      - name: code_deuxieme_activite
+        description: Code de la deuxième activité économique de l'entreprise (domaine de valeur ACT_ECON). Colonne source COD_ACT_ECON_CAE2.
+        logicalType: string
+        physicalType: STRING
+      - name: rang_deuxieme_activite
+        description: Rang de la deuxième activité économique de l'entreprise. Colonne source NO_ACT_ECON_ASSUJ2.
+        logicalType: integer
+        physicalType: INT
+      - name: description_deuxieme_activite
+        description: Description de la deuxième activité économique de l'entreprise. Colonne source DESC_ACT_ECON_ASSUJ2.
+        logicalType: string
+        physicalType: STRING
+      - name: localite_constitution
+        description: Nom de la localité où l'entreprise a été constituée. Colonne source NOM_LOCLT_CONSTI.
+        logicalType: string
+        physicalType: STRING
+      - name: date_constitution
+        description: Date de la constitution de l'entreprise. Colonne source DAT_CONSTI.
+        logicalType: date
+        physicalType: DATE
+      - name: indicateur_convention_unanime
+        description: Indique si une convention unanime des actionnaires existe. Colonne source IND_CONVEN_UNMN_ACTNR.
+        logicalType: boolean
+        physicalType: BOOLEAN
+      - name: indicateur_retrait_pouvoirs
+        description: Indique si une convention unanime des actionnaires retire les pouvoirs du conseil d'administration. Colonne source IND_RET_TOUT_POUVR.
+        logicalType: boolean
+        physicalType: BOOLEAN
+      - name: indicateur_responsabilite_limitee
+        description: Indique si la société est une société à responsabilité limitée. Colonne source IND_LIMIT_RESP.
+        logicalType: boolean
+        physicalType: BOOLEAN
+      - name: date_debut_responsabilite_limitee
+        description: Date à laquelle la société est devenue une société à responsabilité limitée. Colonne source DAT_DEB_RESP.
+        logicalType: date
+        physicalType: DATE
+      - name: date_fin_responsabilite_limitee
+        description: Date à laquelle la société a cessé d'être une société à responsabilité limitée. Colonne source DAT_FIN_RESP.
+        logicalType: date
+        physicalType: DATE
+      - name: objet_societe
+        description: But dans lequel la société a été créée. Colonne source OBJET_SOC.
+        logicalType: string
+        physicalType: STRING
+      - name: numero_autorite_publique
+        description: Numéro d'entreprise du Québec sous lequel une autorité publique est immatriculée. Colonne source NO_MTR_VOLONT.
+        logicalType: string
+        physicalType: STRING
+      - name: indicateur_dispense_adresse
+        description: Indique si l'entreprise est dispensée de fournir l'adresse de son domicile, auquel cas l'adresse est vide. Colonne source ADR_DOMCL_ADR_DISP.
+        logicalType: boolean
+        physicalType: BOOLEAN
+      - name: adresse_ligne_1
+        description: Adresse du domicile, ligne 1. Colonne source ADR_DOMCL_LIGN1_ADR.
+        logicalType: string
+        physicalType: STRING
+      - name: adresse_ligne_2
+        description: Adresse du domicile, ligne 2. Colonne source ADR_DOMCL_LIGN2_ADR.
+        logicalType: string
+        physicalType: STRING
+      - name: adresse_ligne_3
+        description: Adresse du domicile, ligne 3. Colonne source ADR_DOMCL_LIGN3_ADR.
+        logicalType: string
+        physicalType: STRING
+      - name: adresse_ligne_4
+        description: Adresse du domicile, ligne 4. Colonne source ADR_DOMCL_LIGN4_ADR.
+        logicalType: string
+        physicalType: STRING

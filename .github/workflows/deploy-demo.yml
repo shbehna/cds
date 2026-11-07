@@ -1,0 +1,84 @@
+# Deploys the demo to Databricks with Pulumi. See cds-demo/deploy/README.md for the setup.
+#
+# - A push to master deploys the nprod environment.
+# - prod is deployed by running the workflow manually (Actions > Deploy demo > Run workflow).
+name: Deploy demo
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "cds-framework/**"
+      - "cds-demo/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/deploy-demo.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to deploy
+        type: choice
+        options: [nprod, prod]
+        default: nprod
+
+concurrency:
+  group: deploy-demo-${{ inputs.environment || 'nprod' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.environment || 'nprod' }}
+    runs-on: ubuntu-latest
+    env:
+      # The name of the Pulumi stack, and of its configuration file Pulumi.<stack>.yaml.
+      STACK: ${{ inputs.environment || 'nprod' }}
+      PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+      # OAuth secret of the service principal whose client id is in Pulumi.<stack>.yaml.
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+    steps:
+      - name: Check the secrets
+        id: secrets
+        run: |
+          if [ -z "$PULUMI_ACCESS_TOKEN" ] || [ -z "$DATABRICKS_CLIENT_SECRET" ]; then
+            echo "::warning::Deployment skipped: add the PULUMI_ACCESS_TOKEN and DATABRICKS_CLIENT_SECRET secrets, see cds-demo/deploy/README.md."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v5
+        if: steps.secrets.outputs.configured == 'true'
+
+      - uses: astral-sh/setup-uv@v6
+        if: steps.secrets.outputs.configured == 'true'
+        with:
+          version: "0.12.7"
+          enable-cache: true
+
+      - name: Test
+        if: steps.secrets.outputs.configured == 'true'
+        run: |
+          uv sync --all-packages --locked
+          uv run pytest
+          uv run cds validate cds-demo/products
+
+      - name: Build the framework wheel
+        if: steps.secrets.outputs.configured == 'true'
+        run: uv build --package cds-framework --wheel --out-dir dist
+
+      - name: Install the deployment program
+        if: steps.secrets.outputs.configured == 'true'
+        working-directory: cds-demo/deploy
+        run: uv sync --locked
+
+      - name: Deploy with Pulumi
+        if: steps.secrets.outputs.configured == 'true'
+        uses: pulumi/actions@v6
+        with:
+          command: up
+          stack-name: ${{ env.STACK }}
+          work-dir: cds-demo/deploy
+          upsert: true

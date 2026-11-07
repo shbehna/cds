@@ -1,0 +1,32 @@
+apiVersion: v3.2.0
+kind: DataContract
+id: donnees_qc.req.domaine_valeur
+version: 1.0.0
+name: Domaine de valeur
+description:
+  purpose: Codes utilisés par le registre, avec leur description, regroupés par domaine de valeur.
+schema:
+  - name: domaine_valeur
+    physicalType: table
+    businessName: Domaine de valeur
+    description: Valeurs des domaines de valeur du registre, comme les activités économiques (fichier source DomaineValeur.csv).
+    properties:
+      - name: domaine
+        description: Domaine de valeur du code, par exemple ACT_ECON pour les activités économiques. Colonne source TYP_DOM_VAL.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 1
+      - name: code
+        description: Code de la valeur. Colonne source COD_DOM_VAL.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 2
+      - name: description
+        description: Description de la valeur, en français. Colonne source VAL_DOM_FRAN.
+        logicalType: string
+        physicalType: STRING
+        required: true

@@ -1,0 +1,54 @@
+apiVersion: v3.2.0
+kind: DataContract
+id: donnees_qc.req.continuation_transformation
+version: 1.0.0
+name: Continuation et transformation
+description:
+  purpose: >-
+    Changements du régime juridique des personnes morales, qui continuent leur existence sous le
+    régime d'une autre loi, sans interruption.
+schema:
+  - name: continuation_transformation
+    physicalType: table
+    businessName: Continuation et transformation
+    description: Continuations et transformations des entreprises (fichier source ContinuationsTransformations.csv).
+    properties:
+      - name: numero_entreprise
+        businessName: Numéro d'entreprise du Québec (NEQ)
+        description: Numéro de l'entreprise qui a changé de régime juridique. Colonne source NEQ.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 1
+        relationships:
+          - to: entreprise.numero_entreprise
+      - name: code_type_changement
+        description: Code du type de changement, une continuation ou une transformation (domaine de valeur TYP_CHANG). Colonne source COD_TYP_CHANG.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 2
+        enum:
+          - { value: "CONTN", label: "Continuation" }
+          - { value: "TRANS", label: "Transformation" }
+      - name: code_regime_juridique
+        description: Code du régime juridique sous lequel l'entreprise est constituée (domaine de valeur REGIM_JURI). Colonne source COD_REGIM_JURI.
+        logicalType: string
+        physicalType: STRING
+      - name: autre_regime_juridique
+        description: Régime juridique de l'entreprise, lorsqu'elle a été constituée ailleurs qu'au Québec. Colonne source AUTR_REGIM_JURI.
+        logicalType: string
+        physicalType: STRING
+      - name: localite
+        description: Nom de la localité où la continuation ou la transformation a eu lieu. Colonne source NOM_LOCLT.
+        logicalType: string
+        physicalType: STRING
+      - name: date_effet
+        description: Date à laquelle la personne morale a continué son existence en changeant de régime juridique. Colonne source DAT_EFCTVT.
+        logicalType: date
+        physicalType: DATE
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 3

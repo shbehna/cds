@@ -1,0 +1,7 @@
+name: cds-demo
+description: Deploys the CDS demo (donnees_qc.req data product) to a Databricks workspace.
+runtime:
+  name: python
+  options:
+    # Pulumi installs the dependencies of pyproject.toml in .venv with uv.
+    toolchain: uv

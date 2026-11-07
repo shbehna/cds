@@ -1,3 +1,5 @@
+# Root of the mono-repo: a uv workspace with the framework (cds-framework) and the demo
+# (cds-demo). The Pulumi project of the demo (cds-demo/deploy) has its own environment.
 [project]
 name = "cds"
 version = "0.0.0"
@@ -5,8 +7,55 @@ requires-python = "==3.12.*"
 
 [dependency-groups]
 dev = [
+    # Runs Spark code locally against a Databricks workspace (VS Code extension).
     "databricks-connect~=18.0.0",
+    "cds-framework[dqx]",
+    "jsonschema>=4.23",
+    "mypy>=1.18",
+    "open-data-contract-standard>=3.2.0",
+    "pytest>=8.3",
+    "ruff>=0.12",
+    "types-pyyaml>=6.0",
 ]
+
+[tool.uv.workspace]
+members = ["cds-framework", "cds-demo"]
+exclude = ["cds-demo/deploy"]
+
+[tool.uv.sources]
+cds-framework = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["cds-framework/tests", "cds-demo/tests"]
+addopts = ["--import-mode=importlib", "-ra"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["cds-demo/external-doc"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF", "ANN"]
+# ANN401: Any remains the type of dynamic values, such as YAML documents and DQX checks.
+ignore = ["RUF012", "ANN401"]
+
+[tool.ruff.lint.per-file-ignores]
+# Databricks notebooks use the spark and dbutils globals of the notebook, and hold
+# their documentation in long markdown lines.
+"**/notebooks/*.py" = ["F821", "E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["cds"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["cds-framework/src", "cds-framework/tests", "cds-demo/products", "cds-demo/tests"]
+# The tests import their helpers (conftest, fakes) by module name, and the files of a
+# root folder of data products are modules of namespace packages, as the framework
+# loads them.
+mypy_path = "cds-framework/src,cds-framework/tests,cds-demo/products,cds-demo/tests"
+explicit_package_bases = true
 
 [tool.databricks.environment]
 environment_version = "5"

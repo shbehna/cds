@@ -2,3 +2,15 @@ spec.md
 spec2.md
 cds-demo/external-doc/*
 .databricks
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
