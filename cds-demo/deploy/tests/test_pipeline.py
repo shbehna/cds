@@ -108,8 +108,20 @@ def test_files(settings: pipeline.Settings) -> pulumi.Output[None]:
         assert not any("__pycache__" in path for path in paths)
         notebooks = {args.inputs["path"] for args in CREATED if args.typ == "databricks:index/notebook:Notebook"}
         assert notebooks == {f"/Shared/cds-demo/nprod/notebooks/{service}" for service in pipeline.TASKS}
+        directories = {args.inputs["path"] for args in CREATED if args.typ == "databricks:index/directory:Directory"}
+        assert {path.rsplit("/", 1)[0] for path in paths | notebooks} <= directories
+        assert "/Shared/cds-demo/nprod" in directories
 
     return job.id.apply(check)
+
+
+def test_folders_are_listed_parents_first() -> None:
+    assert pipeline.folders("/r", ["/r/a/b/file", "/r/a/other", "/r/c/file", "/elsewhere/file"]) == [
+        "/r",
+        "/r/a",
+        "/r/c",
+        "/r/a/b",
+    ]
 
 
 def test_missing_wheel(tmp_path: Path) -> None:

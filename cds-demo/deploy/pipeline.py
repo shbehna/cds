@@ -12,6 +12,8 @@ The job has no schedule: it runs on demand.
 from __future__ import annotations
 
 import hashlib
+import posixpath
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -90,6 +92,17 @@ def product_files() -> list[Path]:
     ]
 
 
+def folders(root: str, paths: Iterable[str]) -> list[str]:
+    """Returns the root and the folders under it holding the paths, parents first."""
+    found = {root}
+    for path in paths:
+        folder = posixpath.dirname(path)
+        while folder.startswith(f"{root}/"):
+            found.add(folder)
+            folder = posixpath.dirname(folder)
+    return sorted(found, key=lambda folder: (folder.count("/"), folder))
+
+
 def deploy(settings: Settings) -> databricks.Job:
     """Declares the resources of the demo and returns the job."""
     root = settings.workspace_root.rstrip("/")
@@ -98,27 +111,48 @@ def deploy(settings: Settings) -> databricks.Job:
     # A folder named after the content of the wheel: serverless environments are cached by
     # their dependencies, so a new build must get a new path to be installed.
     digest = hashlib.sha256(wheel.read_bytes()).hexdigest()[:16]
+    wheel_path = f"{root}/wheels/{digest}/{wheel.name}"
+    notebook_paths = {service: f"{root}/notebooks/{service}" for service in TASKS}
+    product_paths = {path: f"{root}/products/{path.relative_to(PRODUCTS).as_posix()}" for path in product_files()}
+
+    # The folders are created first, each after its parent: the provider creates a missing
+    # parent folder when it uploads a file, but not reliably when files are uploaded in
+    # parallel.
+    directories: dict[str, databricks.Directory] = {}
+    for folder in folders(root, [wheel_path, *notebook_paths.values(), *product_paths.values()]):
+        parent = directories.get(posixpath.dirname(folder))
+        directories[folder] = databricks.Directory(
+            f"folder:{posixpath.relpath(folder, root)}",
+            path=folder,
+            opts=pulumi.ResourceOptions(depends_on=[parent] if parent else None),
+        )
+
+    def in_folder(path: str) -> pulumi.ResourceOptions:
+        return pulumi.ResourceOptions(depends_on=[directories[posixpath.dirname(path)]])
+
     wheel_file = databricks.WorkspaceFile(
-        "framework-wheel", path=f"{root}/wheels/{digest}/{wheel.name}", source=str(wheel)
+        "framework-wheel", path=wheel_path, source=str(wheel), opts=in_folder(wheel_path)
     )
 
     notebooks = {
         service: databricks.Notebook(
             f"notebook-{service}",
-            path=f"{root}/notebooks/{service}",
+            path=path,
             source=str(FRAMEWORK / "notebooks" / f"{service}.py"),
             language="PYTHON",
+            opts=in_folder(path),
         )
-        for service in TASKS
+        for service, path in notebook_paths.items()
     }
 
     products = [
         databricks.WorkspaceFile(
-            f"products/{path.relative_to(PRODUCTS).as_posix()}",
-            path=f"{root}/products/{path.relative_to(PRODUCTS).as_posix()}",
-            source=str(path),
+            f"products/{source.relative_to(PRODUCTS).as_posix()}",
+            path=path,
+            source=str(source),
+            opts=in_folder(path),
         )
-        for path in product_files()
+        for source, path in product_paths.items()
     ]
 
     parameters = {
