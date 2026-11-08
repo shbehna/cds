@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
+from pyspark.sql import Column, DataFrame, SparkSession
 from pyspark.sql.functions import col, trim, upper, when
 
-if TYPE_CHECKING:
-    from pyspark.sql import Column, DataFrame, SparkSession
-
-    from cds import RuntimeConfiguration
+from cds import RuntimeConfiguration
 
 # Runtime parameter holding the folder of the files, typically a Unity Catalog volume.
 SOURCE_PATH = "source_path"

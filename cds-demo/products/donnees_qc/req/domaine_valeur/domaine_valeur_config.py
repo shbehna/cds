@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
+from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col
 
-from cds import ContractConfig
+from cds import ContractConfig, RuntimeConfiguration
 
 from ..sources import read_source
-
-if TYPE_CHECKING:
-    from pyspark.sql import DataFrame, SparkSession
-
-    from cds import RuntimeConfiguration
 
 
 def transform(spark: SparkSession, runtime_configuration: RuntimeConfiguration) -> DataFrame:

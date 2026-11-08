@@ -6,10 +6,10 @@ import json
 from collections.abc import Iterable, Sequence
 from importlib.resources import files
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import pytest
-from pyspark.sql import Column
+from pyspark.sql import Column, SparkSession
 from pyspark.sql.connect.expressions import ColumnAlias, ColumnReference, Expression
 
 from cds import ContractInjection, DataContext, RuntimeConfiguration, ScdSettings, ServiceContext
@@ -17,9 +17,6 @@ from cds.cli import main
 from cds.services.checks import build_checks
 from cds.services.scd import history_table_name
 from cds.services.transformation import conform_to_contract, find_transformation
-
-if TYPE_CHECKING:
-    from pyspark.sql import SparkSession
 
 PRODUCTS = Path(__file__).resolve().parents[1] / "products"
 

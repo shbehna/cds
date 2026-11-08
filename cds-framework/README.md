@@ -55,14 +55,10 @@ its folder:
 # donnees_qc/req/entreprise/entreprise_config.py
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
+from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col
 
 from cds import ContractConfig, RuntimeConfiguration
-
-if TYPE_CHECKING:
-    from pyspark.sql import DataFrame, SparkSession
 
 
 def transform(spark: SparkSession, runtime_configuration: RuntimeConfiguration) -> DataFrame:

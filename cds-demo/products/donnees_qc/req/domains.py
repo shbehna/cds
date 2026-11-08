@@ -5,14 +5,11 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from cds import literal_values
+from pyspark.sql import SparkSession
 
-if TYPE_CHECKING:
-    from pyspark.sql import SparkSession
-
-    from cds import DataProduct, ServiceContext
+from cds import DataProduct, ServiceContext, literal_values
 
 logger = logging.getLogger(__name__)
 
