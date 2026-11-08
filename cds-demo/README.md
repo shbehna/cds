@@ -86,13 +86,13 @@ The Databricks AI/BI dashboard **Qualité des données REQ** follows the results
 quality service. It belongs to the demo, not to the framework: it reads the `_errors`
 and `_warnings` columns that the quality service writes in each row.
 
-- **Statistiques**: the number of rows without issue, with warnings and with errors (a
-  row with both is in error), by table, and the number of errors and warnings of each
-  check. Filter: table.
+- **Statistiques**: a pie chart of the rows without issue, with warnings and with errors
+  (a row with both is in error), a bar chart of the occurrences of each check, and a
+  table of the occurrences by table, check and severity. Filter: table.
 - **Occurrences**: each error and warning, with the primary key of its row as a JSON
   object (`{"numero_entreprise": "1140000016"}`), the check, its message and columns.
   `fusion_scission` has no primary key: its rows are identified by all their columns.
-  Filters: table, check, level (error or warning).
+  Filters: table, check, severity (error or warning).
 
 [dashboards/quality_dashboard.py](dashboards/quality_dashboard.py) generates the
 dashboard, [dashboards/qualite_req.lvdash.json](dashboards/qualite_req.lvdash.json),

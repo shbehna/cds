@@ -13,7 +13,7 @@ changing the contracts:
 """
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +29,8 @@ DATA_PRODUCT = "donnees_qc.req"
 ERROR = "Erreur"
 WARNING = "Avertissement"
 OK = "OK"
+STATUS_COLORS = {OK: "#00A972", WARNING: "#FFAB00", ERROR: "#FF3621"}
+SEVERITY_COLORS = {WARNING: "#FFAB00", ERROR: "#FF3621"}
 
 
 def checked_tables(data_context: DataContext) -> list[Table]:
@@ -64,23 +66,16 @@ def rows_query(tables: Sequence[Table]) -> str:
 
 
 def row_status_query(tables: Sequence[Table]) -> str:
-    """Number of rows of each table without issue, with warnings only, and with errors."""
+    """Number of rows of each table by status: without issue, with warnings only, with errors."""
     return (
-        f"{rows_query(tables)},\n"
-        "statuts AS (\n"
-        "  SELECT nom_table,\n"
-        f"    CASE WHEN coalesce(size(erreurs), 0) > 0 THEN '{ERROR}'\n"
-        f"      WHEN coalesce(size(avertissements), 0) > 0 THEN '{WARNING}'\n"
-        f"      ELSE '{OK}' END AS statut\n"
-        "  FROM lignes\n"
-        ")\n"
+        f"{rows_query(tables)}\n"
         "SELECT nom_table,\n"
-        "  count(*) AS lignes,\n"
-        f"  count_if(statut = '{OK}') AS lignes_ok,\n"
-        f"  count_if(statut = '{WARNING}') AS lignes_avertissement,\n"
-        f"  count_if(statut = '{ERROR}') AS lignes_erreur\n"
-        "FROM statuts\n"
-        "GROUP BY nom_table"
+        f"  CASE WHEN coalesce(size(erreurs), 0) > 0 THEN '{ERROR}'\n"
+        f"    WHEN coalesce(size(avertissements), 0) > 0 THEN '{WARNING}'\n"
+        f"    ELSE '{OK}' END AS statut,\n"
+        "  count(*) AS lignes\n"
+        "FROM lignes\n"
+        "GROUP BY ALL"
     )
 
 
@@ -88,10 +83,10 @@ def _occurrences(tables: Sequence[Table]) -> str:
     return (
         f"{rows_query(tables)},\n"
         "occurrences AS (\n"
-        f"  SELECT nom_table, cle, '{ERROR}' AS niveau, resultat\n"
+        f"  SELECT nom_table, cle, '{ERROR}' AS severite, resultat\n"
         "  FROM lignes LATERAL VIEW explode(erreurs) e AS resultat\n"
         "  UNION ALL\n"
-        f"  SELECT nom_table, cle, '{WARNING}' AS niveau, resultat\n"
+        f"  SELECT nom_table, cle, '{WARNING}' AS severite, resultat\n"
         "  FROM lignes LATERAL VIEW explode(avertissements) a AS resultat\n"
         ")\n"
     )
@@ -101,7 +96,7 @@ def occurrences_query(tables: Sequence[Table]) -> str:
     """Each error and warning of each row, with the key of the row."""
     return (
         f"{_occurrences(tables)}"
-        "SELECT nom_table, cle, niveau,\n"
+        "SELECT nom_table, cle, severite,\n"
         "  resultat.name AS validation,\n"
         "  resultat.function AS fonction,\n"
         "  array_join(resultat.columns, ', ') AS colonnes,\n"
@@ -115,9 +110,9 @@ def occurrences_by_check_query(tables: Sequence[Table]) -> str:
     """Number of errors and warnings of each check, by table."""
     return (
         f"{_occurrences(tables)}"
-        "SELECT nom_table, niveau, resultat.name AS validation, count(*) AS occurrences\n"
+        "SELECT nom_table, resultat.name AS validation, severite, count(*) AS occurrences\n"
         "FROM occurrences\n"
-        "GROUP BY nom_table, niveau, resultat.name"
+        "GROUP BY nom_table, resultat.name, severite"
     )
 
 
@@ -151,19 +146,24 @@ def place(widget: dict[str, Any], x: int, y: int, width: int, height: int) -> di
     return {"widget": widget, "position": {"x": x, "y": y, "width": width, "height": height}}
 
 
-def text(name: str, *lines: str) -> dict[str, Any]:
-    return {"name": name, "multilineTextboxSpec": {"lines": list(lines)}}
+def colors(scale: Mapping[str, str]) -> dict[str, Any]:
+    """A categorical scale giving a color to each value."""
+    return {"type": "categorical", "mappings": [{"value": value, "color": color} for value, color in scale.items()]}
 
 
-def counter(name: str, dataset_name: str, column: str, title: str) -> dict[str, Any]:
-    value = f"sum({column})"
+def pie_chart(name: str, dataset_name: str, title: str) -> dict[str, Any]:
+    """Share of the rows of each status."""
+    count = "sum(lignes)"
     return {
         "name": name,
-        "queries": [query(dataset_name, [field(value, f"SUM(`{column}`)")], disaggregated=False)],
+        "queries": [query(dataset_name, [field("statut"), field(count, "SUM(`lignes`)")], disaggregated=False)],
         "spec": {
-            "version": 2,
-            "widgetType": "counter",
-            "encodings": {"value": {"fieldName": value, "displayName": title}},
+            "version": 3,
+            "widgetType": "pie",
+            "encodings": {
+                "angle": {"fieldName": count, "scale": {"type": "quantitative"}, "displayName": "Lignes"},
+                "color": {"fieldName": "statut", "scale": colors(STATUS_COLORS), "displayName": "Statut"},
+            },
             "frame": frame(title),
         },
     }
@@ -194,8 +194,18 @@ def table_widget(name: str, dataset_name: str, columns: Sequence[tuple[str, str,
     display = {"string": "string", "integer": "number", "datetime": "datetime"}
     encodings = []
     for order, (column, column_title, column_type) in enumerate(columns):
+        # The keys of a column, as the dashboard editor writes them.
         encoding: dict[str, Any] = {
             "fieldName": column,
+            "booleanValues": ["false", "true"],
+            "imageUrlTemplate": "{{ @ }}",
+            "imageTitleTemplate": "{{ @ }}",
+            "imageWidth": "",
+            "imageHeight": "",
+            "linkUrlTemplate": "{{ @ }}",
+            "linkTextTemplate": "{{ @ }}",
+            "linkTitleTemplate": "{{ @ }}",
+            "linkOpenInNewTab": True,
             "type": column_type,
             "displayAs": display[column_type],
             "visible": True,
@@ -231,14 +241,14 @@ def table_widget(name: str, dataset_name: str, columns: Sequence[tuple[str, str,
 
 
 def occurrences_chart(name: str, dataset_name: str) -> dict[str, Any]:
-    """Horizontal bars: number of occurrences of each check, by level."""
+    """Vertical bars: number of occurrences of each check, stacked by severity."""
     count = "sum(occurrences)"
     return {
         "name": name,
         "queries": [
             query(
                 dataset_name,
-                [field("validation"), field("niveau"), field(count, "SUM(`occurrences`)")],
+                [field("validation"), field("severite"), field(count, "SUM(`occurrences`)")],
                 disaggregated=False,
             )
         ],
@@ -246,13 +256,13 @@ def occurrences_chart(name: str, dataset_name: str) -> dict[str, Any]:
             "version": 3,
             "widgetType": "bar",
             "encodings": {
-                "x": {"fieldName": count, "scale": {"type": "quantitative"}, "displayName": "Occurrences"},
-                "y": {
+                "x": {
                     "fieldName": "validation",
-                    "scale": {"type": "categorical", "sort": {"by": "x-reversed"}},
+                    "scale": {"type": "categorical", "sort": {"by": "y-reversed"}},
                     "displayName": "Validation",
                 },
-                "color": {"fieldName": "niveau", "scale": {"type": "categorical"}, "displayName": "Niveau"},
+                "y": {"fieldName": count, "scale": {"type": "quantitative"}, "displayName": "Occurrences"},
+                "color": {"fieldName": "severite", "scale": colors(SEVERITY_COLORS), "displayName": "Sévérité"},
             },
             "frame": frame("Occurrences par validation"),
         },
@@ -263,58 +273,31 @@ def build(tables: Sequence[Table]) -> dict[str, Any]:
     """Returns the dashboard of the quality of the tables."""
     status, by_check, occurrences = "statut_lignes", "occurrences_par_validation", "occurrences"
     statistics = [
-        place(
-            text(
-                "titre_statistiques",
-                "## Qualité des données du Registraire des entreprises",
-                "Résultat des validations DQX de la dernière exécution. Une ligne qui a des erreurs et des "
-                "avertissements est comptée en erreur.",
-            ),
-            0,
-            0,
-            6,
-            2,
-        ),
-        place(multi_select_filter("filtre_table_statistiques", "nom_table", "Table", [status, by_check]), 0, 2, 2, 2),
-        place(counter("lignes_ok", status, "lignes_ok", "Lignes OK"), 0, 4, 2, 3),
-        place(counter("lignes_avertissement", status, "lignes_avertissement", "Lignes en avertissement"), 2, 4, 2, 3),
-        place(counter("lignes_erreur", status, "lignes_erreur", "Lignes en erreur"), 4, 4, 2, 3),
+        place(multi_select_filter("filtre_table_statistiques", "nom_table", "Table", [status, by_check]), 0, 0, 2, 1),
+        place(pie_chart("statut_des_lignes", status, "Statut des lignes"), 0, 1, 3, 8),
+        place(occurrences_chart("occurrences_par_validation", by_check), 3, 1, 3, 8),
         place(
             table_widget(
-                "statut_par_table",
-                status,
+                "occurrences_par_table",
+                by_check,
                 [
                     ("nom_table", "Table", "string"),
-                    ("lignes", "Lignes", "integer"),
-                    ("lignes_ok", "OK", "integer"),
-                    ("lignes_avertissement", "En avertissement", "integer"),
-                    ("lignes_erreur", "En erreur", "integer"),
+                    ("validation", "Validation", "string"),
+                    ("severite", "Sévérité", "string"),
+                    ("occurrences", "Nombre", "integer"),
                 ],
-                "Lignes par table",
+                "Occurrences par table et validation",
             ),
             0,
-            7,
+            9,
             6,
-            5,
+            8,
         ),
-        place(occurrences_chart("occurrences_par_validation", by_check), 0, 12, 6, 9),
     ]
     details = [
-        place(
-            text(
-                "titre_occurrences",
-                "## Occurrences des validations",
-                "Chaque erreur et chaque avertissement, avec la clé primaire de la ligne concernée "
-                "(toutes ses colonnes pour une table sans clé primaire).",
-            ),
-            0,
-            0,
-            6,
-            2,
-        ),
-        place(multi_select_filter("filtre_table_occurrences", "nom_table", "Table", [occurrences]), 0, 2, 2, 2),
-        place(multi_select_filter("filtre_validation", "validation", "Validation", [occurrences]), 2, 2, 2, 2),
-        place(multi_select_filter("filtre_niveau", "niveau", "Niveau", [occurrences]), 4, 2, 2, 2),
+        place(multi_select_filter("filtre_table_occurrences", "nom_table", "Table", [occurrences]), 0, 0, 2, 1),
+        place(multi_select_filter("filtre_validation", "validation", "Validation", [occurrences]), 2, 0, 2, 1),
+        place(multi_select_filter("filtre_severite", "severite", "Sévérité", [occurrences]), 4, 0, 2, 1),
         place(
             table_widget(
                 "liste_occurrences",
@@ -322,7 +305,7 @@ def build(tables: Sequence[Table]) -> dict[str, Any]:
                 [
                     ("nom_table", "Table", "string"),
                     ("cle", "Clé", "string"),
-                    ("niveau", "Niveau", "string"),
+                    ("severite", "Sévérité", "string"),
                     ("validation", "Validation", "string"),
                     ("message", "Message", "string"),
                     ("colonnes", "Colonnes", "string"),

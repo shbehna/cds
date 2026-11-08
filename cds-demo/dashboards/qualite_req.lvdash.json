@@ -34,21 +34,14 @@
         "    `_errors` AS erreurs,\n",
         "    `_warnings` AS avertissements\n",
         "  FROM `nom_entreprise`\n",
-        "),\n",
-        "statuts AS (\n",
-        "  SELECT nom_table,\n",
-        "    CASE WHEN coalesce(size(erreurs), 0) > 0 THEN 'Erreur'\n",
-        "      WHEN coalesce(size(avertissements), 0) > 0 THEN 'Avertissement'\n",
-        "      ELSE 'OK' END AS statut\n",
-        "  FROM lignes\n",
         ")\n",
         "SELECT nom_table,\n",
-        "  count(*) AS lignes,\n",
-        "  count_if(statut = 'OK') AS lignes_ok,\n",
-        "  count_if(statut = 'Avertissement') AS lignes_avertissement,\n",
-        "  count_if(statut = 'Erreur') AS lignes_erreur\n",
-        "FROM statuts\n",
-        "GROUP BY nom_table"
+        "  CASE WHEN coalesce(size(erreurs), 0) > 0 THEN 'Erreur'\n",
+        "    WHEN coalesce(size(avertissements), 0) > 0 THEN 'Avertissement'\n",
+        "    ELSE 'OK' END AS statut,\n",
+        "  count(*) AS lignes\n",
+        "FROM lignes\n",
+        "GROUP BY ALL"
       ]
     },
     {
@@ -87,15 +80,15 @@
         "  FROM `nom_entreprise`\n",
         "),\n",
         "occurrences AS (\n",
-        "  SELECT nom_table, cle, 'Erreur' AS niveau, resultat\n",
+        "  SELECT nom_table, cle, 'Erreur' AS severite, resultat\n",
         "  FROM lignes LATERAL VIEW explode(erreurs) e AS resultat\n",
         "  UNION ALL\n",
-        "  SELECT nom_table, cle, 'Avertissement' AS niveau, resultat\n",
+        "  SELECT nom_table, cle, 'Avertissement' AS severite, resultat\n",
         "  FROM lignes LATERAL VIEW explode(avertissements) a AS resultat\n",
         ")\n",
-        "SELECT nom_table, niveau, resultat.name AS validation, count(*) AS occurrences\n",
+        "SELECT nom_table, resultat.name AS validation, severite, count(*) AS occurrences\n",
         "FROM occurrences\n",
-        "GROUP BY nom_table, niveau, resultat.name"
+        "GROUP BY nom_table, resultat.name, severite"
       ]
     },
     {
@@ -134,13 +127,13 @@
         "  FROM `nom_entreprise`\n",
         "),\n",
         "occurrences AS (\n",
-        "  SELECT nom_table, cle, 'Erreur' AS niveau, resultat\n",
+        "  SELECT nom_table, cle, 'Erreur' AS severite, resultat\n",
         "  FROM lignes LATERAL VIEW explode(erreurs) e AS resultat\n",
         "  UNION ALL\n",
-        "  SELECT nom_table, cle, 'Avertissement' AS niveau, resultat\n",
+        "  SELECT nom_table, cle, 'Avertissement' AS severite, resultat\n",
         "  FROM lignes LATERAL VIEW explode(avertissements) a AS resultat\n",
         ")\n",
-        "SELECT nom_table, cle, niveau,\n",
+        "SELECT nom_table, cle, severite,\n",
         "  resultat.name AS validation,\n",
         "  resultat.function AS fonction,\n",
         "  array_join(resultat.columns, ', ') AS colonnes,\n",
@@ -156,23 +149,6 @@
       "displayName": "Statistiques",
       "pageType": "PAGE_TYPE_CANVAS",
       "layout": [
-        {
-          "widget": {
-            "name": "titre_statistiques",
-            "multilineTextboxSpec": {
-              "lines": [
-                "## Qualité des données du Registraire des entreprises",
-                "Résultat des validations DQX de la dernière exécution. Une ligne qui a des erreurs et des avertissements est comptée en erreur."
-              ]
-            }
-          },
-          "position": {
-            "x": 0,
-            "y": 0,
-            "width": 6,
-            "height": 2
-          }
-        },
         {
           "widget": {
             "name": "filtre_table_statistiques",
@@ -229,14 +205,14 @@
           },
           "position": {
             "x": 0,
-            "y": 2,
+            "y": 0,
             "width": 2,
-            "height": 2
+            "height": 1
           }
         },
         {
           "widget": {
-            "name": "lignes_ok",
+            "name": "statut_des_lignes",
             "queries": [
               {
                 "name": "main_query",
@@ -244,8 +220,12 @@
                   "datasetName": "statut_lignes",
                   "fields": [
                     {
-                      "name": "sum(lignes_ok)",
-                      "expression": "SUM(`lignes_ok`)"
+                      "name": "statut",
+                      "expression": "`statut`"
+                    },
+                    {
+                      "name": "sum(lignes)",
+                      "expression": "SUM(`lignes`)"
                     }
                   ],
                   "disaggregated": false
@@ -253,39 +233,71 @@
               }
             ],
             "spec": {
-              "version": 2,
-              "widgetType": "counter",
+              "version": 3,
+              "widgetType": "pie",
               "encodings": {
-                "value": {
-                  "fieldName": "sum(lignes_ok)",
-                  "displayName": "Lignes OK"
+                "angle": {
+                  "fieldName": "sum(lignes)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Lignes"
+                },
+                "color": {
+                  "fieldName": "statut",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "OK",
+                        "color": "#00A972"
+                      },
+                      {
+                        "value": "Avertissement",
+                        "color": "#FFAB00"
+                      },
+                      {
+                        "value": "Erreur",
+                        "color": "#FF3621"
+                      }
+                    ]
+                  },
+                  "displayName": "Statut"
                 }
               },
               "frame": {
                 "showTitle": true,
-                "title": "Lignes OK"
+                "title": "Statut des lignes"
               }
             }
           },
           "position": {
             "x": 0,
-            "y": 4,
-            "width": 2,
-            "height": 3
+            "y": 1,
+            "width": 3,
+            "height": 8
           }
         },
         {
           "widget": {
-            "name": "lignes_avertissement",
+            "name": "occurrences_par_validation",
             "queries": [
               {
                 "name": "main_query",
                 "query": {
-                  "datasetName": "statut_lignes",
+                  "datasetName": "occurrences_par_validation",
                   "fields": [
                     {
-                      "name": "sum(lignes_avertissement)",
-                      "expression": "SUM(`lignes_avertissement`)"
+                      "name": "validation",
+                      "expression": "`validation`"
+                    },
+                    {
+                      "name": "severite",
+                      "expression": "`severite`"
+                    },
+                    {
+                      "name": "sum(occurrences)",
+                      "expression": "SUM(`occurrences`)"
                     }
                   ],
                   "disaggregated": false
@@ -293,95 +305,81 @@
               }
             ],
             "spec": {
-              "version": 2,
-              "widgetType": "counter",
+              "version": 3,
+              "widgetType": "bar",
               "encodings": {
-                "value": {
-                  "fieldName": "sum(lignes_avertissement)",
-                  "displayName": "Lignes en avertissement"
-                }
-              },
-              "frame": {
-                "showTitle": true,
-                "title": "Lignes en avertissement"
-              }
-            }
-          },
-          "position": {
-            "x": 2,
-            "y": 4,
-            "width": 2,
-            "height": 3
-          }
-        },
-        {
-          "widget": {
-            "name": "lignes_erreur",
-            "queries": [
-              {
-                "name": "main_query",
-                "query": {
-                  "datasetName": "statut_lignes",
-                  "fields": [
-                    {
-                      "name": "sum(lignes_erreur)",
-                      "expression": "SUM(`lignes_erreur`)"
+                "x": {
+                  "fieldName": "validation",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
                     }
-                  ],
-                  "disaggregated": false
-                }
-              }
-            ],
-            "spec": {
-              "version": 2,
-              "widgetType": "counter",
-              "encodings": {
-                "value": {
-                  "fieldName": "sum(lignes_erreur)",
-                  "displayName": "Lignes en erreur"
+                  },
+                  "displayName": "Validation"
+                },
+                "y": {
+                  "fieldName": "sum(occurrences)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Occurrences"
+                },
+                "color": {
+                  "fieldName": "severite",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Avertissement",
+                        "color": "#FFAB00"
+                      },
+                      {
+                        "value": "Erreur",
+                        "color": "#FF3621"
+                      }
+                    ]
+                  },
+                  "displayName": "Sévérité"
                 }
               },
               "frame": {
                 "showTitle": true,
-                "title": "Lignes en erreur"
+                "title": "Occurrences par validation"
               }
             }
           },
           "position": {
-            "x": 4,
-            "y": 4,
-            "width": 2,
-            "height": 3
+            "x": 3,
+            "y": 1,
+            "width": 3,
+            "height": 8
           }
         },
         {
           "widget": {
-            "name": "statut_par_table",
+            "name": "occurrences_par_table",
             "queries": [
               {
                 "name": "main_query",
                 "query": {
-                  "datasetName": "statut_lignes",
+                  "datasetName": "occurrences_par_validation",
                   "fields": [
                     {
                       "name": "nom_table",
                       "expression": "`nom_table`"
                     },
                     {
-                      "name": "lignes",
-                      "expression": "`lignes`"
+                      "name": "validation",
+                      "expression": "`validation`"
                     },
                     {
-                      "name": "lignes_ok",
-                      "expression": "`lignes_ok`"
+                      "name": "severite",
+                      "expression": "`severite`"
                     },
                     {
-                      "name": "lignes_avertissement",
-                      "expression": "`lignes_avertissement`"
-                    },
-                    {
-                      "name": "lignes_erreur",
-                      "expression": "`lignes_erreur`"
+                      "name": "occurrences",
+                      "expression": "`occurrences`"
                     }
                   ],
                   "disaggregated": true
@@ -395,6 +393,18 @@
                 "columns": [
                   {
                     "fieldName": "nom_table",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
                     "type": "string",
                     "displayAs": "string",
                     "visible": true,
@@ -409,61 +419,79 @@
                     "preserveWhitespace": false
                   },
                   {
-                    "fieldName": "lignes",
-                    "type": "integer",
-                    "displayAs": "number",
+                    "fieldName": "validation",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
                     "visible": true,
                     "order": 100001,
-                    "title": "Lignes",
-                    "displayName": "Lignes",
-                    "alignContent": "right",
-                    "allowSearch": false,
+                    "title": "Validation",
+                    "displayName": "Validation",
+                    "alignContent": "left",
+                    "allowSearch": true,
                     "allowHTML": false,
                     "highlightLinks": false,
                     "useMonospaceFont": false,
-                    "preserveWhitespace": false,
-                    "numberFormat": "0"
+                    "preserveWhitespace": false
                   },
                   {
-                    "fieldName": "lignes_ok",
-                    "type": "integer",
-                    "displayAs": "number",
+                    "fieldName": "severite",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "type": "string",
+                    "displayAs": "string",
                     "visible": true,
                     "order": 100002,
-                    "title": "OK",
-                    "displayName": "OK",
-                    "alignContent": "right",
-                    "allowSearch": false,
+                    "title": "Sévérité",
+                    "displayName": "Sévérité",
+                    "alignContent": "left",
+                    "allowSearch": true,
                     "allowHTML": false,
                     "highlightLinks": false,
                     "useMonospaceFont": false,
-                    "preserveWhitespace": false,
-                    "numberFormat": "0"
+                    "preserveWhitespace": false
                   },
                   {
-                    "fieldName": "lignes_avertissement",
+                    "fieldName": "occurrences",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
                     "type": "integer",
                     "displayAs": "number",
                     "visible": true,
                     "order": 100003,
-                    "title": "En avertissement",
-                    "displayName": "En avertissement",
-                    "alignContent": "right",
-                    "allowSearch": false,
-                    "allowHTML": false,
-                    "highlightLinks": false,
-                    "useMonospaceFont": false,
-                    "preserveWhitespace": false,
-                    "numberFormat": "0"
-                  },
-                  {
-                    "fieldName": "lignes_erreur",
-                    "type": "integer",
-                    "displayAs": "number",
-                    "visible": true,
-                    "order": 100004,
-                    "title": "En erreur",
-                    "displayName": "En erreur",
+                    "title": "Nombre",
+                    "displayName": "Nombre",
                     "alignContent": "right",
                     "allowSearch": false,
                     "allowHTML": false,
@@ -482,83 +510,15 @@
               "withRowNumber": false,
               "frame": {
                 "showTitle": true,
-                "title": "Lignes par table"
+                "title": "Occurrences par table et validation"
               }
             }
           },
           "position": {
             "x": 0,
-            "y": 7,
+            "y": 9,
             "width": 6,
-            "height": 5
-          }
-        },
-        {
-          "widget": {
-            "name": "occurrences_par_validation",
-            "queries": [
-              {
-                "name": "main_query",
-                "query": {
-                  "datasetName": "occurrences_par_validation",
-                  "fields": [
-                    {
-                      "name": "validation",
-                      "expression": "`validation`"
-                    },
-                    {
-                      "name": "niveau",
-                      "expression": "`niveau`"
-                    },
-                    {
-                      "name": "sum(occurrences)",
-                      "expression": "SUM(`occurrences`)"
-                    }
-                  ],
-                  "disaggregated": false
-                }
-              }
-            ],
-            "spec": {
-              "version": 3,
-              "widgetType": "bar",
-              "encodings": {
-                "x": {
-                  "fieldName": "sum(occurrences)",
-                  "scale": {
-                    "type": "quantitative"
-                  },
-                  "displayName": "Occurrences"
-                },
-                "y": {
-                  "fieldName": "validation",
-                  "scale": {
-                    "type": "categorical",
-                    "sort": {
-                      "by": "x-reversed"
-                    }
-                  },
-                  "displayName": "Validation"
-                },
-                "color": {
-                  "fieldName": "niveau",
-                  "scale": {
-                    "type": "categorical"
-                  },
-                  "displayName": "Niveau"
-                }
-              },
-              "frame": {
-                "showTitle": true,
-                "title": "Occurrences par validation"
-              }
-            }
-          },
-          "position": {
-            "x": 0,
-            "y": 12,
-            "width": 6,
-            "height": 9
+            "height": 8
           }
         }
       ]
@@ -568,23 +528,6 @@
       "displayName": "Occurrences",
       "pageType": "PAGE_TYPE_CANVAS",
       "layout": [
-        {
-          "widget": {
-            "name": "titre_occurrences",
-            "multilineTextboxSpec": {
-              "lines": [
-                "## Occurrences des validations",
-                "Chaque erreur et chaque avertissement, avec la clé primaire de la ligne concernée (toutes ses colonnes pour une table sans clé primaire)."
-              ]
-            }
-          },
-          "position": {
-            "x": 0,
-            "y": 0,
-            "width": 6,
-            "height": 2
-          }
-        },
         {
           "widget": {
             "name": "filtre_table_occurrences",
@@ -623,9 +566,9 @@
           },
           "position": {
             "x": 0,
-            "y": 2,
+            "y": 0,
             "width": 2,
-            "height": 2
+            "height": 1
           }
         },
         {
@@ -666,23 +609,23 @@
           },
           "position": {
             "x": 2,
-            "y": 2,
+            "y": 0,
             "width": 2,
-            "height": 2
+            "height": 1
           }
         },
         {
           "widget": {
-            "name": "filtre_niveau",
+            "name": "filtre_severite",
             "queries": [
               {
-                "name": "occurrences_niveau",
+                "name": "occurrences_severite",
                 "query": {
                   "datasetName": "occurrences",
                   "fields": [
                     {
-                      "name": "niveau",
-                      "expression": "`niveau`"
+                      "name": "severite",
+                      "expression": "`severite`"
                     }
                   ],
                   "disaggregated": false
@@ -695,23 +638,23 @@
               "encodings": {
                 "fields": [
                   {
-                    "fieldName": "niveau",
-                    "displayName": "Niveau",
-                    "queryName": "occurrences_niveau"
+                    "fieldName": "severite",
+                    "displayName": "Sévérité",
+                    "queryName": "occurrences_severite"
                   }
                 ]
               },
               "frame": {
                 "showTitle": true,
-                "title": "Niveau"
+                "title": "Sévérité"
               }
             }
           },
           "position": {
             "x": 4,
-            "y": 2,
+            "y": 0,
             "width": 2,
-            "height": 2
+            "height": 1
           }
         },
         {
@@ -732,8 +675,8 @@
                       "expression": "`cle`"
                     },
                     {
-                      "name": "niveau",
-                      "expression": "`niveau`"
+                      "name": "severite",
+                      "expression": "`severite`"
                     },
                     {
                       "name": "validation",
@@ -767,6 +710,18 @@
                 "columns": [
                   {
                     "fieldName": "nom_table",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
                     "type": "string",
                     "displayAs": "string",
                     "visible": true,
@@ -782,6 +737,18 @@
                   },
                   {
                     "fieldName": "cle",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
                     "type": "string",
                     "displayAs": "string",
                     "visible": true,
@@ -796,13 +763,25 @@
                     "preserveWhitespace": false
                   },
                   {
-                    "fieldName": "niveau",
+                    "fieldName": "severite",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
                     "type": "string",
                     "displayAs": "string",
                     "visible": true,
                     "order": 100002,
-                    "title": "Niveau",
-                    "displayName": "Niveau",
+                    "title": "Sévérité",
+                    "displayName": "Sévérité",
                     "alignContent": "left",
                     "allowSearch": true,
                     "allowHTML": false,
@@ -812,6 +791,18 @@
                   },
                   {
                     "fieldName": "validation",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
                     "type": "string",
                     "displayAs": "string",
                     "visible": true,
@@ -827,6 +818,18 @@
                   },
                   {
                     "fieldName": "message",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
                     "type": "string",
                     "displayAs": "string",
                     "visible": true,
@@ -842,6 +845,18 @@
                   },
                   {
                     "fieldName": "colonnes",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
                     "type": "string",
                     "displayAs": "string",
                     "visible": true,
@@ -857,6 +872,18 @@
                   },
                   {
                     "fieldName": "fonction",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
                     "type": "string",
                     "displayAs": "string",
                     "visible": true,
@@ -872,6 +899,18 @@
                   },
                   {
                     "fieldName": "date_verification",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "linkUrlTemplate": "{{ @ }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
                     "type": "datetime",
                     "displayAs": "datetime",
                     "visible": true,

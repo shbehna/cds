@@ -101,4 +101,23 @@ def test_the_filters_of_each_page(dashboard: dict[str, Any]) -> None:
         for page in dashboard["pages"]
     }
 
-    assert filters == {"statistiques": ["nom_table"], "occurrences": ["niveau", "nom_table", "validation"]}
+    assert filters == {"statistiques": ["nom_table"], "occurrences": ["nom_table", "severite", "validation"]}
+
+
+def test_the_statistics_page(dashboard: dict[str, Any]) -> None:
+    [statistics, _] = dashboard["pages"]
+    layout = {item["widget"]["name"]: (item["widget"], item["position"]) for item in statistics["layout"]}
+
+    pie, pie_position = layout["statut_des_lignes"]
+    assert pie["spec"]["widgetType"] == "pie"
+    assert (pie_position["x"], pie_position["width"]) == (0, 3), "the pie chart uses the left half"
+    bars, _ = layout["occurrences_par_validation"]
+    assert bars["spec"]["encodings"]["x"]["fieldName"] == "validation", "vertical bars: the checks on the x axis"
+    table, _ = layout["occurrences_par_table"]
+    assert [column["title"] for column in table["spec"]["encodings"]["columns"]] == [
+        "Table",
+        "Validation",
+        "Sévérité",
+        "Nombre",
+    ]
+    assert not any("multilineTextboxSpec" in item["widget"] for page in dashboard["pages"] for item in page["layout"])
