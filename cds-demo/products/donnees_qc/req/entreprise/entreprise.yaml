@@ -18,14 +18,14 @@ schema:
       - type: custom
         engine: dqx
         name: periode_responsabilite_limitee_valide
-        description: La responsabilité limitée prend fin après son début.
+        description: La responsabilité limitée doit prendre fin avant le début.
         severity: warning
         implementation:
           check:
             function: sql_expression
             arguments:
               expression: date_fin_responsabilite_limitee >= date_debut_responsabilite_limitee
-              msg: La responsabilité limitée prend fin avant son début
+              msg: La responsabilité limitée doit prendre fin avant le début.
     properties:
       - name: numero_entreprise
         businessName: Numéro d'entreprise du Québec (NEQ)

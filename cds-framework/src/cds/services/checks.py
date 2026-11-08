@@ -7,7 +7,10 @@ The checks are DQX metadata dictionaries, applied with
 - the primary key, and ``unique`` properties: ``is_unique``;
 - ``enum`` values: ``is_in_list``;
 - ``logicalTypeOptions``: ``regex_match`` for ``pattern``, range checks for
-  ``minimum`` and ``maximum``, length checks for ``minLength`` and ``maxLength``;
+  ``minimum``, ``maximum`` and their exclusive variants, SQL checks for ``minLength``,
+  ``maxLength``, ``multipleOf``, ``minItems``, ``maxItems``, ``uniqueItems``,
+  ``required`` (STRUCT and MAP columns) and ``minProperties``, ``maxProperties`` (MAP
+  columns), and DQX format checks for the ``format`` of string values;
 - ``relationships`` of type ``foreignKey``: ``foreign_key``, the referenced table being
   resolved in the data context;
 - ``quality`` rules: ODCS library metrics that DQX can check row by row (``nullValues``,
@@ -15,7 +18,8 @@ The checks are DQX metadata dictionaries, applied with
   ``rowCount`` thresholds, and ``custom`` rules of the ``dqx`` engine, whose
   implementation is a DQX check.
 
-The ``quality_checks`` of the contract configuration are added to these checks.
+The ``quality_checks`` of the contract configuration are added to these checks. The
+rules and options no check implements are reported in ``CheckSet.unsupported``.
 """
 
 from __future__ import annotations
@@ -50,6 +54,38 @@ SEVERITIES: Mapping[str, str] = {
     "warning": "warn",
     "warn": "warn",
     "info": "warn",
+}
+
+
+# logicalTypeOptions implemented by checks. minProperties and maxProperties also are, on
+# MAP columns; the other options are reported as not checked.
+CHECKED_OPTIONS = frozenset(
+    {
+        "pattern",
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "minLength",
+        "maxLength",
+        "multipleOf",
+        "minItems",
+        "maxItems",
+        "uniqueItems",
+        "required",
+        "format",
+    }
+)
+
+# DQX check of each format of string values (the format of dates is checked by parsing them).
+STRING_FORMATS: Mapping[str, str] = {
+    "email": "is_valid_email",
+    "uri": "is_valid_url",
+    "url": "is_valid_url",
+    "uuid": "is_valid_uuid",
+    "ipv4": "is_valid_ipv4_address",
+    "ipv6": "is_valid_ipv6_address",
+    "json": "is_valid_json",
 }
 
 
@@ -165,8 +201,9 @@ class _ContractChecks:
             self._quality_rule(rule, prop)
 
     def _logical_type_options(self, prop: SchemaProperty) -> None:
-        options = prop.logical_type_options
+        options = {key: value for key, value in prop.logical_type_options.items() if value is not None}
         column = prop.column
+        quoted = quote_identifier(column)
         if options.get("pattern"):
             self._add(
                 f"{column}_does_not_match_pattern",
@@ -181,27 +218,121 @@ class _ContractChecks:
             ("maximum", "<=", "exclusiveMaximum", "<"),
         ):
             limit, exclusive = options.get(key), options.get(exclusive_key)
-            if isinstance(exclusive, (int, float)) and not isinstance(exclusive, bool):
+            if _is_number(exclusive):
                 # JSON Schema style: the exclusive bound is the value itself.
                 limit, exclusive = exclusive, True
             if limit is not None:
                 conditions.append((strict_operator if exclusive is True else operator, limit))
         if conditions:
             self._range(column, conditions)
-        lengths = []
-        if options.get("minLength") is not None:
-            lengths.append(f"length({quote_identifier(column)}) >= {int(options['minLength'])}")
-        if options.get("maxLength") is not None:
-            lengths.append(f"length({quote_identifier(column)}) <= {int(options['maxLength'])}")
-        if lengths:
-            self._add(
-                f"{column}_has_invalid_length",
-                "range",
-                "sql_expression",
-                expression=" AND ".join(lengths),
-                msg=f"{column} has an invalid length",
-                columns=[column],
+        self._bounds(prop, options, "minLength", "maxLength", f"length({quoted})", "has_invalid_length", "length")
+        if "multipleOf" in options:
+            divisor = self._number(prop, options, "multipleOf")
+            self._expression(
+                prop, "range", "is_not_multiple", f"{quoted} % {divisor!r} = 0", f"is not a multiple of {divisor!r}"
             )
+        self._bounds(prop, options, "minItems", "maxItems", f"size({quoted})", "has_invalid_item_count", "item count")
+        if options.get("uniqueItems") is True:
+            self._expression(
+                prop,
+                "unique",
+                "has_duplicate_items",
+                f"size(array_distinct({quoted})) = size({quoted})",
+                "has duplicate items",
+            )
+        is_map = prop.data_type.strip().upper().startswith("MAP")
+        if is_map:
+            self._bounds(
+                prop, options, "minProperties", "maxProperties", f"size({quoted})", "has_invalid_key_count", "key count"
+            )
+        if options.get("required"):
+            self._required_properties(prop, options["required"], is_map)
+        if options.get("format"):
+            self._format(prop, str(options["format"]))
+        checked = CHECKED_OPTIONS | ({"minProperties", "maxProperties"} if is_map else set())
+        for key in sorted(set(options) - checked):
+            self._not_checked(prop, f"logicalTypeOptions {key}: {options[key]!r}")
+
+    def _bounds(
+        self,
+        prop: SchemaProperty,
+        options: Mapping[str, object],
+        minimum: str,
+        maximum: str,
+        measure: str,
+        suffix: str,
+        label: str,
+    ) -> None:
+        """Adds a check of the bounds of a measure of the values, such as their length."""
+        bounds = [
+            f"{measure} {operator} {self._integer(prop, options, key)}"
+            for key, operator in ((minimum, ">="), (maximum, "<="))
+            if key in options
+        ]
+        if bounds:
+            self._expression(prop, "range", suffix, " AND ".join(bounds), f"has an invalid {label}")
+
+    def _required_properties(self, prop: SchemaProperty, required: object, is_map: bool) -> None:
+        if isinstance(required, str) or not isinstance(required, Sequence):
+            raise ContractError(f"{self._where(prop)}: logicalTypeOptions required must be a list of property names.")
+        quoted = quote_identifier(prop.column)
+        if is_map:
+            conditions = [f"map_contains_key({quoted}, {string_literal(str(name))})" for name in required]
+        elif prop.data_type.strip().upper().startswith("STRUCT"):
+            conditions = [f"{quoted}.{quote_identifier(str(name))} IS NOT NULL" for name in required]
+        else:
+            self._not_checked(prop, f"logicalTypeOptions required: {list(required)!r} on a {prop.data_type} column")
+            return
+        self._expression(
+            prop, "required", "misses_required_properties", " AND ".join(conditions), "misses required properties"
+        )
+
+    def _format(self, prop: SchemaProperty, value: str) -> None:
+        """Checks the ``format`` of string values: a known string format, or the format of dates."""
+        column = prop.column
+        if not prop.data_type.strip().upper().startswith(("STRING", "VARCHAR", "CHAR")):
+            # The values are typed: their format is that of their source representation.
+            self._not_checked(prop, f"logicalTypeOptions format: {value!r} on a {prop.data_type} column")
+            return
+        logical_type = (prop.logical_type or "").lower()
+        if logical_type == "date":
+            self._add(f"{column}_has_invalid_format", "format", "is_valid_date", column=column, date_format=value)
+        elif logical_type == "timestamp":
+            self._add(
+                f"{column}_has_invalid_format", "format", "is_valid_timestamp", column=column, timestamp_format=value
+            )
+        elif value.lower() in STRING_FORMATS:
+            self._add(f"{column}_has_invalid_format", "format", STRING_FORMATS[value.lower()], column=column)
+        else:
+            self._not_checked(prop, f"logicalTypeOptions format: {value!r}")
+
+    def _expression(self, prop: SchemaProperty, kind: str, suffix: str, expression: str, message: str) -> None:
+        """Adds a SQL check of the values of a column; null values pass."""
+        quoted = quote_identifier(prop.column)
+        self._add(
+            f"{prop.column}_{suffix}",
+            kind,
+            "sql_expression",
+            expression=f"{quoted} IS NULL OR ({expression})",
+            msg=f"{prop.column} {message}",
+            columns=[prop.column],
+        )
+
+    def _not_checked(self, prop: SchemaProperty | None, note: str) -> None:
+        """Records a rule of the contract that no check implements."""
+        self.check_set.unsupported.append(f"{self._where(prop)}: {note}")
+
+    def _number(self, prop: SchemaProperty, options: Mapping[str, object], key: str) -> int | float:
+        value = options[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+            raise ContractError(f"{self._where(prop)}: logicalTypeOptions {key} must be a positive number.")
+        return value
+
+    def _integer(self, prop: SchemaProperty, options: Mapping[str, object], key: str) -> int:
+        value = options[key]
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ContractError(f"{self._where(prop)}: logicalTypeOptions {key} must be a non-negative integer.")
+        return value
 
     def _range(self, column: str, conditions: list[tuple[str, object]]) -> None:
         numeric = all(isinstance(limit, (int, float)) and not isinstance(limit, bool) for _, limit in conditions)
@@ -226,7 +357,7 @@ class _ContractChecks:
 
     def _foreign_key(self, relationship: Relationship, prop: SchemaProperty | None) -> None:
         if relationship.type != FOREIGN_KEY:
-            self.check_set.unsupported.append(f"{self._where(prop)}: relationship of type {relationship.type!r}")
+            self._not_checked(prop, f"relationship of type {relationship.type!r}")
             return
         data_context = self.context.data_context
         sources = [prop.column] if prop is not None else [self._source_column(ref) for ref in relationship.source]
@@ -264,18 +395,16 @@ class _ContractChecks:
             if (rule.engine or "").lower() == DQX_ENGINE:
                 self.check_set.checks.extend(self._dqx_rule(rule, prop))
             else:
-                self.check_set.unsupported.append(f"{self._where(prop)}: custom rule for the engine {rule.engine!r}")
+                self._not_checked(prop, f"custom rule for the engine {rule.engine!r}")
             return
         if rule.type == "library":
             checks = self._library_rule(rule, prop)
             if checks:
                 self.check_set.checks.extend(checks)
             else:
-                self.check_set.unsupported.append(
-                    f"{self._where(prop)}: library rule {rule.metric!r} with {dict(rule.thresholds) or 'no threshold'}"
-                )
+                self._not_checked(prop, f"library rule {rule.metric!r} with {dict(rule.thresholds) or 'no threshold'}")
             return
-        self.check_set.unsupported.append(f"{self._where(prop)}: {rule.type} rule {rule.name or ''}".rstrip())
+        self._not_checked(prop, f"{rule.type} rule {rule.name or ''}".rstrip())
 
     def _library_rule(self, rule: QualityRule, prop: SchemaProperty | None) -> list[dict[str, Any]]:
         metric = rule.metric or ""
@@ -352,6 +481,10 @@ class _ContractChecks:
 
     def _where(self, prop: SchemaProperty | None) -> str:
         return f"{self.table.qualified_name}.{prop.column}" if prop is not None else self.table.qualified_name
+
+
+def _is_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def _criticality(rule: QualityRule) -> str:

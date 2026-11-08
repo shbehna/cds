@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from conftest import CUSTOMER, ORDER, MakeProject
 from fakes import FakeDataFrame, FakeSpark, Row
@@ -107,7 +109,8 @@ def test_checks_from_quality_rules(make_project: MakeProject, spark: FakeSpark) 
     assert checks["id_is_not_unique"]["check"] == {"function": "is_unique", "arguments": {"columns": ["id"]}}
     assert checks["id_does_not_match_pattern"]["check"]["arguments"] == {"column": "id", "regex": "^[A-Z]{3}$"}
     assert (
-        checks["id_has_invalid_length"]["check"]["arguments"]["expression"] == "length(`id`) >= 3 AND length(`id`) <= 3"
+        checks["id_has_invalid_length"]["check"]["arguments"]["expression"]
+        == "`id` IS NULL OR (length(`id`) >= 3 AND length(`id`) <= 3)"
     )
     assert checks["value_is_out_of_range"]["check"]["arguments"]["expression"] == "`value` >= 0 AND `value` < 100"
     assert checks["value_is_null"]["criticality"] == "warn"
@@ -127,6 +130,128 @@ def test_checks_from_quality_rules(make_project: MakeProject, spark: FakeSpark) 
     assert any("nullValues" in note for note in check_set.unsupported)
     assert any("engine 'soda'" in note for note in check_set.unsupported)
     assert any("sql rule" in note for note in check_set.unsupported)
+
+
+OPTIONS = """
+    apiVersion: v3.2.0
+    kind: DataContract
+    id: s.d.item
+    version: 1.0.0
+    schema:
+      - name: item
+        properties:
+          - name: email
+            physicalType: STRING
+            logicalTypeOptions:
+              format: email
+          - name: day
+            logicalType: date
+            physicalType: STRING
+            logicalTypeOptions:
+              format: yyyy-MM-dd
+          - name: born
+            logicalType: date
+            logicalTypeOptions:
+              format: yyyy-MM-dd
+          - name: price
+            physicalType: DECIMAL(10,2)
+            logicalTypeOptions:
+              multipleOf: 0.05
+          - name: tags
+            logicalType: array
+            physicalType: ARRAY<STRING>
+            logicalTypeOptions:
+              minItems: 1
+              maxItems: 3
+              uniqueItems: true
+          - name: attributes
+            logicalType: object
+            physicalType: MAP<STRING, STRING>
+            logicalTypeOptions:
+              minProperties: 1
+              required: [color]
+          - name: address
+            logicalType: object
+            physicalType: STRUCT<street:STRING,city:STRING>
+            logicalTypeOptions:
+              required: [city]
+              maxProperties: 2
+          - name: updated_at
+            logicalType: timestamp
+            logicalTypeOptions:
+              timezone: true
+          - name: code
+            physicalType: STRING
+            logicalTypeOptions:
+              minLenght: 2
+              format: hostname
+"""
+
+
+def test_checks_from_logical_type_options(make_project: MakeProject, spark: FakeSpark) -> None:
+    context = make_context(spark, {"s/d/item/item.yaml": OPTIONS}, make_project)
+
+    check_set = checks_of(context, "item")
+    checks = {check["name"]: check for check in check_set.checks}
+
+    def arguments(name: str) -> dict[str, Any]:
+        arguments: dict[str, Any] = checks[name]["check"]["arguments"]
+        return arguments
+
+    assert checks["email_has_invalid_format"]["check"] == {
+        "function": "is_valid_email",
+        "arguments": {"column": "email"},
+    }
+    assert checks["email_has_invalid_format"]["criticality"] == "error"
+    assert checks["day_has_invalid_format"]["check"] == {
+        "function": "is_valid_date",
+        "arguments": {"column": "day", "date_format": "yyyy-MM-dd"},
+    }
+    assert arguments("price_is_not_multiple")["expression"] == "`price` IS NULL OR (`price` % 0.05 = 0)"
+    assert arguments("tags_has_invalid_item_count")["expression"] == (
+        "`tags` IS NULL OR (size(`tags`) >= 1 AND size(`tags`) <= 3)"
+    )
+    assert arguments("tags_has_duplicate_items")["expression"] == (
+        "`tags` IS NULL OR (size(array_distinct(`tags`)) = size(`tags`))"
+    )
+    assert arguments("attributes_has_invalid_key_count")["expression"] == (
+        "`attributes` IS NULL OR (size(`attributes`) >= 1)"
+    )
+    assert arguments("attributes_misses_required_properties")["expression"] == (
+        "`attributes` IS NULL OR (map_contains_key(`attributes`, 'color'))"
+    )
+    assert arguments("address_misses_required_properties")["expression"] == (
+        "`address` IS NULL OR (`address`.`city` IS NOT NULL)"
+    )
+    assert check_set.unsupported == [
+        "s.d.item.born: logicalTypeOptions format: 'yyyy-MM-dd' on a DATE column",
+        "s.d.item.address: logicalTypeOptions maxProperties: 2",
+        "s.d.item.updated_at: logicalTypeOptions timezone: True",
+        "s.d.item.code: logicalTypeOptions format: 'hostname'",
+        "s.d.item.code: logicalTypeOptions minLenght: 2",
+    ]
+    dqx = pytest.importorskip("databricks.labs.dqx.engine")
+    assert not dqx.DQEngine.validate_checks(check_set.checks).has_errors
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        ("multipleOf: 0", "multipleOf must be a positive number"),
+        ("minItems: -1", "minItems must be a non-negative integer"),
+        ("maxLength: '3'", "maxLength must be a non-negative integer"),
+        ("required: city", "required must be a list of property names"),
+    ],
+)
+def test_invalid_logical_type_options(make_project: MakeProject, spark: FakeSpark, options: str, message: str) -> None:
+    contract = CUSTOMER.replace(
+        "            description: Name of the customer.\n",
+        f"            description: Name of the customer.\n            logicalTypeOptions:\n              {options}\n",
+    )
+    context = make_context(spark, {"s/d/customer/customer.yaml": contract}, make_project)
+
+    with pytest.raises(ContractError, match=rf"customer\.name: logicalTypeOptions {message}"):
+        checks_of(context, "customer")
 
 
 def test_configured_checks(make_project: MakeProject, spark: FakeSpark) -> None:

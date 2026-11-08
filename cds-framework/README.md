@@ -191,11 +191,22 @@ The quality service infers checks from the contracts:
 | `enum` | `is_in_list` |
 | `logicalTypeOptions` `pattern` | `regex_match` |
 | `logicalTypeOptions` `minimum`, `maximum` | `is_in_range`, `is_not_less_than`, `is_not_greater_than` |
-| `logicalTypeOptions` `minLength`, `maxLength` | `sql_expression` |
+| `logicalTypeOptions` `exclusiveMinimum`, `exclusiveMaximum`, bounds of dates | `sql_expression` |
+| `logicalTypeOptions` `minLength`, `maxLength`, `multipleOf` | `sql_expression` |
+| `logicalTypeOptions` `minItems`, `maxItems`, `uniqueItems` (arrays) | `sql_expression` |
+| `logicalTypeOptions` `required` (STRUCT and MAP), `minProperties`, `maxProperties` (MAP) | `sql_expression` |
+| `logicalTypeOptions` `format` of strings: `email`, `uri`, `url`, `uuid`, `ipv4`, `ipv6`, `json` | `is_valid_email`, `is_valid_url`, `is_valid_uuid`, `is_valid_ipv4_address`, `is_valid_ipv6_address`, `is_valid_json` |
+| `logicalTypeOptions` `format` of dates and timestamps stored as strings | `is_valid_date`, `is_valid_timestamp` |
 | `relationships` (`foreignKey`) | `foreign_key` |
 | `quality` library metrics `nullValues`, `missingValues`, `invalidValues`, `duplicateValues` that must be 0 | `is_not_null`, `is_not_null_and_not_empty`, `is_in_list` or `regex_match`, `is_unique` |
 | `quality` library metric `rowCount` | `is_aggr_*` |
 | `quality` rules of type `custom` with `engine: dqx` | the DQX check of their `implementation` |
+
+Null values pass the checks of `logicalTypeOptions`: a property with `required: true`
+checks them. The
+rules and options no check implements, such as the `format` of a DATE column, a
+`timezone` or a misspelled option, are listed by `cds validate`, and logged as
+warnings by the quality service.
 
 The `quality_checks` of a contract configuration add DQX checks. They can be a
 function, called with injected parameters, to compute checks at run time, for example

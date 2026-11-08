@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -18,6 +19,8 @@ if TYPE_CHECKING:
     from pyspark.sql import DataFrame, Observation
 
     from cds.context import ServiceContext
+
+logger = logging.getLogger(__name__)
 
 
 class CheckEngine(Protocol):
@@ -77,6 +80,8 @@ class QualityService(Service):
         if table.name.lower() not in self._existing[self.context.full_schema_name(table)]:
             return TableResult.skipped(table.qualified_name, f"{full_name} does not exist")
         check_set = build_checks(table, self.context)
+        for note in check_set.unsupported:
+            logger.warning("quality: not checked, no check implements %s", note)
         notes = f"; not checked: {'; '.join(check_set.unsupported)}" if check_set.unsupported else ""
         if not check_set.checks:
             return TableResult.skipped(table.qualified_name, f"no quality checks{notes}")

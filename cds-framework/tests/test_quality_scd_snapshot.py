@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, cast
@@ -94,6 +95,36 @@ def test_quality_rejects_invalid_checks(context: ServiceContext, spark: FakeSpar
 
     assert result.status is Status.ERROR and "bad check" in result.message
     assert engine.calls == []
+
+
+def test_quality_warns_of_options_not_checked(
+    make_project: MakeProject,
+    spark: FakeSpark,
+    engine: FakeEngine,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # run_service stops the propagation of the logs of the framework, which caplog captures at the root.
+    monkeypatch.setattr(logging.getLogger("cds"), "propagate", True)
+    contract = CUSTOMER.replace(
+        "            description: Name of the customer.\n",
+        "            description: Name of the customer.\n"
+        "            logicalTypeOptions:\n"
+        "              format: hostname\n",
+    )
+    root = make_project({"sales/orders/customer/customer.yaml": contract})
+    context = ServiceContext(spark=spark.as_session(), environment="dev", data_context=DataContext.discover(root))
+    spark.add_table(CUSTOMER_TABLE, ["customer_id", "name", "created_on"])
+    spark.on(r"count_if", [Row(total=10, errors=0, warnings=0)])
+
+    with caplog.at_level(logging.WARNING, logger="cds"):
+        [result] = run(quality_service(context, engine), context).results
+
+    assert result.status is Status.SUCCESS
+    assert "not checked: sales.orders.customer.name: logicalTypeOptions format: 'hostname'" in result.message
+    assert [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING] == [
+        "quality: not checked, no check implements sales.orders.customer.name: logicalTypeOptions format: 'hostname'"
+    ]
 
 
 def test_quality_skips_missing_and_disabled_tables(
