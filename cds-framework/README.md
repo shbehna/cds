@@ -214,9 +214,9 @@ The `notebooks` folder contains one Databricks notebook per service. A notebook 
 runs its service:
 
 ```python
-from cds import run_service
+from cds import SchemaService, run_service
 
-run_service("schema", spark=spark, dbutils=dbutils)
+run_service(SchemaService, spark=spark, dbutils=dbutils)
 ```
 
 The runtime parameters are read from the notebook widgets or job parameters:

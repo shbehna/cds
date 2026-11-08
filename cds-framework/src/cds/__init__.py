@@ -27,7 +27,6 @@ from cds.injection import ContractInjection
 from cds.runner import run_service
 from cds.runtime import RuntimeConfiguration
 from cds.services import (
-    SERVICES,
     MetadataService,
     QualityService,
     ScdService,
@@ -47,7 +46,6 @@ except PackageNotFoundError:  # pragma: no cover - running from the sources
     __version__ = "0.0.0"
 
 __all__ = [
-    "SERVICES",
     "CdsError",
     "ConfigurationError",
     "Contract",

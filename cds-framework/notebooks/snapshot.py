@@ -18,6 +18,6 @@
 
 # COMMAND ----------
 
-from cds import run_service
+from cds import SnapshotService, run_service
 
-run_service("snapshot", spark=spark, dbutils=dbutils)
+run_service(SnapshotService, spark=spark, dbutils=dbutils)

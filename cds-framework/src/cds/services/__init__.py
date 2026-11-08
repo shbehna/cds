@@ -8,22 +8,8 @@ from cds.services.schema import SchemaService
 from cds.services.snapshot import SnapshotService
 from cds.services.transformation import TransformationService
 
-# Services by name, as used by run_service and the notebooks.
-SERVICES: dict[str, type[Service]] = {
-    service.name: service
-    for service in (
-        SchemaService,
-        MetadataService,
-        TransformationService,
-        QualityService,
-        ScdService,
-        SnapshotService,
-    )
-}
-
 __all__ = [
     "DEFAULT_MAX_WORKERS",
-    "SERVICES",
     "MetadataService",
     "QualityService",
     "ScdService",

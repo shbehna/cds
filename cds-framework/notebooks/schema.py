@@ -18,6 +18,6 @@
 
 # COMMAND ----------
 
-from cds import run_service
+from cds import SchemaService, run_service
 
-run_service("schema", spark=spark, dbutils=dbutils)
+run_service(SchemaService, spark=spark, dbutils=dbutils)

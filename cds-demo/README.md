@@ -95,7 +95,7 @@ parameters as environment variables:
 ```bash
 export CDS_ENVIRONMENT=nprod CDS_ROOTS=cds-demo/products CDS_DATA_PRODUCT=donnees_qc.req
 export CDS_SOURCE_PATH=/Volumes/ext/donnees_qc/req
-uv run python -c "from cds import run_service; run_service('schema')"
+uv run python -c "from cds import SchemaService, run_service; run_service(SchemaService)"
 ```
 
 ## Deploy

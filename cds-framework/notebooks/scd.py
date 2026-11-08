@@ -18,6 +18,6 @@
 
 # COMMAND ----------
 
-from cds import run_service
+from cds import ScdService, run_service
 
-run_service("scd", spark=spark, dbutils=dbutils)
+run_service(ScdService, spark=spark, dbutils=dbutils)

@@ -18,6 +18,6 @@
 
 # COMMAND ----------
 
-from cds import run_service
+from cds import TransformationService, run_service
 
-run_service("transformation", spark=spark, dbutils=dbutils)
+run_service(TransformationService, spark=spark, dbutils=dbutils)

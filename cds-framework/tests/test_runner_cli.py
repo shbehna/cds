@@ -5,7 +5,7 @@ import pytest
 from conftest import MakeProject
 from fakes import FakeSpark
 
-from cds import ConfigurationError, ServiceError, Status, run_service
+from cds import ConfigurationError, SchemaService, ServiceError, Status, run_service
 from cds.cli import main
 
 
@@ -14,7 +14,7 @@ def test_run_service(project: Path, spark: FakeSpark) -> None:
     dbutils.widgets.getAll.return_value = {"environment": "", "data_product": "sales.orders"}
 
     report = run_service(
-        "schema", spark=spark.as_session(), dbutils=dbutils, roots=project, environment="nprod", max_workers=1
+        SchemaService, spark=spark.as_session(), dbutils=dbutils, roots=project, environment="nprod", max_workers=1
     )
 
     assert [result.status for result in report.results] == [Status.SUCCESS, Status.SUCCESS]
@@ -28,12 +28,20 @@ def test_run_service_raises_when_a_table_fails(project: Path) -> None:
     spark.on(r"^CREATE TABLE IF NOT EXISTS `dev`.`sales_orders`.`order`", RuntimeError("permission denied"))
 
     with pytest.raises(ServiceError, match=r"sales\.orders\.order: RuntimeError: permission denied"):
-        run_service("schema", spark=spark.as_session(), roots=[project], environment="dev", data_product="sales.orders")
+        run_service(
+            SchemaService, spark=spark.as_session(), roots=[project], environment="dev", data_product="sales.orders"
+        )
 
 
-def test_unknown_service(project: Path, spark: FakeSpark) -> None:
-    with pytest.raises(ConfigurationError, match="Unknown service 'load'"):
-        run_service("load", spark=spark.as_session(), roots=project, environment="dev", data_product="sales.orders")
+def test_run_service_requires_a_service_class(project: Path, spark: FakeSpark) -> None:
+    with pytest.raises(ConfigurationError, match=r"expects a service class, e\.g\. SchemaService, got 'schema'"):
+        run_service(
+            "schema",  # type: ignore[arg-type]
+            spark=spark.as_session(),
+            roots=project,
+            environment="dev",
+            data_product="sales.orders",
+        )
 
 
 def test_cli_validate(project: Path, capsys: pytest.CaptureFixture[str]) -> None:

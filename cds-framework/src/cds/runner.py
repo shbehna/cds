@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from cds.context import ServiceContext
 from cds.errors import ConfigurationError
 from cds.runtime import DBUtils
-from cds.services import SERVICES, Service, ServiceReport
+from cds.services import Service, ServiceReport
 
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -29,7 +29,7 @@ PARAMETERS = {
 
 
 def run_service(
-    service: str | type[Service],
+    service: type[Service],
     *,
     spark: SparkSession | None = None,
     dbutils: DBUtils | None = None,
@@ -43,8 +43,7 @@ def run_service(
     environment variables.
 
     Args:
-        service: Name of the service (``schema``, ``metadata``, ``transformation``,
-            ``quality``, ``scd`` or ``snapshot``) or its class.
+        service: The class of the service, e.g. ``SchemaService``.
         spark: The Spark session; the active session by default.
         dbutils: The Databricks utilities of the notebook, to read its widgets.
         roots: The root folders of the data products, instead of the ``roots`` parameter.
@@ -57,13 +56,14 @@ def run_service(
         ServiceError: If at least one table is in error.
         ConfigurationError: If the parameters or the project are invalid.
     """
+    if not (isinstance(service, type) and issubclass(service, Service)):
+        raise ConfigurationError(f"run_service expects a service class, e.g. SchemaService, got {service!r}.")
     configure_logging()
-    service_class = get_service(service)
     if dbutils is not None:
         declare_widgets(dbutils)
     context = ServiceContext.create(spark=spark, dbutils=dbutils, roots=roots, parameters=parameters)
     runtime = context.runtime_configuration
-    report = service_class(context).run(
+    report = service(context).run(
         context.get_data_product(),
         tables=runtime.get_list("tables") or None,
         max_workers=runtime.get_int("max_workers"),
@@ -71,16 +71,6 @@ def run_service(
     report.log()
     report.raise_for_errors()
     return report
-
-
-def get_service(service: str | type[Service]) -> type[Service]:
-    """Returns a service class from its name."""
-    if isinstance(service, type):
-        return service
-    try:
-        return SERVICES[service]
-    except KeyError:
-        raise ConfigurationError(f"Unknown service {service!r}, expected one of {', '.join(SERVICES)}.") from None
 
 
 def declare_widgets(dbutils: DBUtils) -> None:

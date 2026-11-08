@@ -18,6 +18,6 @@
 
 # COMMAND ----------
 
-from cds import run_service
+from cds import MetadataService, run_service
 
-run_service("metadata", spark=spark, dbutils=dbutils)
+run_service(MetadataService, spark=spark, dbutils=dbutils)
