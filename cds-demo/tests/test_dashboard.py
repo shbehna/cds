@@ -58,16 +58,16 @@ def test_rows_are_identified_by_their_primary_key(dashboard: dict[str, Any]) -> 
 
     assert (
         "to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_etablissement', "
-        "`numero_etablissement`), map('ignoreNullFields', 'false')) AS cle" in query
+        "`numero_etablissement`), map('ignoreNullFields', 'false')) AS row_key" in query
     )
     # fusion_scission has no primary key: its rows are identified by all their columns.
     assert "'numero_entreprise_liee', `numero_entreprise_liee`" in query
 
 
 def test_a_row_with_errors_and_warnings_is_in_error(dashboard: dict[str, Any]) -> None:
-    query = sql(dashboard, "statut_lignes")
+    query = sql(dashboard, "row_status")
 
-    assert query.index("size(erreurs), 0) > 0 THEN 'Erreur'") < query.index("THEN 'Avertissement'")
+    assert query.index("size(errors), 0) > 0 THEN 'Error'") < query.index("THEN 'Warning'")
 
 
 def test_widgets_use_the_fields_of_their_datasets(dashboard: dict[str, Any]) -> None:
@@ -101,23 +101,30 @@ def test_the_filters_of_each_page(dashboard: dict[str, Any]) -> None:
         for page in dashboard["pages"]
     }
 
-    assert filters == {"statistiques": ["nom_table"], "occurrences": ["nom_table", "severite", "validation"]}
+    assert filters == {"statistics": ["table_name"], "occurrences": ["check_name", "severity", "table_name"]}
 
 
 def test_the_statistics_page(dashboard: dict[str, Any]) -> None:
     [statistics, _] = dashboard["pages"]
     layout = {item["widget"]["name"]: (item["widget"], item["position"]) for item in statistics["layout"]}
 
-    pie, pie_position = layout["statut_des_lignes"]
+    pie, pie_position = layout["row_status_chart"]
     assert pie["spec"]["widgetType"] == "pie"
     assert (pie_position["x"], pie_position["width"]) == (0, 3), "the pie chart uses the left half"
-    bars, _ = layout["occurrences_par_validation"]
-    assert bars["spec"]["encodings"]["y"]["fieldName"] == "validation", "horizontal bars: the checks on the y axis"
-    table, _ = layout["occurrences_par_table"]
+    bars, _ = layout["occurrences_by_check_chart"]
+    assert bars["spec"]["encodings"]["y"]["fieldName"] == "check_name", "horizontal bars: the checks on the y axis"
+    table, _ = layout["occurrences_by_table"]
     assert [column["title"] for column in table["spec"]["encodings"]["columns"]] == [
         "Table",
-        "Validation",
-        "Sévérité",
-        "Nombre",
+        "Check",
+        "Severity",
+        "Count",
     ]
+    assert pie["spec"]["frame"]["title"] == "Status"
+    assert pie["spec"]["encodings"]["angle"]["displayName"] == "Records"
     assert not any("multilineTextboxSpec" in item["widget"] for page in dashboard["pages"] for item in page["layout"])
+
+
+def test_check_times_are_shown_as_text(dashboard: dict[str, Any]) -> None:
+    # The table widget showed the timestamp of the DQX results as epoch milliseconds.
+    assert "date_format(result.run_time, 'yyyy-MM-dd HH:mm:ss') AS checked_at" in sql(dashboard, "occurrences")

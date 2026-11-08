@@ -82,20 +82,21 @@ unknown enterprise.
 
 ## Quality dashboard
 
-The Databricks AI/BI dashboard **Qualité des données REQ** follows the results of the
+The Databricks AI/BI dashboard **REQ data quality** follows the results of the
 quality service. It belongs to the demo, not to the framework: it reads the `_errors`
 and `_warnings` columns that the quality service writes in each row.
 
-- **Statistiques**: a pie chart of the rows without issue, with warnings and with errors
+- **Statistics**: a pie chart of the rows without issue, with warnings and with errors
   (a row with both is in error), a bar chart of the occurrences of each check, and a
   table of the occurrences by table, check and severity. Filter: table.
 - **Occurrences**: each error and warning, with the primary key of its row as a JSON
   object (`{"numero_entreprise": "1140000016"}`), the check, its message and columns.
   `fusion_scission` has no primary key: its rows are identified by all their columns.
+  The check time is shown in the time zone of the SQL warehouse, UTC by default.
   Filters: table, check, severity (error or warning).
 
 [dashboards/quality_dashboard.py](dashboards/quality_dashboard.py) generates the
-dashboard, [dashboards/qualite_req.lvdash.json](dashboards/qualite_req.lvdash.json),
+dashboard, [dashboards/req_quality.lvdash.json](dashboards/req_quality.lvdash.json),
 from the contracts: their tables, primary keys and result columns. Its queries name
 the tables without catalog nor schema: the deployment sets those of each environment.
 After changing the contracts, regenerate it and commit it; a test checks that it is up

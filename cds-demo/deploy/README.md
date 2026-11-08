@@ -16,7 +16,7 @@ The Pulumi program ([pipeline.py](pipeline.py)) creates, in the workspace folder
 └── wheels/<hash>/   the wheel of the framework, built by the workflow
 ```
 
-The quality dashboard, **Qualité des données REQ (&lt;environment&gt;)**, shows the results of
+The quality dashboard, **REQ data quality (&lt;environment&gt;)**, shows the results of
 the quality service. Its queries run on a SQL warehouse with the credentials of the
 service principal, which owns the tables; it reads the tables of its environment.
 

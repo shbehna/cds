@@ -1,179 +1,179 @@
 {
   "datasets": [
     {
-      "name": "statut_lignes",
-      "displayName": "Statut des lignes par table",
+      "name": "row_status",
+      "displayName": "Row status by table",
       "queryLines": [
-        "WITH lignes AS (\n",
-        "  SELECT 'continuation_transformation' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'code_type_changement', `code_type_changement`, 'date_effet', `date_effet`), map('ignoreNullFields', 'false')) AS cle,\n",
-        "    `_errors` AS erreurs,\n",
-        "    `_warnings` AS avertissements\n",
+        "WITH checked_rows AS (\n",
+        "  SELECT 'continuation_transformation' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'code_type_changement', `code_type_changement`, 'date_effet', `date_effet`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "    `_errors` AS errors,\n",
+        "    `_warnings` AS warnings\n",
         "  FROM `continuation_transformation`\n",
         "  UNION ALL\n",
-        "  SELECT 'domaine_valeur' AS nom_table, to_json(named_struct('domaine', `domaine`, 'code', `code`), map('ignoreNullFields', 'false')) AS cle,\n",
-        "    `_errors` AS erreurs,\n",
-        "    `_warnings` AS avertissements\n",
+        "  SELECT 'domaine_valeur' AS table_name, to_json(named_struct('domaine', `domaine`, 'code', `code`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "    `_errors` AS errors,\n",
+        "    `_warnings` AS warnings\n",
         "  FROM `domaine_valeur`\n",
         "  UNION ALL\n",
-        "  SELECT 'entreprise' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`), map('ignoreNullFields', 'false')) AS cle,\n",
-        "    `_errors` AS erreurs,\n",
-        "    `_warnings` AS avertissements\n",
+        "  SELECT 'entreprise' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "    `_errors` AS errors,\n",
+        "    `_warnings` AS warnings\n",
         "  FROM `entreprise`\n",
         "  UNION ALL\n",
-        "  SELECT 'etablissement' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_etablissement', `numero_etablissement`), map('ignoreNullFields', 'false')) AS cle,\n",
-        "    `_errors` AS erreurs,\n",
-        "    `_warnings` AS avertissements\n",
+        "  SELECT 'etablissement' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_etablissement', `numero_etablissement`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "    `_errors` AS errors,\n",
+        "    `_warnings` AS warnings\n",
         "  FROM `etablissement`\n",
         "  UNION ALL\n",
-        "  SELECT 'fusion_scission' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_entreprise_liee', `numero_entreprise_liee`, 'nom_entreprise_liee', `nom_entreprise_liee`, 'code_relation', `code_relation`, 'date_effet', `date_effet`, 'indicateur_dispense_adresse', `indicateur_dispense_adresse`, 'adresse_ligne_1', `adresse_ligne_1`, 'adresse_ligne_2', `adresse_ligne_2`, 'adresse_ligne_3', `adresse_ligne_3`, 'adresse_ligne_4', `adresse_ligne_4`), map('ignoreNullFields', 'false')) AS cle,\n",
-        "    `_errors` AS erreurs,\n",
-        "    `_warnings` AS avertissements\n",
+        "  SELECT 'fusion_scission' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_entreprise_liee', `numero_entreprise_liee`, 'nom_entreprise_liee', `nom_entreprise_liee`, 'code_relation', `code_relation`, 'date_effet', `date_effet`, 'indicateur_dispense_adresse', `indicateur_dispense_adresse`, 'adresse_ligne_1', `adresse_ligne_1`, 'adresse_ligne_2', `adresse_ligne_2`, 'adresse_ligne_3', `adresse_ligne_3`, 'adresse_ligne_4', `adresse_ligne_4`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "    `_errors` AS errors,\n",
+        "    `_warnings` AS warnings\n",
         "  FROM `fusion_scission`\n",
         "  UNION ALL\n",
-        "  SELECT 'nom_entreprise' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'nom', `nom`, 'code_type_nom', `code_type_nom`, 'date_inscription', `date_inscription`), map('ignoreNullFields', 'false')) AS cle,\n",
-        "    `_errors` AS erreurs,\n",
-        "    `_warnings` AS avertissements\n",
+        "  SELECT 'nom_entreprise' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'nom', `nom`, 'code_type_nom', `code_type_nom`, 'date_inscription', `date_inscription`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "    `_errors` AS errors,\n",
+        "    `_warnings` AS warnings\n",
         "  FROM `nom_entreprise`\n",
         ")\n",
-        "SELECT nom_table,\n",
-        "  CASE WHEN coalesce(size(erreurs), 0) > 0 THEN 'Erreur'\n",
-        "    WHEN coalesce(size(avertissements), 0) > 0 THEN 'Avertissement'\n",
-        "    ELSE 'OK' END AS statut,\n",
-        "  count(*) AS lignes\n",
-        "FROM lignes\n",
+        "SELECT table_name,\n",
+        "  CASE WHEN coalesce(size(errors), 0) > 0 THEN 'Error'\n",
+        "    WHEN coalesce(size(warnings), 0) > 0 THEN 'Warning'\n",
+        "    ELSE 'OK' END AS status,\n",
+        "  count(*) AS row_count\n",
+        "FROM checked_rows\n",
         "GROUP BY ALL"
       ]
     },
     {
-      "name": "occurrences_par_validation",
-      "displayName": "Occurrences par validation",
+      "name": "occurrences_by_check",
+      "displayName": "Occurrences by check",
       "queryLines": [
-        "WITH lignes AS (\n",
-        "  SELECT 'continuation_transformation' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'code_type_changement', `code_type_changement`, 'date_effet', `date_effet`), map('ignoreNullFields', 'false')) AS cle,\n",
-        "    `_errors` AS erreurs,\n",
-        "    `_warnings` AS avertissements\n",
+        "WITH checked_rows AS (\n",
+        "  SELECT 'continuation_transformation' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'code_type_changement', `code_type_changement`, 'date_effet', `date_effet`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "    `_errors` AS errors,\n",
+        "    `_warnings` AS warnings\n",
         "  FROM `continuation_transformation`\n",
         "  UNION ALL\n",
-        "  SELECT 'domaine_valeur' AS nom_table, to_json(named_struct('domaine', `domaine`, 'code', `code`), map('ignoreNullFields', 'false')) AS cle,\n",
-        "    `_errors` AS erreurs,\n",
-        "    `_warnings` AS avertissements\n",
+        "  SELECT 'domaine_valeur' AS table_name, to_json(named_struct('domaine', `domaine`, 'code', `code`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "    `_errors` AS errors,\n",
+        "    `_warnings` AS warnings\n",
         "  FROM `domaine_valeur`\n",
         "  UNION ALL\n",
-        "  SELECT 'entreprise' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`), map('ignoreNullFields', 'false')) AS cle,\n",
-        "    `_errors` AS erreurs,\n",
-        "    `_warnings` AS avertissements\n",
+        "  SELECT 'entreprise' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "    `_errors` AS errors,\n",
+        "    `_warnings` AS warnings\n",
         "  FROM `entreprise`\n",
         "  UNION ALL\n",
-        "  SELECT 'etablissement' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_etablissement', `numero_etablissement`), map('ignoreNullFields', 'false')) AS cle,\n",
-        "    `_errors` AS erreurs,\n",
-        "    `_warnings` AS avertissements\n",
+        "  SELECT 'etablissement' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_etablissement', `numero_etablissement`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "    `_errors` AS errors,\n",
+        "    `_warnings` AS warnings\n",
         "  FROM `etablissement`\n",
         "  UNION ALL\n",
-        "  SELECT 'fusion_scission' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_entreprise_liee', `numero_entreprise_liee`, 'nom_entreprise_liee', `nom_entreprise_liee`, 'code_relation', `code_relation`, 'date_effet', `date_effet`, 'indicateur_dispense_adresse', `indicateur_dispense_adresse`, 'adresse_ligne_1', `adresse_ligne_1`, 'adresse_ligne_2', `adresse_ligne_2`, 'adresse_ligne_3', `adresse_ligne_3`, 'adresse_ligne_4', `adresse_ligne_4`), map('ignoreNullFields', 'false')) AS cle,\n",
-        "    `_errors` AS erreurs,\n",
-        "    `_warnings` AS avertissements\n",
+        "  SELECT 'fusion_scission' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_entreprise_liee', `numero_entreprise_liee`, 'nom_entreprise_liee', `nom_entreprise_liee`, 'code_relation', `code_relation`, 'date_effet', `date_effet`, 'indicateur_dispense_adresse', `indicateur_dispense_adresse`, 'adresse_ligne_1', `adresse_ligne_1`, 'adresse_ligne_2', `adresse_ligne_2`, 'adresse_ligne_3', `adresse_ligne_3`, 'adresse_ligne_4', `adresse_ligne_4`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "    `_errors` AS errors,\n",
+        "    `_warnings` AS warnings\n",
         "  FROM `fusion_scission`\n",
         "  UNION ALL\n",
-        "  SELECT 'nom_entreprise' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'nom', `nom`, 'code_type_nom', `code_type_nom`, 'date_inscription', `date_inscription`), map('ignoreNullFields', 'false')) AS cle,\n",
-        "    `_errors` AS erreurs,\n",
-        "    `_warnings` AS avertissements\n",
+        "  SELECT 'nom_entreprise' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'nom', `nom`, 'code_type_nom', `code_type_nom`, 'date_inscription', `date_inscription`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "    `_errors` AS errors,\n",
+        "    `_warnings` AS warnings\n",
         "  FROM `nom_entreprise`\n",
         "),\n",
         "occurrences AS (\n",
-        "  SELECT nom_table, cle, 'Erreur' AS severite, resultat\n",
-        "  FROM lignes LATERAL VIEW explode(erreurs) e AS resultat\n",
+        "  SELECT table_name, row_key, 'Error' AS severity, result\n",
+        "  FROM checked_rows LATERAL VIEW explode(errors) e AS result\n",
         "  UNION ALL\n",
-        "  SELECT nom_table, cle, 'Avertissement' AS severite, resultat\n",
-        "  FROM lignes LATERAL VIEW explode(avertissements) a AS resultat\n",
+        "  SELECT table_name, row_key, 'Warning' AS severity, result\n",
+        "  FROM checked_rows LATERAL VIEW explode(warnings) w AS result\n",
         ")\n",
-        "SELECT nom_table, resultat.name AS validation, severite, count(*) AS occurrences\n",
+        "SELECT table_name, result.name AS check_name, severity, count(*) AS occurrences\n",
         "FROM occurrences\n",
-        "GROUP BY nom_table, resultat.name, severite"
+        "GROUP BY table_name, result.name, severity"
       ]
     },
     {
       "name": "occurrences",
       "displayName": "Occurrences",
       "queryLines": [
-        "WITH lignes AS (\n",
-        "  SELECT 'continuation_transformation' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'code_type_changement', `code_type_changement`, 'date_effet', `date_effet`), map('ignoreNullFields', 'false')) AS cle,\n",
-        "    `_errors` AS erreurs,\n",
-        "    `_warnings` AS avertissements\n",
+        "WITH checked_rows AS (\n",
+        "  SELECT 'continuation_transformation' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'code_type_changement', `code_type_changement`, 'date_effet', `date_effet`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "    `_errors` AS errors,\n",
+        "    `_warnings` AS warnings\n",
         "  FROM `continuation_transformation`\n",
         "  UNION ALL\n",
-        "  SELECT 'domaine_valeur' AS nom_table, to_json(named_struct('domaine', `domaine`, 'code', `code`), map('ignoreNullFields', 'false')) AS cle,\n",
-        "    `_errors` AS erreurs,\n",
-        "    `_warnings` AS avertissements\n",
+        "  SELECT 'domaine_valeur' AS table_name, to_json(named_struct('domaine', `domaine`, 'code', `code`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "    `_errors` AS errors,\n",
+        "    `_warnings` AS warnings\n",
         "  FROM `domaine_valeur`\n",
         "  UNION ALL\n",
-        "  SELECT 'entreprise' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`), map('ignoreNullFields', 'false')) AS cle,\n",
-        "    `_errors` AS erreurs,\n",
-        "    `_warnings` AS avertissements\n",
+        "  SELECT 'entreprise' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "    `_errors` AS errors,\n",
+        "    `_warnings` AS warnings\n",
         "  FROM `entreprise`\n",
         "  UNION ALL\n",
-        "  SELECT 'etablissement' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_etablissement', `numero_etablissement`), map('ignoreNullFields', 'false')) AS cle,\n",
-        "    `_errors` AS erreurs,\n",
-        "    `_warnings` AS avertissements\n",
+        "  SELECT 'etablissement' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_etablissement', `numero_etablissement`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "    `_errors` AS errors,\n",
+        "    `_warnings` AS warnings\n",
         "  FROM `etablissement`\n",
         "  UNION ALL\n",
-        "  SELECT 'fusion_scission' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_entreprise_liee', `numero_entreprise_liee`, 'nom_entreprise_liee', `nom_entreprise_liee`, 'code_relation', `code_relation`, 'date_effet', `date_effet`, 'indicateur_dispense_adresse', `indicateur_dispense_adresse`, 'adresse_ligne_1', `adresse_ligne_1`, 'adresse_ligne_2', `adresse_ligne_2`, 'adresse_ligne_3', `adresse_ligne_3`, 'adresse_ligne_4', `adresse_ligne_4`), map('ignoreNullFields', 'false')) AS cle,\n",
-        "    `_errors` AS erreurs,\n",
-        "    `_warnings` AS avertissements\n",
+        "  SELECT 'fusion_scission' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_entreprise_liee', `numero_entreprise_liee`, 'nom_entreprise_liee', `nom_entreprise_liee`, 'code_relation', `code_relation`, 'date_effet', `date_effet`, 'indicateur_dispense_adresse', `indicateur_dispense_adresse`, 'adresse_ligne_1', `adresse_ligne_1`, 'adresse_ligne_2', `adresse_ligne_2`, 'adresse_ligne_3', `adresse_ligne_3`, 'adresse_ligne_4', `adresse_ligne_4`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "    `_errors` AS errors,\n",
+        "    `_warnings` AS warnings\n",
         "  FROM `fusion_scission`\n",
         "  UNION ALL\n",
-        "  SELECT 'nom_entreprise' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'nom', `nom`, 'code_type_nom', `code_type_nom`, 'date_inscription', `date_inscription`), map('ignoreNullFields', 'false')) AS cle,\n",
-        "    `_errors` AS erreurs,\n",
-        "    `_warnings` AS avertissements\n",
+        "  SELECT 'nom_entreprise' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'nom', `nom`, 'code_type_nom', `code_type_nom`, 'date_inscription', `date_inscription`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "    `_errors` AS errors,\n",
+        "    `_warnings` AS warnings\n",
         "  FROM `nom_entreprise`\n",
         "),\n",
         "occurrences AS (\n",
-        "  SELECT nom_table, cle, 'Erreur' AS severite, resultat\n",
-        "  FROM lignes LATERAL VIEW explode(erreurs) e AS resultat\n",
+        "  SELECT table_name, row_key, 'Error' AS severity, result\n",
+        "  FROM checked_rows LATERAL VIEW explode(errors) e AS result\n",
         "  UNION ALL\n",
-        "  SELECT nom_table, cle, 'Avertissement' AS severite, resultat\n",
-        "  FROM lignes LATERAL VIEW explode(avertissements) a AS resultat\n",
+        "  SELECT table_name, row_key, 'Warning' AS severity, result\n",
+        "  FROM checked_rows LATERAL VIEW explode(warnings) w AS result\n",
         ")\n",
-        "SELECT nom_table, cle, severite,\n",
-        "  resultat.name AS validation,\n",
-        "  resultat.function AS fonction,\n",
-        "  array_join(resultat.columns, ', ') AS colonnes,\n",
-        "  resultat.message AS message,\n",
-        "  resultat.run_time AS date_verification\n",
+        "SELECT table_name, row_key, severity,\n",
+        "  result.name AS check_name,\n",
+        "  result.function AS dqx_function,\n",
+        "  array_join(result.columns, ', ') AS checked_columns,\n",
+        "  result.message AS message,\n",
+        "  date_format(result.run_time, 'yyyy-MM-dd HH:mm:ss') AS checked_at\n",
         "FROM occurrences"
       ]
     }
   ],
   "pages": [
     {
-      "name": "statistiques",
-      "displayName": "Statistiques",
+      "name": "statistics",
+      "displayName": "Statistics",
       "pageType": "PAGE_TYPE_CANVAS",
       "layout": [
         {
           "widget": {
-            "name": "filtre_table_statistiques",
+            "name": "statistics_table_filter",
             "queries": [
               {
-                "name": "statut_lignes_nom_table",
+                "name": "row_status_table_name",
                 "query": {
-                  "datasetName": "statut_lignes",
+                  "datasetName": "row_status",
                   "fields": [
                     {
-                      "name": "nom_table",
-                      "expression": "`nom_table`"
+                      "name": "table_name",
+                      "expression": "`table_name`"
                     }
                   ],
                   "disaggregated": false
                 }
               },
               {
-                "name": "occurrences_par_validation_nom_table",
+                "name": "occurrences_by_check_table_name",
                 "query": {
-                  "datasetName": "occurrences_par_validation",
+                  "datasetName": "occurrences_by_check",
                   "fields": [
                     {
-                      "name": "nom_table",
-                      "expression": "`nom_table`"
+                      "name": "table_name",
+                      "expression": "`table_name`"
                     }
                   ],
                   "disaggregated": false
@@ -186,14 +186,14 @@
               "encodings": {
                 "fields": [
                   {
-                    "fieldName": "nom_table",
+                    "fieldName": "table_name",
                     "displayName": "Table",
-                    "queryName": "statut_lignes_nom_table"
+                    "queryName": "row_status_table_name"
                   },
                   {
-                    "fieldName": "nom_table",
+                    "fieldName": "table_name",
                     "displayName": "Table",
-                    "queryName": "occurrences_par_validation_nom_table"
+                    "queryName": "occurrences_by_check_table_name"
                   }
                 ]
               },
@@ -212,20 +212,20 @@
         },
         {
           "widget": {
-            "name": "statut_des_lignes",
+            "name": "row_status_chart",
             "queries": [
               {
                 "name": "main_query",
                 "query": {
-                  "datasetName": "statut_lignes",
+                  "datasetName": "row_status",
                   "fields": [
                     {
-                      "name": "statut",
-                      "expression": "`statut`"
+                      "name": "status",
+                      "expression": "`status`"
                     },
                     {
-                      "name": "sum(lignes)",
-                      "expression": "SUM(`lignes`)"
+                      "name": "sum(row_count)",
+                      "expression": "SUM(`row_count`)"
                     }
                   ],
                   "disaggregated": false
@@ -237,14 +237,14 @@
               "widgetType": "pie",
               "encodings": {
                 "angle": {
-                  "fieldName": "sum(lignes)",
+                  "fieldName": "sum(row_count)",
                   "scale": {
                     "type": "quantitative"
                   },
-                  "displayName": "Lignes"
+                  "displayName": "Records"
                 },
                 "color": {
-                  "fieldName": "statut",
+                  "fieldName": "status",
                   "scale": {
                     "type": "categorical",
                     "mappings": [
@@ -253,21 +253,21 @@
                         "color": "#00A972"
                       },
                       {
-                        "value": "Avertissement",
+                        "value": "Warning",
                         "color": "#FFAB00"
                       },
                       {
-                        "value": "Erreur",
+                        "value": "Error",
                         "color": "#FF3621"
                       }
                     ]
                   },
-                  "displayName": "Statut"
+                  "displayName": "Status"
                 }
               },
               "frame": {
                 "showTitle": true,
-                "title": "Statut des lignes"
+                "title": "Status"
               }
             }
           },
@@ -280,20 +280,20 @@
         },
         {
           "widget": {
-            "name": "occurrences_par_validation",
+            "name": "occurrences_by_check_chart",
             "queries": [
               {
                 "name": "main_query",
                 "query": {
-                  "datasetName": "occurrences_par_validation",
+                  "datasetName": "occurrences_by_check",
                   "fields": [
                     {
-                      "name": "validation",
-                      "expression": "`validation`"
+                      "name": "check_name",
+                      "expression": "`check_name`"
                     },
                     {
-                      "name": "severite",
-                      "expression": "`severite`"
+                      "name": "severity",
+                      "expression": "`severity`"
                     },
                     {
                       "name": "sum(occurrences)",
@@ -316,36 +316,36 @@
                   "displayName": "Occurrences"
                 },
                 "y": {
-                  "fieldName": "validation",
+                  "fieldName": "check_name",
                   "scale": {
                     "type": "categorical",
                     "sort": {
                       "by": "x-reversed"
                     }
                   },
-                  "displayName": "Validation"
+                  "displayName": "Check"
                 },
                 "color": {
-                  "fieldName": "severite",
+                  "fieldName": "severity",
                   "scale": {
                     "type": "categorical",
                     "mappings": [
                       {
-                        "value": "Avertissement",
+                        "value": "Warning",
                         "color": "#FFAB00"
                       },
                       {
-                        "value": "Erreur",
+                        "value": "Error",
                         "color": "#FF3621"
                       }
                     ]
                   },
-                  "displayName": "Sévérité"
+                  "displayName": "Severity"
                 }
               },
               "frame": {
                 "showTitle": true,
-                "title": "Occurrences par validation"
+                "title": "Occurrences by check"
               }
             }
           },
@@ -358,24 +358,24 @@
         },
         {
           "widget": {
-            "name": "occurrences_par_table",
+            "name": "occurrences_by_table",
             "queries": [
               {
                 "name": "main_query",
                 "query": {
-                  "datasetName": "occurrences_par_validation",
+                  "datasetName": "occurrences_by_check",
                   "fields": [
                     {
-                      "name": "nom_table",
-                      "expression": "`nom_table`"
+                      "name": "table_name",
+                      "expression": "`table_name`"
                     },
                     {
-                      "name": "validation",
-                      "expression": "`validation`"
+                      "name": "check_name",
+                      "expression": "`check_name`"
                     },
                     {
-                      "name": "severite",
-                      "expression": "`severite`"
+                      "name": "severity",
+                      "expression": "`severity`"
                     },
                     {
                       "name": "occurrences",
@@ -392,7 +392,7 @@
               "encodings": {
                 "columns": [
                   {
-                    "fieldName": "nom_table",
+                    "fieldName": "table_name",
                     "booleanValues": [
                       "false",
                       "true"
@@ -419,7 +419,7 @@
                     "preserveWhitespace": false
                   },
                   {
-                    "fieldName": "validation",
+                    "fieldName": "check_name",
                     "booleanValues": [
                       "false",
                       "true"
@@ -436,8 +436,8 @@
                     "displayAs": "string",
                     "visible": true,
                     "order": 100001,
-                    "title": "Validation",
-                    "displayName": "Validation",
+                    "title": "Check",
+                    "displayName": "Check",
                     "alignContent": "left",
                     "allowSearch": true,
                     "allowHTML": false,
@@ -446,7 +446,7 @@
                     "preserveWhitespace": false
                   },
                   {
-                    "fieldName": "severite",
+                    "fieldName": "severity",
                     "booleanValues": [
                       "false",
                       "true"
@@ -463,8 +463,8 @@
                     "displayAs": "string",
                     "visible": true,
                     "order": 100002,
-                    "title": "Sévérité",
-                    "displayName": "Sévérité",
+                    "title": "Severity",
+                    "displayName": "Severity",
                     "alignContent": "left",
                     "allowSearch": true,
                     "allowHTML": false,
@@ -490,8 +490,8 @@
                     "displayAs": "number",
                     "visible": true,
                     "order": 100003,
-                    "title": "Nombre",
-                    "displayName": "Nombre",
+                    "title": "Count",
+                    "displayName": "Count",
                     "alignContent": "right",
                     "allowSearch": false,
                     "allowHTML": false,
@@ -510,7 +510,7 @@
               "withRowNumber": false,
               "frame": {
                 "showTitle": true,
-                "title": "Occurrences par table et validation"
+                "title": "Occurrences by table and check"
               }
             }
           },
@@ -530,16 +530,16 @@
       "layout": [
         {
           "widget": {
-            "name": "filtre_table_occurrences",
+            "name": "occurrences_table_filter",
             "queries": [
               {
-                "name": "occurrences_nom_table",
+                "name": "occurrences_table_name",
                 "query": {
                   "datasetName": "occurrences",
                   "fields": [
                     {
-                      "name": "nom_table",
-                      "expression": "`nom_table`"
+                      "name": "table_name",
+                      "expression": "`table_name`"
                     }
                   ],
                   "disaggregated": false
@@ -552,9 +552,9 @@
               "encodings": {
                 "fields": [
                   {
-                    "fieldName": "nom_table",
+                    "fieldName": "table_name",
                     "displayName": "Table",
-                    "queryName": "occurrences_nom_table"
+                    "queryName": "occurrences_table_name"
                   }
                 ]
               },
@@ -573,16 +573,16 @@
         },
         {
           "widget": {
-            "name": "filtre_validation",
+            "name": "check_filter",
             "queries": [
               {
-                "name": "occurrences_validation",
+                "name": "occurrences_check_name",
                 "query": {
                   "datasetName": "occurrences",
                   "fields": [
                     {
-                      "name": "validation",
-                      "expression": "`validation`"
+                      "name": "check_name",
+                      "expression": "`check_name`"
                     }
                   ],
                   "disaggregated": false
@@ -595,15 +595,15 @@
               "encodings": {
                 "fields": [
                   {
-                    "fieldName": "validation",
-                    "displayName": "Validation",
-                    "queryName": "occurrences_validation"
+                    "fieldName": "check_name",
+                    "displayName": "Check",
+                    "queryName": "occurrences_check_name"
                   }
                 ]
               },
               "frame": {
                 "showTitle": true,
-                "title": "Validation"
+                "title": "Check"
               }
             }
           },
@@ -616,16 +616,16 @@
         },
         {
           "widget": {
-            "name": "filtre_severite",
+            "name": "severity_filter",
             "queries": [
               {
-                "name": "occurrences_severite",
+                "name": "occurrences_severity",
                 "query": {
                   "datasetName": "occurrences",
                   "fields": [
                     {
-                      "name": "severite",
-                      "expression": "`severite`"
+                      "name": "severity",
+                      "expression": "`severity`"
                     }
                   ],
                   "disaggregated": false
@@ -638,15 +638,15 @@
               "encodings": {
                 "fields": [
                   {
-                    "fieldName": "severite",
-                    "displayName": "Sévérité",
-                    "queryName": "occurrences_severite"
+                    "fieldName": "severity",
+                    "displayName": "Severity",
+                    "queryName": "occurrences_severity"
                   }
                 ]
               },
               "frame": {
                 "showTitle": true,
-                "title": "Sévérité"
+                "title": "Severity"
               }
             }
           },
@@ -659,7 +659,7 @@
         },
         {
           "widget": {
-            "name": "liste_occurrences",
+            "name": "occurrence_list",
             "queries": [
               {
                 "name": "main_query",
@@ -667,36 +667,36 @@
                   "datasetName": "occurrences",
                   "fields": [
                     {
-                      "name": "nom_table",
-                      "expression": "`nom_table`"
+                      "name": "table_name",
+                      "expression": "`table_name`"
                     },
                     {
-                      "name": "cle",
-                      "expression": "`cle`"
+                      "name": "row_key",
+                      "expression": "`row_key`"
                     },
                     {
-                      "name": "severite",
-                      "expression": "`severite`"
+                      "name": "severity",
+                      "expression": "`severity`"
                     },
                     {
-                      "name": "validation",
-                      "expression": "`validation`"
+                      "name": "check_name",
+                      "expression": "`check_name`"
                     },
                     {
                       "name": "message",
                       "expression": "`message`"
                     },
                     {
-                      "name": "colonnes",
-                      "expression": "`colonnes`"
+                      "name": "checked_columns",
+                      "expression": "`checked_columns`"
                     },
                     {
-                      "name": "fonction",
-                      "expression": "`fonction`"
+                      "name": "dqx_function",
+                      "expression": "`dqx_function`"
                     },
                     {
-                      "name": "date_verification",
-                      "expression": "`date_verification`"
+                      "name": "checked_at",
+                      "expression": "`checked_at`"
                     }
                   ],
                   "disaggregated": true
@@ -709,7 +709,7 @@
               "encodings": {
                 "columns": [
                   {
-                    "fieldName": "nom_table",
+                    "fieldName": "table_name",
                     "booleanValues": [
                       "false",
                       "true"
@@ -736,7 +736,7 @@
                     "preserveWhitespace": false
                   },
                   {
-                    "fieldName": "cle",
+                    "fieldName": "row_key",
                     "booleanValues": [
                       "false",
                       "true"
@@ -753,8 +753,8 @@
                     "displayAs": "string",
                     "visible": true,
                     "order": 100001,
-                    "title": "Clé",
-                    "displayName": "Clé",
+                    "title": "Key",
+                    "displayName": "Key",
                     "alignContent": "left",
                     "allowSearch": true,
                     "allowHTML": false,
@@ -763,7 +763,7 @@
                     "preserveWhitespace": false
                   },
                   {
-                    "fieldName": "severite",
+                    "fieldName": "severity",
                     "booleanValues": [
                       "false",
                       "true"
@@ -780,8 +780,8 @@
                     "displayAs": "string",
                     "visible": true,
                     "order": 100002,
-                    "title": "Sévérité",
-                    "displayName": "Sévérité",
+                    "title": "Severity",
+                    "displayName": "Severity",
                     "alignContent": "left",
                     "allowSearch": true,
                     "allowHTML": false,
@@ -790,7 +790,7 @@
                     "preserveWhitespace": false
                   },
                   {
-                    "fieldName": "validation",
+                    "fieldName": "check_name",
                     "booleanValues": [
                       "false",
                       "true"
@@ -807,8 +807,8 @@
                     "displayAs": "string",
                     "visible": true,
                     "order": 100003,
-                    "title": "Validation",
-                    "displayName": "Validation",
+                    "title": "Check",
+                    "displayName": "Check",
                     "alignContent": "left",
                     "allowSearch": true,
                     "allowHTML": false,
@@ -844,7 +844,7 @@
                     "preserveWhitespace": false
                   },
                   {
-                    "fieldName": "colonnes",
+                    "fieldName": "checked_columns",
                     "booleanValues": [
                       "false",
                       "true"
@@ -861,8 +861,8 @@
                     "displayAs": "string",
                     "visible": true,
                     "order": 100005,
-                    "title": "Colonnes",
-                    "displayName": "Colonnes",
+                    "title": "Columns",
+                    "displayName": "Columns",
                     "alignContent": "left",
                     "allowSearch": true,
                     "allowHTML": false,
@@ -871,7 +871,7 @@
                     "preserveWhitespace": false
                   },
                   {
-                    "fieldName": "fonction",
+                    "fieldName": "dqx_function",
                     "booleanValues": [
                       "false",
                       "true"
@@ -888,8 +888,8 @@
                     "displayAs": "string",
                     "visible": true,
                     "order": 100006,
-                    "title": "Fonction DQX",
-                    "displayName": "Fonction DQX",
+                    "title": "DQX function",
+                    "displayName": "DQX function",
                     "alignContent": "left",
                     "allowSearch": true,
                     "allowHTML": false,
@@ -898,7 +898,7 @@
                     "preserveWhitespace": false
                   },
                   {
-                    "fieldName": "date_verification",
+                    "fieldName": "checked_at",
                     "booleanValues": [
                       "false",
                       "true"
@@ -911,14 +911,14 @@
                     "linkTextTemplate": "{{ @ }}",
                     "linkTitleTemplate": "{{ @ }}",
                     "linkOpenInNewTab": true,
-                    "type": "datetime",
-                    "displayAs": "datetime",
+                    "type": "string",
+                    "displayAs": "string",
                     "visible": true,
                     "order": 100007,
-                    "title": "Date de vérification",
-                    "displayName": "Date de vérification",
+                    "title": "Checked at (UTC)",
+                    "displayName": "Checked at (UTC)",
                     "alignContent": "left",
-                    "allowSearch": false,
+                    "allowSearch": true,
                     "allowHTML": false,
                     "highlightLinks": false,
                     "useMonospaceFont": false,
@@ -940,7 +940,7 @@
           },
           "position": {
             "x": 0,
-            "y": 4,
+            "y": 1,
             "width": 6,
             "height": 16
           }

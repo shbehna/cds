@@ -22,15 +22,17 @@ from cds.config import resolved
 from cds.sql import quote_identifier, string_literal
 
 PRODUCTS = Path(__file__).resolve().parents[1] / "products"
-DASHBOARD = Path(__file__).with_name("qualite_req.lvdash.json")
+DASHBOARD = Path(__file__).with_name("req_quality.lvdash.json")
 DATA_PRODUCT = "donnees_qc.req"
 
 # Status of a row: a row with errors and warnings is in error.
-ERROR = "Erreur"
-WARNING = "Avertissement"
+ERROR = "Error"
+WARNING = "Warning"
 OK = "OK"
 STATUS_COLORS = {OK: "#00A972", WARNING: "#FFAB00", ERROR: "#FF3621"}
 SEVERITY_COLORS = {WARNING: "#FFAB00", ERROR: "#FF3621"}
+# Format of the check times, in the time zone of the warehouse (UTC by default).
+TIME_FORMAT = "yyyy-MM-dd HH:mm:ss"
 
 
 def checked_tables(data_context: DataContext) -> list[Table]:
@@ -57,24 +59,24 @@ def rows_query(tables: Sequence[Table]) -> str:
     for table in tables:
         settings = table.settings(QualitySettings)
         selects.append(
-            f"  SELECT {string_literal(table.name)} AS nom_table, {key_expression(table)} AS cle,\n"
-            f"    {quote_identifier(resolved(settings.errors_column))} AS erreurs,\n"
-            f"    {quote_identifier(resolved(settings.warnings_column))} AS avertissements\n"
+            f"  SELECT {string_literal(table.name)} AS table_name, {key_expression(table)} AS row_key,\n"
+            f"    {quote_identifier(resolved(settings.errors_column))} AS errors,\n"
+            f"    {quote_identifier(resolved(settings.warnings_column))} AS warnings\n"
             f"  FROM {quote_identifier(table.name)}"
         )
-    return "WITH lignes AS (\n" + "\n  UNION ALL\n".join(selects) + "\n)"
+    return "WITH checked_rows AS (\n" + "\n  UNION ALL\n".join(selects) + "\n)"
 
 
 def row_status_query(tables: Sequence[Table]) -> str:
     """Number of rows of each table by status: without issue, with warnings only, with errors."""
     return (
         f"{rows_query(tables)}\n"
-        "SELECT nom_table,\n"
-        f"  CASE WHEN coalesce(size(erreurs), 0) > 0 THEN '{ERROR}'\n"
-        f"    WHEN coalesce(size(avertissements), 0) > 0 THEN '{WARNING}'\n"
-        f"    ELSE '{OK}' END AS statut,\n"
-        "  count(*) AS lignes\n"
-        "FROM lignes\n"
+        "SELECT table_name,\n"
+        f"  CASE WHEN coalesce(size(errors), 0) > 0 THEN '{ERROR}'\n"
+        f"    WHEN coalesce(size(warnings), 0) > 0 THEN '{WARNING}'\n"
+        f"    ELSE '{OK}' END AS status,\n"
+        "  count(*) AS row_count\n"
+        "FROM checked_rows\n"
         "GROUP BY ALL"
     )
 
@@ -83,11 +85,11 @@ def _occurrences(tables: Sequence[Table]) -> str:
     return (
         f"{rows_query(tables)},\n"
         "occurrences AS (\n"
-        f"  SELECT nom_table, cle, '{ERROR}' AS severite, resultat\n"
-        "  FROM lignes LATERAL VIEW explode(erreurs) e AS resultat\n"
+        f"  SELECT table_name, row_key, '{ERROR}' AS severity, result\n"
+        "  FROM checked_rows LATERAL VIEW explode(errors) e AS result\n"
         "  UNION ALL\n"
-        f"  SELECT nom_table, cle, '{WARNING}' AS severite, resultat\n"
-        "  FROM lignes LATERAL VIEW explode(avertissements) a AS resultat\n"
+        f"  SELECT table_name, row_key, '{WARNING}' AS severity, result\n"
+        "  FROM checked_rows LATERAL VIEW explode(warnings) w AS result\n"
         ")\n"
     )
 
@@ -96,12 +98,13 @@ def occurrences_query(tables: Sequence[Table]) -> str:
     """Each error and warning of each row, with the key of the row."""
     return (
         f"{_occurrences(tables)}"
-        "SELECT nom_table, cle, severite,\n"
-        "  resultat.name AS validation,\n"
-        "  resultat.function AS fonction,\n"
-        "  array_join(resultat.columns, ', ') AS colonnes,\n"
-        "  resultat.message AS message,\n"
-        "  resultat.run_time AS date_verification\n"
+        "SELECT table_name, row_key, severity,\n"
+        "  result.name AS check_name,\n"
+        "  result.function AS dqx_function,\n"
+        "  array_join(result.columns, ', ') AS checked_columns,\n"
+        "  result.message AS message,\n"
+        # Formatted as text: the table widget showed the timestamp as epoch milliseconds.
+        f"  date_format(result.run_time, '{TIME_FORMAT}') AS checked_at\n"
         "FROM occurrences"
     )
 
@@ -110,9 +113,9 @@ def occurrences_by_check_query(tables: Sequence[Table]) -> str:
     """Number of errors and warnings of each check, by table."""
     return (
         f"{_occurrences(tables)}"
-        "SELECT nom_table, resultat.name AS validation, severite, count(*) AS occurrences\n"
+        "SELECT table_name, result.name AS check_name, severity, count(*) AS occurrences\n"
         "FROM occurrences\n"
-        "GROUP BY nom_table, resultat.name, severite"
+        "GROUP BY table_name, result.name, severity"
     )
 
 
@@ -151,20 +154,20 @@ def colors(scale: Mapping[str, str]) -> dict[str, Any]:
     return {"type": "categorical", "mappings": [{"value": value, "color": color} for value, color in scale.items()]}
 
 
-def pie_chart(name: str, dataset_name: str, title: str) -> dict[str, Any]:
+def pie_chart(name: str, dataset_name: str) -> dict[str, Any]:
     """Share of the rows of each status."""
-    count = "sum(lignes)"
+    count = "sum(row_count)"
     return {
         "name": name,
-        "queries": [query(dataset_name, [field("statut"), field(count, "SUM(`lignes`)")], disaggregated=False)],
+        "queries": [query(dataset_name, [field("status"), field(count, "SUM(`row_count`)")], disaggregated=False)],
         "spec": {
             "version": 3,
             "widgetType": "pie",
             "encodings": {
-                "angle": {"fieldName": count, "scale": {"type": "quantitative"}, "displayName": "Lignes"},
-                "color": {"fieldName": "statut", "scale": colors(STATUS_COLORS), "displayName": "Statut"},
+                "angle": {"fieldName": count, "scale": {"type": "quantitative"}, "displayName": "Records"},
+                "color": {"fieldName": "status", "scale": colors(STATUS_COLORS), "displayName": "Status"},
             },
-            "frame": frame(title),
+            "frame": frame("Status"),
         },
     }
 
@@ -191,7 +194,7 @@ def multi_select_filter(name: str, column: str, title: str, dataset_names: Seque
 
 def table_widget(name: str, dataset_name: str, columns: Sequence[tuple[str, str, str]], title: str) -> dict[str, Any]:
     """A table of the rows of a dataset; each column is (name, title, type)."""
-    display = {"string": "string", "integer": "number", "datetime": "datetime"}
+    display = {"string": "string", "integer": "number"}
     encodings = []
     for order, (column, column_title, column_type) in enumerate(columns):
         # The keys of a column, as the dashboard editor writes them.
@@ -216,7 +219,7 @@ def table_widget(name: str, dataset_name: str, columns: Sequence[tuple[str, str,
             "allowSearch": column_type == "string",
             "allowHTML": False,
             "highlightLinks": False,
-            "useMonospaceFont": column == "cle",
+            "useMonospaceFont": column == "row_key",
             "preserveWhitespace": False,
         }
         if column_type == "integer":
@@ -248,7 +251,7 @@ def occurrences_chart(name: str, dataset_name: str) -> dict[str, Any]:
         "queries": [
             query(
                 dataset_name,
-                [field("validation"), field("severite"), field(count, "SUM(`occurrences`)")],
+                [field("check_name"), field("severity"), field(count, "SUM(`occurrences`)")],
                 disaggregated=False,
             )
         ],
@@ -258,35 +261,35 @@ def occurrences_chart(name: str, dataset_name: str) -> dict[str, Any]:
             "encodings": {
                 "x": {"fieldName": count, "scale": {"type": "quantitative"}, "displayName": "Occurrences"},
                 "y": {
-                    "fieldName": "validation",
+                    "fieldName": "check_name",
                     "scale": {"type": "categorical", "sort": {"by": "x-reversed"}},
-                    "displayName": "Validation",
+                    "displayName": "Check",
                 },
-                "color": {"fieldName": "severite", "scale": colors(SEVERITY_COLORS), "displayName": "Sévérité"},
+                "color": {"fieldName": "severity", "scale": colors(SEVERITY_COLORS), "displayName": "Severity"},
             },
-            "frame": frame("Occurrences par validation"),
+            "frame": frame("Occurrences by check"),
         },
     }
 
 
 def build(tables: Sequence[Table]) -> dict[str, Any]:
     """Returns the dashboard of the quality of the tables."""
-    status, by_check, occurrences = "statut_lignes", "occurrences_par_validation", "occurrences"
+    status, by_check, occurrences = "row_status", "occurrences_by_check", "occurrences"
     statistics = [
-        place(multi_select_filter("filtre_table_statistiques", "nom_table", "Table", [status, by_check]), 0, 0, 2, 1),
-        place(pie_chart("statut_des_lignes", status, "Statut des lignes"), 0, 1, 3, 8),
-        place(occurrences_chart("occurrences_par_validation", by_check), 3, 1, 3, 8),
+        place(multi_select_filter("statistics_table_filter", "table_name", "Table", [status, by_check]), 0, 0, 2, 1),
+        place(pie_chart("row_status_chart", status), 0, 1, 3, 8),
+        place(occurrences_chart("occurrences_by_check_chart", by_check), 3, 1, 3, 8),
         place(
             table_widget(
-                "occurrences_par_table",
+                "occurrences_by_table",
                 by_check,
                 [
-                    ("nom_table", "Table", "string"),
-                    ("validation", "Validation", "string"),
-                    ("severite", "Sévérité", "string"),
-                    ("occurrences", "Nombre", "integer"),
+                    ("table_name", "Table", "string"),
+                    ("check_name", "Check", "string"),
+                    ("severity", "Severity", "string"),
+                    ("occurrences", "Count", "integer"),
                 ],
-                "Occurrences par table et validation",
+                "Occurrences by table and check",
             ),
             0,
             9,
@@ -295,41 +298,41 @@ def build(tables: Sequence[Table]) -> dict[str, Any]:
         ),
     ]
     details = [
-        place(multi_select_filter("filtre_table_occurrences", "nom_table", "Table", [occurrences]), 0, 0, 2, 1),
-        place(multi_select_filter("filtre_validation", "validation", "Validation", [occurrences]), 2, 0, 2, 1),
-        place(multi_select_filter("filtre_severite", "severite", "Sévérité", [occurrences]), 4, 0, 2, 1),
+        place(multi_select_filter("occurrences_table_filter", "table_name", "Table", [occurrences]), 0, 0, 2, 1),
+        place(multi_select_filter("check_filter", "check_name", "Check", [occurrences]), 2, 0, 2, 1),
+        place(multi_select_filter("severity_filter", "severity", "Severity", [occurrences]), 4, 0, 2, 1),
         place(
             table_widget(
-                "liste_occurrences",
+                "occurrence_list",
                 occurrences,
                 [
-                    ("nom_table", "Table", "string"),
-                    ("cle", "Clé", "string"),
-                    ("severite", "Sévérité", "string"),
-                    ("validation", "Validation", "string"),
+                    ("table_name", "Table", "string"),
+                    ("row_key", "Key", "string"),
+                    ("severity", "Severity", "string"),
+                    ("check_name", "Check", "string"),
                     ("message", "Message", "string"),
-                    ("colonnes", "Colonnes", "string"),
-                    ("fonction", "Fonction DQX", "string"),
-                    ("date_verification", "Date de vérification", "datetime"),
+                    ("checked_columns", "Columns", "string"),
+                    ("dqx_function", "DQX function", "string"),
+                    ("checked_at", "Checked at (UTC)", "string"),
                 ],
                 "Occurrences",
             ),
             0,
-            4,
+            1,
             6,
             16,
         ),
     ]
     return {
         "datasets": [
-            dataset(status, "Statut des lignes par table", row_status_query(tables)),
-            dataset(by_check, "Occurrences par validation", occurrences_by_check_query(tables)),
+            dataset(status, "Row status by table", row_status_query(tables)),
+            dataset(by_check, "Occurrences by check", occurrences_by_check_query(tables)),
             dataset(occurrences, "Occurrences", occurrences_query(tables)),
         ],
         "pages": [
             {
-                "name": "statistiques",
-                "displayName": "Statistiques",
+                "name": "statistics",
+                "displayName": "Statistics",
                 "pageType": "PAGE_TYPE_CANVAS",
                 "layout": statistics,
             },

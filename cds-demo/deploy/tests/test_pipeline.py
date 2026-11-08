@@ -128,13 +128,13 @@ def test_quality_dashboard(settings: pipeline.Settings) -> pulumi.Output[None]:
         # CREATED holds the resources of all the tests: the last dashboard is this one.
         dashboard = [args for args in CREATED if args.typ == "databricks:index/dashboard:Dashboard"][-1]
         inputs = dashboard.inputs
-        assert inputs["displayName"] == "Qualité des données REQ (nprod)"
+        assert inputs["displayName"] == "REQ data quality (nprod)"
         assert inputs["parentPath"] == "/Shared/cds-demo/nprod/dashboards"
         assert inputs["warehouseId"] == "warehouse-of-Serverless Starter Warehouse"
         assert (inputs["datasetCatalog"], inputs["datasetSchema"]) == ("nprod", "donnees_qc_req")
         assert inputs["embedCredentials"] is True
         content = json.loads(inputs["serializedDashboard"])
-        assert [page["displayName"] for page in content["pages"]] == ["Statistiques", "Occurrences"]
+        assert [page["displayName"] for page in content["pages"]] == ["Statistics", "Occurrences"]
         directories = {args.inputs["path"] for args in CREATED if args.typ == "databricks:index/directory:Directory"}
         assert "/Shared/cds-demo/nprod/dashboards" in directories
 

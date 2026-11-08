@@ -26,7 +26,7 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 FRAMEWORK = REPOSITORY / "cds-framework"
 PRODUCTS = REPOSITORY / "cds-demo" / "products"
 # The quality dashboard, generated from the contracts by cds-demo/dashboards/quality_dashboard.py.
-QUALITY_DASHBOARD = REPOSITORY / "cds-demo" / "dashboards" / "qualite_req.lvdash.json"
+QUALITY_DASHBOARD = REPOSITORY / "cds-demo" / "dashboards" / "req_quality.lvdash.json"
 
 # Services run by the job, with the services they wait for.
 TASKS: dict[str, list[str]] = {
@@ -247,7 +247,7 @@ def quality_dashboard(settings: Settings, folder: str, directory: databricks.Dir
     warehouse = databricks.get_sql_warehouse_output(name=settings.warehouse_name)
     return databricks.Dashboard(
         "quality-dashboard",
-        display_name=f"Qualité des données REQ ({settings.environment})",
+        display_name=f"REQ data quality ({settings.environment})",
         parent_path=folder,
         serialized_dashboard=QUALITY_DASHBOARD.read_text(encoding="utf-8"),
         warehouse_id=warehouse.id,
