@@ -37,6 +37,9 @@ schema:
         description: Code du régime juridique sous lequel l'entreprise est constituée (domaine de valeur REGIM_JURI). Colonne source COD_REGIM_JURI.
         logicalType: string
         physicalType: STRING
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 3
       - name: autre_regime_juridique
         description: Régime juridique de l'entreprise, lorsqu'elle a été constituée ailleurs qu'au Québec. Colonne source AUTR_REGIM_JURI.
         logicalType: string
@@ -51,4 +54,4 @@ schema:
         physicalType: DATE
         required: true
         primaryKey: true
-        primaryKeyPosition: 3
+        primaryKeyPosition: 4

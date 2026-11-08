@@ -5,7 +5,7 @@
       "displayName": "Row status by table",
       "queryLines": [
         "WITH checked_rows AS (\n",
-        "  SELECT 'continuation_transformation' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'code_type_changement', `code_type_changement`, 'date_effet', `date_effet`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "  SELECT 'continuation_transformation' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'code_type_changement', `code_type_changement`, 'date_effet', `date_effet`, 'code_regime_juridique', `code_regime_juridique`), map('ignoreNullFields', 'false')) AS row_key,\n",
         "    `_errors` AS errors,\n",
         "    `_warnings` AS warnings\n",
         "  FROM `continuation_transformation`\n",
@@ -49,7 +49,7 @@
       "displayName": "Occurrences by check",
       "queryLines": [
         "WITH checked_rows AS (\n",
-        "  SELECT 'continuation_transformation' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'code_type_changement', `code_type_changement`, 'date_effet', `date_effet`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "  SELECT 'continuation_transformation' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'code_type_changement', `code_type_changement`, 'date_effet', `date_effet`, 'code_regime_juridique', `code_regime_juridique`), map('ignoreNullFields', 'false')) AS row_key,\n",
         "    `_errors` AS errors,\n",
         "    `_warnings` AS warnings\n",
         "  FROM `continuation_transformation`\n",
@@ -96,7 +96,7 @@
       "displayName": "Occurrences",
       "queryLines": [
         "WITH checked_rows AS (\n",
-        "  SELECT 'continuation_transformation' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'code_type_changement', `code_type_changement`, 'date_effet', `date_effet`), map('ignoreNullFields', 'false')) AS row_key,\n",
+        "  SELECT 'continuation_transformation' AS table_name, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'code_type_changement', `code_type_changement`, 'date_effet', `date_effet`, 'code_regime_juridique', `code_regime_juridique`), map('ignoreNullFields', 'false')) AS row_key,\n",
         "    `_errors` AS errors,\n",
         "    `_warnings` AS warnings\n",
         "  FROM `continuation_transformation`\n",

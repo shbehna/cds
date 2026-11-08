@@ -54,7 +54,7 @@ naming convention of the `donnees_qc` group.
 | `etablissement` | `Etablissements.csv` | `numero_entreprise`, `numero_etablissement` |
 | `nom_entreprise` | `Nom.csv` | `numero_entreprise`, `nom`, `code_type_nom`, `date_inscription` |
 | `fusion_scission` | `FusionScissions.csv` | none: the register publishes no unique key |
-| `continuation_transformation` | `ContinuationsTransformations.csv` | `numero_entreprise`, `code_type_changement`, `date_effet` |
+| `continuation_transformation` | `ContinuationsTransformations.csv` | `numero_entreprise`, `code_type_changement`, `date_effet`, `code_regime_juridique` |
 | `domaine_valeur` | `DomaineValeur.csv` | `domaine`, `code` |
 
 The tables with a primary key have a history table, `<table>_historique`: the
@@ -76,7 +76,7 @@ The tables with a primary key have a history table, `<table>_historique`: the
   configuration keeps one row per key in the history instead of failing.
 
 A profiling of the data set of October 2026 shows what the checks catch: 25 keys of
-establishments, 2,245 keys of names and 91 keys of continuations used by several rows,
+establishments and 2,245 keys of names used by several rows,
 16 enterprises without registration date, and a name and a merger referencing an
 unknown enterprise.
 
