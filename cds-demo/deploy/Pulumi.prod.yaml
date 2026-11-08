@@ -16,3 +16,6 @@ config:
   cds-demo:dqxVersion: 0.17.0
   # Number of tables processed in parallel by each service.
   cds-demo:maxWorkers: "4"
+  # PLACEHOLDER: SQL warehouse running the queries of the quality dashboard. The service
+  # principal needs the CAN USE permission on it.
+  cds-demo:warehouseName: Serverless Starter Warehouse

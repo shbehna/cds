@@ -1,0 +1,912 @@
+{
+  "datasets": [
+    {
+      "name": "statut_lignes",
+      "displayName": "Statut des lignes par table",
+      "queryLines": [
+        "WITH lignes AS (\n",
+        "  SELECT 'continuation_transformation' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'code_type_changement', `code_type_changement`, 'date_effet', `date_effet`), map('ignoreNullFields', 'false')) AS cle,\n",
+        "    `_errors` AS erreurs,\n",
+        "    `_warnings` AS avertissements\n",
+        "  FROM `continuation_transformation`\n",
+        "  UNION ALL\n",
+        "  SELECT 'domaine_valeur' AS nom_table, to_json(named_struct('domaine', `domaine`, 'code', `code`), map('ignoreNullFields', 'false')) AS cle,\n",
+        "    `_errors` AS erreurs,\n",
+        "    `_warnings` AS avertissements\n",
+        "  FROM `domaine_valeur`\n",
+        "  UNION ALL\n",
+        "  SELECT 'entreprise' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`), map('ignoreNullFields', 'false')) AS cle,\n",
+        "    `_errors` AS erreurs,\n",
+        "    `_warnings` AS avertissements\n",
+        "  FROM `entreprise`\n",
+        "  UNION ALL\n",
+        "  SELECT 'etablissement' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_etablissement', `numero_etablissement`), map('ignoreNullFields', 'false')) AS cle,\n",
+        "    `_errors` AS erreurs,\n",
+        "    `_warnings` AS avertissements\n",
+        "  FROM `etablissement`\n",
+        "  UNION ALL\n",
+        "  SELECT 'fusion_scission' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_entreprise_liee', `numero_entreprise_liee`, 'nom_entreprise_liee', `nom_entreprise_liee`, 'code_relation', `code_relation`, 'date_effet', `date_effet`, 'indicateur_dispense_adresse', `indicateur_dispense_adresse`, 'adresse_ligne_1', `adresse_ligne_1`, 'adresse_ligne_2', `adresse_ligne_2`, 'adresse_ligne_3', `adresse_ligne_3`, 'adresse_ligne_4', `adresse_ligne_4`), map('ignoreNullFields', 'false')) AS cle,\n",
+        "    `_errors` AS erreurs,\n",
+        "    `_warnings` AS avertissements\n",
+        "  FROM `fusion_scission`\n",
+        "  UNION ALL\n",
+        "  SELECT 'nom_entreprise' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'nom', `nom`, 'code_type_nom', `code_type_nom`, 'date_inscription', `date_inscription`), map('ignoreNullFields', 'false')) AS cle,\n",
+        "    `_errors` AS erreurs,\n",
+        "    `_warnings` AS avertissements\n",
+        "  FROM `nom_entreprise`\n",
+        "),\n",
+        "statuts AS (\n",
+        "  SELECT nom_table,\n",
+        "    CASE WHEN coalesce(size(erreurs), 0) > 0 THEN 'Erreur'\n",
+        "      WHEN coalesce(size(avertissements), 0) > 0 THEN 'Avertissement'\n",
+        "      ELSE 'OK' END AS statut\n",
+        "  FROM lignes\n",
+        ")\n",
+        "SELECT nom_table,\n",
+        "  count(*) AS lignes,\n",
+        "  count_if(statut = 'OK') AS lignes_ok,\n",
+        "  count_if(statut = 'Avertissement') AS lignes_avertissement,\n",
+        "  count_if(statut = 'Erreur') AS lignes_erreur\n",
+        "FROM statuts\n",
+        "GROUP BY nom_table"
+      ]
+    },
+    {
+      "name": "occurrences_par_validation",
+      "displayName": "Occurrences par validation",
+      "queryLines": [
+        "WITH lignes AS (\n",
+        "  SELECT 'continuation_transformation' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'code_type_changement', `code_type_changement`, 'date_effet', `date_effet`), map('ignoreNullFields', 'false')) AS cle,\n",
+        "    `_errors` AS erreurs,\n",
+        "    `_warnings` AS avertissements\n",
+        "  FROM `continuation_transformation`\n",
+        "  UNION ALL\n",
+        "  SELECT 'domaine_valeur' AS nom_table, to_json(named_struct('domaine', `domaine`, 'code', `code`), map('ignoreNullFields', 'false')) AS cle,\n",
+        "    `_errors` AS erreurs,\n",
+        "    `_warnings` AS avertissements\n",
+        "  FROM `domaine_valeur`\n",
+        "  UNION ALL\n",
+        "  SELECT 'entreprise' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`), map('ignoreNullFields', 'false')) AS cle,\n",
+        "    `_errors` AS erreurs,\n",
+        "    `_warnings` AS avertissements\n",
+        "  FROM `entreprise`\n",
+        "  UNION ALL\n",
+        "  SELECT 'etablissement' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_etablissement', `numero_etablissement`), map('ignoreNullFields', 'false')) AS cle,\n",
+        "    `_errors` AS erreurs,\n",
+        "    `_warnings` AS avertissements\n",
+        "  FROM `etablissement`\n",
+        "  UNION ALL\n",
+        "  SELECT 'fusion_scission' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_entreprise_liee', `numero_entreprise_liee`, 'nom_entreprise_liee', `nom_entreprise_liee`, 'code_relation', `code_relation`, 'date_effet', `date_effet`, 'indicateur_dispense_adresse', `indicateur_dispense_adresse`, 'adresse_ligne_1', `adresse_ligne_1`, 'adresse_ligne_2', `adresse_ligne_2`, 'adresse_ligne_3', `adresse_ligne_3`, 'adresse_ligne_4', `adresse_ligne_4`), map('ignoreNullFields', 'false')) AS cle,\n",
+        "    `_errors` AS erreurs,\n",
+        "    `_warnings` AS avertissements\n",
+        "  FROM `fusion_scission`\n",
+        "  UNION ALL\n",
+        "  SELECT 'nom_entreprise' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'nom', `nom`, 'code_type_nom', `code_type_nom`, 'date_inscription', `date_inscription`), map('ignoreNullFields', 'false')) AS cle,\n",
+        "    `_errors` AS erreurs,\n",
+        "    `_warnings` AS avertissements\n",
+        "  FROM `nom_entreprise`\n",
+        "),\n",
+        "occurrences AS (\n",
+        "  SELECT nom_table, cle, 'Erreur' AS niveau, resultat\n",
+        "  FROM lignes LATERAL VIEW explode(erreurs) e AS resultat\n",
+        "  UNION ALL\n",
+        "  SELECT nom_table, cle, 'Avertissement' AS niveau, resultat\n",
+        "  FROM lignes LATERAL VIEW explode(avertissements) a AS resultat\n",
+        ")\n",
+        "SELECT nom_table, niveau, resultat.name AS validation, count(*) AS occurrences\n",
+        "FROM occurrences\n",
+        "GROUP BY nom_table, niveau, resultat.name"
+      ]
+    },
+    {
+      "name": "occurrences",
+      "displayName": "Occurrences",
+      "queryLines": [
+        "WITH lignes AS (\n",
+        "  SELECT 'continuation_transformation' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'code_type_changement', `code_type_changement`, 'date_effet', `date_effet`), map('ignoreNullFields', 'false')) AS cle,\n",
+        "    `_errors` AS erreurs,\n",
+        "    `_warnings` AS avertissements\n",
+        "  FROM `continuation_transformation`\n",
+        "  UNION ALL\n",
+        "  SELECT 'domaine_valeur' AS nom_table, to_json(named_struct('domaine', `domaine`, 'code', `code`), map('ignoreNullFields', 'false')) AS cle,\n",
+        "    `_errors` AS erreurs,\n",
+        "    `_warnings` AS avertissements\n",
+        "  FROM `domaine_valeur`\n",
+        "  UNION ALL\n",
+        "  SELECT 'entreprise' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`), map('ignoreNullFields', 'false')) AS cle,\n",
+        "    `_errors` AS erreurs,\n",
+        "    `_warnings` AS avertissements\n",
+        "  FROM `entreprise`\n",
+        "  UNION ALL\n",
+        "  SELECT 'etablissement' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_etablissement', `numero_etablissement`), map('ignoreNullFields', 'false')) AS cle,\n",
+        "    `_errors` AS erreurs,\n",
+        "    `_warnings` AS avertissements\n",
+        "  FROM `etablissement`\n",
+        "  UNION ALL\n",
+        "  SELECT 'fusion_scission' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_entreprise_liee', `numero_entreprise_liee`, 'nom_entreprise_liee', `nom_entreprise_liee`, 'code_relation', `code_relation`, 'date_effet', `date_effet`, 'indicateur_dispense_adresse', `indicateur_dispense_adresse`, 'adresse_ligne_1', `adresse_ligne_1`, 'adresse_ligne_2', `adresse_ligne_2`, 'adresse_ligne_3', `adresse_ligne_3`, 'adresse_ligne_4', `adresse_ligne_4`), map('ignoreNullFields', 'false')) AS cle,\n",
+        "    `_errors` AS erreurs,\n",
+        "    `_warnings` AS avertissements\n",
+        "  FROM `fusion_scission`\n",
+        "  UNION ALL\n",
+        "  SELECT 'nom_entreprise' AS nom_table, to_json(named_struct('numero_entreprise', `numero_entreprise`, 'nom', `nom`, 'code_type_nom', `code_type_nom`, 'date_inscription', `date_inscription`), map('ignoreNullFields', 'false')) AS cle,\n",
+        "    `_errors` AS erreurs,\n",
+        "    `_warnings` AS avertissements\n",
+        "  FROM `nom_entreprise`\n",
+        "),\n",
+        "occurrences AS (\n",
+        "  SELECT nom_table, cle, 'Erreur' AS niveau, resultat\n",
+        "  FROM lignes LATERAL VIEW explode(erreurs) e AS resultat\n",
+        "  UNION ALL\n",
+        "  SELECT nom_table, cle, 'Avertissement' AS niveau, resultat\n",
+        "  FROM lignes LATERAL VIEW explode(avertissements) a AS resultat\n",
+        ")\n",
+        "SELECT nom_table, cle, niveau,\n",
+        "  resultat.name AS validation,\n",
+        "  resultat.function AS fonction,\n",
+        "  array_join(resultat.columns, ', ') AS colonnes,\n",
+        "  resultat.message AS message,\n",
+        "  resultat.run_time AS date_verification\n",
+        "FROM occurrences"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "statistiques",
+      "displayName": "Statistiques",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "titre_statistiques",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Qualité des données du Registraire des entreprises",
+                "Résultat des validations DQX de la dernière exécution. Une ligne qui a des erreurs et des avertissements est comptée en erreur."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "filtre_table_statistiques",
+            "queries": [
+              {
+                "name": "statut_lignes_nom_table",
+                "query": {
+                  "datasetName": "statut_lignes",
+                  "fields": [
+                    {
+                      "name": "nom_table",
+                      "expression": "`nom_table`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "occurrences_par_validation_nom_table",
+                "query": {
+                  "datasetName": "occurrences_par_validation",
+                  "fields": [
+                    {
+                      "name": "nom_table",
+                      "expression": "`nom_table`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "nom_table",
+                    "displayName": "Table",
+                    "queryName": "statut_lignes_nom_table"
+                  },
+                  {
+                    "fieldName": "nom_table",
+                    "displayName": "Table",
+                    "queryName": "occurrences_par_validation_nom_table"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Table"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "lignes_ok",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "statut_lignes",
+                  "fields": [
+                    {
+                      "name": "sum(lignes_ok)",
+                      "expression": "SUM(`lignes_ok`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(lignes_ok)",
+                  "displayName": "Lignes OK"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Lignes OK"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "lignes_avertissement",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "statut_lignes",
+                  "fields": [
+                    {
+                      "name": "sum(lignes_avertissement)",
+                      "expression": "SUM(`lignes_avertissement`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(lignes_avertissement)",
+                  "displayName": "Lignes en avertissement"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Lignes en avertissement"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "lignes_erreur",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "statut_lignes",
+                  "fields": [
+                    {
+                      "name": "sum(lignes_erreur)",
+                      "expression": "SUM(`lignes_erreur`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(lignes_erreur)",
+                  "displayName": "Lignes en erreur"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Lignes en erreur"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "statut_par_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "statut_lignes",
+                  "fields": [
+                    {
+                      "name": "nom_table",
+                      "expression": "`nom_table`"
+                    },
+                    {
+                      "name": "lignes",
+                      "expression": "`lignes`"
+                    },
+                    {
+                      "name": "lignes_ok",
+                      "expression": "`lignes_ok`"
+                    },
+                    {
+                      "name": "lignes_avertissement",
+                      "expression": "`lignes_avertissement`"
+                    },
+                    {
+                      "name": "lignes_erreur",
+                      "expression": "`lignes_erreur`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "nom_table",
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100000,
+                    "title": "Table",
+                    "displayName": "Table",
+                    "alignContent": "left",
+                    "allowSearch": true,
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false
+                  },
+                  {
+                    "fieldName": "lignes",
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100001,
+                    "title": "Lignes",
+                    "displayName": "Lignes",
+                    "alignContent": "right",
+                    "allowSearch": false,
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "numberFormat": "0"
+                  },
+                  {
+                    "fieldName": "lignes_ok",
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100002,
+                    "title": "OK",
+                    "displayName": "OK",
+                    "alignContent": "right",
+                    "allowSearch": false,
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "numberFormat": "0"
+                  },
+                  {
+                    "fieldName": "lignes_avertissement",
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100003,
+                    "title": "En avertissement",
+                    "displayName": "En avertissement",
+                    "alignContent": "right",
+                    "allowSearch": false,
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "numberFormat": "0"
+                  },
+                  {
+                    "fieldName": "lignes_erreur",
+                    "type": "integer",
+                    "displayAs": "number",
+                    "visible": true,
+                    "order": 100004,
+                    "title": "En erreur",
+                    "displayName": "En erreur",
+                    "alignContent": "right",
+                    "allowSearch": false,
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false,
+                    "numberFormat": "0"
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": false,
+              "frame": {
+                "showTitle": true,
+                "title": "Lignes par table"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "occurrences_par_validation",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "occurrences_par_validation",
+                  "fields": [
+                    {
+                      "name": "validation",
+                      "expression": "`validation`"
+                    },
+                    {
+                      "name": "niveau",
+                      "expression": "`niveau`"
+                    },
+                    {
+                      "name": "sum(occurrences)",
+                      "expression": "SUM(`occurrences`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(occurrences)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Occurrences"
+                },
+                "y": {
+                  "fieldName": "validation",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Validation"
+                },
+                "color": {
+                  "fieldName": "niveau",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Niveau"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Occurrences par validation"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 6,
+            "height": 9
+          }
+        }
+      ]
+    },
+    {
+      "name": "occurrences",
+      "displayName": "Occurrences",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "titre_occurrences",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Occurrences des validations",
+                "Chaque erreur et chaque avertissement, avec la clé primaire de la ligne concernée (toutes ses colonnes pour une table sans clé primaire)."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "filtre_table_occurrences",
+            "queries": [
+              {
+                "name": "occurrences_nom_table",
+                "query": {
+                  "datasetName": "occurrences",
+                  "fields": [
+                    {
+                      "name": "nom_table",
+                      "expression": "`nom_table`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "nom_table",
+                    "displayName": "Table",
+                    "queryName": "occurrences_nom_table"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Table"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "filtre_validation",
+            "queries": [
+              {
+                "name": "occurrences_validation",
+                "query": {
+                  "datasetName": "occurrences",
+                  "fields": [
+                    {
+                      "name": "validation",
+                      "expression": "`validation`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "validation",
+                    "displayName": "Validation",
+                    "queryName": "occurrences_validation"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Validation"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "filtre_niveau",
+            "queries": [
+              {
+                "name": "occurrences_niveau",
+                "query": {
+                  "datasetName": "occurrences",
+                  "fields": [
+                    {
+                      "name": "niveau",
+                      "expression": "`niveau`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "niveau",
+                    "displayName": "Niveau",
+                    "queryName": "occurrences_niveau"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Niveau"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "liste_occurrences",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "occurrences",
+                  "fields": [
+                    {
+                      "name": "nom_table",
+                      "expression": "`nom_table`"
+                    },
+                    {
+                      "name": "cle",
+                      "expression": "`cle`"
+                    },
+                    {
+                      "name": "niveau",
+                      "expression": "`niveau`"
+                    },
+                    {
+                      "name": "validation",
+                      "expression": "`validation`"
+                    },
+                    {
+                      "name": "message",
+                      "expression": "`message`"
+                    },
+                    {
+                      "name": "colonnes",
+                      "expression": "`colonnes`"
+                    },
+                    {
+                      "name": "fonction",
+                      "expression": "`fonction`"
+                    },
+                    {
+                      "name": "date_verification",
+                      "expression": "`date_verification`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "nom_table",
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100000,
+                    "title": "Table",
+                    "displayName": "Table",
+                    "alignContent": "left",
+                    "allowSearch": true,
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false
+                  },
+                  {
+                    "fieldName": "cle",
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100001,
+                    "title": "Clé",
+                    "displayName": "Clé",
+                    "alignContent": "left",
+                    "allowSearch": true,
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": true,
+                    "preserveWhitespace": false
+                  },
+                  {
+                    "fieldName": "niveau",
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100002,
+                    "title": "Niveau",
+                    "displayName": "Niveau",
+                    "alignContent": "left",
+                    "allowSearch": true,
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false
+                  },
+                  {
+                    "fieldName": "validation",
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100003,
+                    "title": "Validation",
+                    "displayName": "Validation",
+                    "alignContent": "left",
+                    "allowSearch": true,
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false
+                  },
+                  {
+                    "fieldName": "message",
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100004,
+                    "title": "Message",
+                    "displayName": "Message",
+                    "alignContent": "left",
+                    "allowSearch": true,
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false
+                  },
+                  {
+                    "fieldName": "colonnes",
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100005,
+                    "title": "Colonnes",
+                    "displayName": "Colonnes",
+                    "alignContent": "left",
+                    "allowSearch": true,
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false
+                  },
+                  {
+                    "fieldName": "fonction",
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": true,
+                    "order": 100006,
+                    "title": "Fonction DQX",
+                    "displayName": "Fonction DQX",
+                    "alignContent": "left",
+                    "allowSearch": true,
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false
+                  },
+                  {
+                    "fieldName": "date_verification",
+                    "type": "datetime",
+                    "displayAs": "datetime",
+                    "visible": true,
+                    "order": 100007,
+                    "title": "Date de vérification",
+                    "displayName": "Date de vérification",
+                    "alignContent": "left",
+                    "allowSearch": false,
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 25,
+              "paginationSize": "default",
+              "condensed": true,
+              "withRowNumber": false,
+              "frame": {
+                "showTitle": true,
+                "title": "Occurrences"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 6,
+            "height": 16
+          }
+        }
+      ]
+    }
+  ]
+}

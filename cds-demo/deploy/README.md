@@ -10,10 +10,15 @@ The Pulumi program ([pipeline.py](pipeline.py)) creates, in the workspace folder
 
 ```text
 /Shared/cds-demo/nprod/
+├── dashboards/      the quality dashboard (cds-demo/dashboards), published
 ├── notebooks/       the service notebooks of the framework (cds-framework/notebooks)
 ├── products/        the data products of the demo (cds-demo/products)
 └── wheels/<hash>/   the wheel of the framework, built by the workflow
 ```
+
+The quality dashboard, **Qualité des données REQ (&lt;environment&gt;)**, shows the results of
+the quality service. Its queries run on a SQL warehouse with the credentials of the
+service principal, which owns the tables; it reads the tables of its environment.
 
 It also creates the job `cds-demo-req-<environment>`, which runs the services of the
 framework on serverless compute. The job has no schedule: you run it on demand.
@@ -78,6 +83,17 @@ The service principal owns the schemas and tables it creates. As the owner of th
 catalogs, you can query them. To let other users read them, grant `USE SCHEMA` and
 `SELECT` on the schema `donnees_qc_req`.
 
+### Let the service principal use a SQL warehouse
+
+The quality dashboard runs its queries on the SQL warehouse named by
+`cds-demo:warehouseName` in the stack files (**placeholder**: `Serverless Starter
+Warehouse`, the warehouse of a new workspace). Open **SQL Warehouses**, select the
+warehouse, then **Permissions**, and give the service principal **Can use**. The
+deployment fails if the service principal cannot see the warehouse.
+
+Users viewing the published dashboard do not need access to the tables: its queries
+run with the credentials of the service principal.
+
 ## 2. Create a Pulumi Cloud account (once)
 
 1. Sign up at [app.pulumi.com](https://app.pulumi.com). The individual tier is free.
@@ -113,7 +129,7 @@ Environments of private repositories require a paid GitHub plan.
 - **prod**: open **Actions > Deploy demo > Run workflow** and choose `prod`.
 
 The logs of the **Deploy with Pulumi** step list the created resources and end with the
-URL of the job (`job_url`).
+URLs of the job (`job_url`) and of the quality dashboard (`dashboard_url`).
 
 ## 5. Run the pipeline
 
@@ -126,7 +142,8 @@ first run creates the tables of `nprod.donnees_qc_req`. Each run then:
 4. checks them with DQX: each row gets its `_errors` and `_warnings` (quality);
 5. updates their history in the `<table>_historique` tables (scd).
 
-For example, to see the rows with quality errors:
+The quality dashboard then shows the results of the quality step. To query them
+directly, for example the rows with quality errors:
 
 ```sql
 SELECT numero_entreprise, numero_etablissement, _errors
@@ -148,6 +165,8 @@ The stack files are the variables of the deployment.
 | `cds-demo:environmentVersion` | Serverless environment version of the job. |
 | `cds-demo:dqxVersion` | Version of DQX installed in the job environment. |
 | `cds-demo:maxWorkers` | Number of tables processed in parallel by each service. |
+| `cds-demo:warehouseName` | SQL warehouse of the quality dashboard. **Placeholder**: `Serverless Starter Warehouse`. |
+| `cds-demo:schema` | Optional. Schema of the tables, read by the dashboard: `donnees_qc_req` by default. |
 
 ## Deploy from your computer (optional)
 
@@ -171,7 +190,7 @@ The stack files are the variables of the deployment.
    pulumi up        # applies them
    ```
 
-`pulumi destroy` removes the job and the files. It does not drop the tables.
+`pulumi destroy` removes the job, the dashboard and the files. It does not drop the tables.
 
 ## Tests
 

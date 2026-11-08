@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -22,10 +23,14 @@ class Mocks(pulumi.runtime.Mocks):
         outputs = dict(args.inputs)
         if args.typ == "databricks:index/job:Job":
             outputs["url"] = "https://workspace/jobs/1"
+        if args.typ == "databricks:index/dashboard:Dashboard":
+            outputs["dashboardId"] = "dashboard-1"
         return f"{args.name}-id", outputs
 
     def call(self, args: pulumi.runtime.MockCallArgs) -> tuple[dict[str, Any], list[tuple[str, str]] | None]:
-        return {}, None
+        if args.token == "databricks:index/getSqlWarehouse:getSqlWarehouse":
+            return {"id": f"warehouse-of-{args.args['name']}", "name": args.args["name"]}, []
+        return {}, []
 
 
 pulumi.runtime.set_mocks(Mocks(), preview=False)
@@ -111,6 +116,27 @@ def test_files(settings: pipeline.Settings) -> pulumi.Output[None]:
         directories = {args.inputs["path"] for args in CREATED if args.typ == "databricks:index/directory:Directory"}
         assert {path.rsplit("/", 1)[0] for path in paths | notebooks} <= directories
         assert "/Shared/cds-demo/nprod" in directories
+
+    return job.id.apply(check)
+
+
+@pulumi.runtime.test
+def test_quality_dashboard(settings: pipeline.Settings) -> pulumi.Output[None]:
+    job = pipeline.deploy(settings)
+
+    def check(_: str) -> None:
+        # CREATED holds the resources of all the tests: the last dashboard is this one.
+        dashboard = [args for args in CREATED if args.typ == "databricks:index/dashboard:Dashboard"][-1]
+        inputs = dashboard.inputs
+        assert inputs["displayName"] == "Qualité des données REQ (nprod)"
+        assert inputs["parentPath"] == "/Shared/cds-demo/nprod/dashboards"
+        assert inputs["warehouseId"] == "warehouse-of-Serverless Starter Warehouse"
+        assert (inputs["datasetCatalog"], inputs["datasetSchema"]) == ("nprod", "donnees_qc_req")
+        assert inputs["embedCredentials"] is True
+        content = json.loads(inputs["serializedDashboard"])
+        assert [page["displayName"] for page in content["pages"]] == ["Statistiques", "Occurrences"]
+        directories = {args.inputs["path"] for args in CREATED if args.typ == "databricks:index/directory:Directory"}
+        assert "/Shared/cds-demo/nprod/dashboards" in directories
 
     return job.id.apply(check)
 

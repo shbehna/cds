@@ -1,7 +1,8 @@
 """Resources of the demo in a Databricks workspace.
 
 The deployment uploads the framework wheel, the service notebooks and the data products
-of the demo to a workspace folder, then creates the job running the services in order:
+of the demo to a workspace folder, publishes the quality dashboard, and creates the job
+running the services in order:
 
     schema --> metadata
            --> transformation --> quality --> scd
@@ -24,6 +25,8 @@ import tomllib
 REPOSITORY = Path(__file__).resolve().parents[2]
 FRAMEWORK = REPOSITORY / "cds-framework"
 PRODUCTS = REPOSITORY / "cds-demo" / "products"
+# The quality dashboard, generated from the contracts by cds-demo/dashboards/quality_dashboard.py.
+QUALITY_DASHBOARD = REPOSITORY / "cds-demo" / "dashboards" / "qualite_req.lvdash.json"
 
 # Services run by the job, with the services they wait for.
 TASKS: dict[str, list[str]] = {
@@ -45,6 +48,12 @@ class Settings:
     workspace_root: str
     service_principal: str | None = None
     data_product: str = "donnees_qc.req"
+    # Schema of the tables of the data product, following the naming convention of the
+    # donnees_qc group; their catalog is the environment.
+    schema: str = "donnees_qc_req"
+    # SQL warehouse running the queries of the dashboard.
+    warehouse_name: str = "Serverless Starter Warehouse"
+    host: str | None = None
     # Version 5 is the serverless environment targeted by the local environment of the
     # repository (pyproject.toml, [tool.databricks.environment]).
     environment_version: str = "5"
@@ -61,6 +70,9 @@ class Settings:
             source_path=config.require("sourcePath"),
             workspace_root=config.get("workspaceRoot") or f"/Shared/cds-demo/{environment}",
             service_principal=pulumi.Config("databricks").get("clientId"),
+            host=pulumi.Config("databricks").get("host"),
+            schema=config.get("schema") or cls.schema,
+            warehouse_name=config.get("warehouseName") or cls.warehouse_name,
             environment_version=config.get("environmentVersion") or cls.environment_version,
             dqx_version=config.get("dqxVersion") or cls.dqx_version,
             max_workers=config.get_int("maxWorkers") or cls.max_workers,
@@ -114,12 +126,19 @@ def deploy(settings: Settings) -> databricks.Job:
     wheel_path = f"{root}/wheels/{digest}/{wheel.name}"
     notebook_paths = {service: f"{root}/notebooks/{service}" for service in TASKS}
     product_paths = {path: f"{root}/products/{path.relative_to(PRODUCTS).as_posix()}" for path in product_files()}
+    dashboard_folder = f"{root}/dashboards"
 
     # The folders are created first, each after its parent: the provider creates a missing
     # parent folder when it uploads a file, but not reliably when files are uploaded in
     # parallel.
     directories: dict[str, databricks.Directory] = {}
-    for folder in folders(root, [wheel_path, *notebook_paths.values(), *product_paths.values()]):
+    paths = [
+        wheel_path,
+        *notebook_paths.values(),
+        *product_paths.values(),
+        f"{dashboard_folder}/{QUALITY_DASHBOARD.name}",
+    ]
+    for folder in folders(root, paths):
         parent = directories.get(posixpath.dirname(folder))
         directories[folder] = databricks.Directory(
             f"folder:{posixpath.relpath(folder, root)}",
@@ -205,7 +224,35 @@ def deploy(settings: Settings) -> databricks.Job:
         tags={"project": "cds-demo", "environment": settings.environment, "data_product": settings.data_product},
         opts=pulumi.ResourceOptions(depends_on=products),
     )
+    dashboard = quality_dashboard(settings, dashboard_folder, directories[dashboard_folder])
     pulumi.export("job_id", job.id)
     pulumi.export("job_url", job.url)
     pulumi.export("workspace_root", root)
+    pulumi.export("dashboard_id", dashboard.dashboard_id)
+    if settings.host:
+        pulumi.export(
+            "dashboard_url",
+            pulumi.Output.concat(settings.host.rstrip("/"), "/dashboardsv3/", dashboard.dashboard_id, "/published"),
+        )
     return job
+
+
+def quality_dashboard(settings: Settings, folder: str, directory: databricks.Directory) -> databricks.Dashboard:
+    """Publishes the quality dashboard of the data product.
+
+    Its queries name the tables without catalog nor schema: the dashboard sets them for the
+    environment. They run on the SQL warehouse with the credentials of the deployment
+    service principal, which owns the tables.
+    """
+    warehouse = databricks.get_sql_warehouse_output(name=settings.warehouse_name)
+    return databricks.Dashboard(
+        "quality-dashboard",
+        display_name=f"Qualité des données REQ ({settings.environment})",
+        parent_path=folder,
+        serialized_dashboard=QUALITY_DASHBOARD.read_text(encoding="utf-8"),
+        warehouse_id=warehouse.id,
+        dataset_catalog=settings.environment,
+        dataset_schema=settings.schema,
+        embed_credentials=True,
+        opts=pulumi.ResourceOptions(depends_on=[directory]),
+    )
