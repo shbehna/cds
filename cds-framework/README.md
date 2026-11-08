@@ -57,6 +57,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from pyspark.sql.functions import col
+
 from cds import ContractConfig, RuntimeConfiguration
 
 if TYPE_CHECKING:
@@ -64,9 +66,12 @@ if TYPE_CHECKING:
 
 
 def transform(spark: SparkSession, runtime_configuration: RuntimeConfiguration) -> DataFrame:
-    path = f"{runtime_configuration.require('source_path')}/Entreprise.csv"
+    source = spark.read.csv(f"{runtime_configuration.require('source_path')}/Entreprise.csv", header=True)
     # The result must have the columns of the contract; they are cast to their contract types.
-    return spark.read.csv(path, header=True).selectExpr("NEQ AS numero_entreprise", "DAT_IMMAT AS date_immatriculation")
+    return source.select(
+        col("NEQ").alias("numero_entreprise"),
+        col("DAT_IMMAT").alias("date_immatriculation"),
+    )
 
 
 config = ContractConfig(name="entreprise", transform=transform)
@@ -77,8 +82,9 @@ used as is, extended with your own attributes and methods (a subclass can define
 `transform` as a method), or replaced by any object with the same attributes.
 
 Parameters are injected by name first (see `ContractInjection`), so type annotations
-are optional. Import the PySpark types under `TYPE_CHECKING`, as above: the
-configuration then loads without PySpark, which `cds validate` relies on.
+are optional. `cds validate` imports the configurations without a Spark session: they
+may import PySpark, but must build their columns and DataFrames in functions, as above,
+not when the module is loaded.
 
 ### Settings and conventions
 

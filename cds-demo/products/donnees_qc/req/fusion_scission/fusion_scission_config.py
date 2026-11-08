@@ -4,33 +4,33 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from pyspark.sql.functions import col
+
 from cds import ContractConfig
 
-from ..sources import indicator, read_source, select_columns
+from ..sources import indicator, read_source
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession
 
     from cds import RuntimeConfiguration
 
-# Expression of each column of the contract: a column of FusionScissions.csv, or SQL.
-COLUMNS = {
-    "numero_entreprise": "NEQ",
-    "numero_entreprise_liee": "NEQ_ASSUJ_REL",
-    "nom_entreprise_liee": "DENOMN_SOC",
-    "code_relation": "COD_RELA_ASSUJ",
-    "date_effet": "DAT_EFCTVT",
-    "indicateur_dispense_adresse": indicator("IND_DISP"),
-    "adresse_ligne_1": "LIGN1_ADR",
-    "adresse_ligne_2": "LIGN2_ADR",
-    "adresse_ligne_3": "LIGN3_ADR",
-    "adresse_ligne_4": "LIGN4_ADR",
-}
-
 
 def transform(spark: SparkSession, runtime_configuration: RuntimeConfiguration) -> DataFrame:
     """Renames the columns of FusionScissions.csv; the service casts them to the contract types."""
-    return select_columns(read_source(spark, runtime_configuration, "FusionScissions.csv"), COLUMNS)
+    source = read_source(spark, runtime_configuration, "FusionScissions.csv")
+    return source.select(
+        col("NEQ").alias("numero_entreprise"),
+        col("NEQ_ASSUJ_REL").alias("numero_entreprise_liee"),
+        col("DENOMN_SOC").alias("nom_entreprise_liee"),
+        col("COD_RELA_ASSUJ").alias("code_relation"),
+        col("DAT_EFCTVT").alias("date_effet"),
+        indicator("IND_DISP").alias("indicateur_dispense_adresse"),
+        col("LIGN1_ADR").alias("adresse_ligne_1"),
+        col("LIGN2_ADR").alias("adresse_ligne_2"),
+        col("LIGN3_ADR").alias("adresse_ligne_3"),
+        col("LIGN4_ADR").alias("adresse_ligne_4"),
+    )
 
 
 config = ContractConfig(name="fusion_scission", transform=transform)

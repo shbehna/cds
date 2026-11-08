@@ -4,30 +4,30 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from pyspark.sql.functions import col
+
 from cds import ContractConfig
 
 from ..domains import domain_checks
-from ..sources import read_source, select_columns
+from ..sources import read_source
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession
 
     from cds import DataProduct, RuntimeConfiguration, ServiceContext
 
-# Column of ContinuationsTransformations.csv of each column of the contract.
-COLUMNS = {
-    "numero_entreprise": "NEQ",
-    "code_type_changement": "COD_TYP_CHANG",
-    "code_regime_juridique": "COD_REGIM_JURI",
-    "autre_regime_juridique": "AUTR_REGIM_JURI",
-    "localite": "NOM_LOCLT",
-    "date_effet": "DAT_EFCTVT",
-}
-
 
 def transform(spark: SparkSession, runtime_configuration: RuntimeConfiguration) -> DataFrame:
     """Renames the columns of ContinuationsTransformations.csv; the service casts them to the contract types."""
-    return select_columns(read_source(spark, runtime_configuration, "ContinuationsTransformations.csv"), COLUMNS)
+    source = read_source(spark, runtime_configuration, "ContinuationsTransformations.csv")
+    return source.select(
+        col("NEQ").alias("numero_entreprise"),
+        col("COD_TYP_CHANG").alias("code_type_changement"),
+        col("COD_REGIM_JURI").alias("code_regime_juridique"),
+        col("AUTR_REGIM_JURI").alias("autre_regime_juridique"),
+        col("NOM_LOCLT").alias("localite"),
+        col("DAT_EFCTVT").alias("date_effet"),
+    )
 
 
 def quality_checks(

@@ -4,26 +4,26 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from pyspark.sql.functions import col
+
 from cds import ContractConfig
 
-from ..sources import read_source, select_columns
+from ..sources import read_source
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession
 
     from cds import RuntimeConfiguration
 
-# Column of DomaineValeur.csv of each column of the contract.
-COLUMNS = {
-    "domaine": "TYP_DOM_VAL",
-    "code": "COD_DOM_VAL",
-    "description": "VAL_DOM_FRAN",
-}
-
 
 def transform(spark: SparkSession, runtime_configuration: RuntimeConfiguration) -> DataFrame:
     """Renames the columns of DomaineValeur.csv; the service casts them to the contract types."""
-    return select_columns(read_source(spark, runtime_configuration, "DomaineValeur.csv"), COLUMNS)
+    source = read_source(spark, runtime_configuration, "DomaineValeur.csv")
+    return source.select(
+        col("TYP_DOM_VAL").alias("domaine"),
+        col("COD_DOM_VAL").alias("code"),
+        col("VAL_DOM_FRAN").alias("description"),
+    )
 
 
 config = ContractConfig(name="domaine_valeur", transform=transform)

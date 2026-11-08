@@ -1,15 +1,16 @@
-"""Tests of the data products of the demo, without Spark."""
+"""Tests of the data products of the demo, without Spark: PySpark only builds the columns."""
 
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Iterable, Sequence
 from importlib.resources import files
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from pyspark.sql import Column
+from pyspark.sql.connect.expressions import ColumnAlias, ColumnReference, Expression
 
 from cds import ContractInjection, DataContext, RuntimeConfiguration, ScdSettings, ServiceContext
 from cds.cli import main
@@ -56,38 +57,64 @@ TABLES = [
 
 
 class Frame:
-    """A DataFrame keeping its columns and the SQL expressions selected from it."""
+    """A DataFrame keeping its columns and the PySpark columns selected from it."""
 
     def __init__(
         self,
         columns: Iterable[str],
         source_columns: Sequence[str] | None = None,
-        expressions: Iterable[str] = (),
+        selected: Iterable[Column] = (),
         rows: Iterable[dict[str, str]] = (),
     ) -> None:
         self.columns = list(columns)
         self.source_columns = list(source_columns or self.columns)
-        self.expressions = list(expressions)
+        self.selected = list(selected)
         self.rows = list(rows)
 
     def toDF(self, *names: str) -> Frame:
         return Frame(names)
 
-    def selectExpr(self, *expressions: str) -> Frame:
-        return Frame([alias(expression) for expression in expressions], self.columns, expressions)
+    def select(self, *columns: str | Column) -> Frame:
+        if all(isinstance(column, str) for column in columns):
+            return self
+        assert all(isinstance(column, Column) for column in columns), "select columns, not names"
+        selected = cast("list[Column]", list(columns))
+        return Frame([alias(column) for column in selected], self.columns, selected)
 
-    def select(self, *columns: str) -> Frame:
+    def selectExpr(self, *expressions: str) -> Frame:
+        # The casts of the transformation service to the contract types.
         return self
 
     def collect(self) -> list[dict[str, str]]:
         return self.rows
 
 
-def alias(expression: str) -> str:
-    """Returns the alias of a ``selectExpr`` expression ending with ``AS `name```."""
-    match = re.search(r" AS `([^`]+)`$", expression)
-    assert match is not None, f"no alias in {expression!r}"
-    return match.group(1)
+# PySpark (Spark Connect) builds columns without a session: the tests read their
+# expression trees to find their names and the source columns they use.
+def alias(column: Column) -> str:
+    """Returns the name given to a column with ``alias``."""
+    expression = cast("Any", column)._expr
+    assert isinstance(expression, ColumnAlias), f"{column} has no alias"
+    [name] = expression._alias
+    return name
+
+
+def references(column: Column) -> set[str]:
+    """Returns the source columns used by a column."""
+    found: set[str] = set()
+
+    def walk(node: object) -> None:
+        if isinstance(node, ColumnReference):
+            found.add(node._unparsed_identifier)
+        elif isinstance(node, Expression):
+            for value in vars(node).values():
+                walk(value)
+        elif isinstance(node, (list, tuple)):
+            for item in node:
+                walk(item)
+
+    walk(cast("Any", column)._expr)
+    return found
 
 
 class Reader:
@@ -146,8 +173,10 @@ def test_transformations_produce_the_contract_columns(data_context: DataContext,
 
     [path] = spark.read.paths
     assert path.startswith("/Volumes/ext/req/") and "//" not in path.removeprefix("/")
-    referenced = {name for expression in result.expressions for name in re.findall(r"`([^`]+)`(?! *$)", expression)}
-    assert referenced <= set(result.source_columns), "unknown source columns"
+    referenced = set().union(*(references(column) for column in result.selected))
+    assert referenced <= set(result.source_columns), (
+        f"unknown source columns: {referenced - set(result.source_columns)}"
+    )
     unused = set(result.source_columns) - referenced
     assert not unused, f"source columns not mapped: {sorted(unused)}"
     conform_to_contract(result, table)

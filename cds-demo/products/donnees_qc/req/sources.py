@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-import re
-from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
+from pyspark.sql.functions import col, trim, upper, when
+
 if TYPE_CHECKING:
-    from pyspark.sql import DataFrame, SparkSession
+    from pyspark.sql import Column, DataFrame, SparkSession
 
     from cds import RuntimeConfiguration
 
 # Runtime parameter holding the folder of the files, typically a Unity Catalog volume.
 SOURCE_PATH = "source_path"
-
-_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def read_source(spark: SparkSession, runtime_configuration: RuntimeConfiguration, file_name: str) -> DataFrame:
@@ -29,20 +27,7 @@ def read_source(spark: SparkSession, runtime_configuration: RuntimeConfiguration
     return source.toDF(*(name.lstrip("﻿") for name in source.columns))
 
 
-def indicator(column: str) -> str:
-    """SQL expression converting an indicator of the register, O (oui) or N (non), to a boolean."""
-    return f"CASE upper(trim(`{column}`)) WHEN 'O' THEN TRUE WHEN 'N' THEN FALSE END"
-
-
-def select_columns(source: DataFrame, columns: Mapping[str, str]) -> DataFrame:
-    """Selects source columns, or SQL expressions, under the names of the contract.
-
-    Args:
-        source: The DataFrame of a file.
-        columns: Expression of each column of the contract: a source column name, or SQL.
-    """
-    return source.selectExpr(*(f"{_expression(value)} AS `{name}`" for name, value in columns.items()))
-
-
-def _expression(value: str) -> str:
-    return f"`{value}`" if _IDENTIFIER.match(value) else value
+def indicator(column: str) -> Column:
+    """Converts an indicator of the register, O (oui) or N (non), to a boolean; other values become null."""
+    value = upper(trim(col(column)))
+    return when(value == "O", True).when(value == "N", False)
