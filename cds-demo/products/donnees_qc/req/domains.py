@@ -1,7 +1,5 @@
 """Quality checks of the codes of the register against its value domains (domaine_valeur)."""
 
-from __future__ import annotations
-
 import logging
 from collections import defaultdict
 from collections.abc import Mapping

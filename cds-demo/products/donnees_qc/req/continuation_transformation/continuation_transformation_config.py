@@ -1,7 +1,5 @@
 """Configuration of the continuation_transformation contract (source file ContinuationsTransformations.csv)."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from pyspark.sql import DataFrame, SparkSession

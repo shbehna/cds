@@ -1,7 +1,5 @@
 """Reading of the REQ open data files, shared by the contracts of the data product."""
 
-from __future__ import annotations
-
 from pyspark.sql import Column, DataFrame, SparkSession
 from pyspark.sql.functions import col, trim, upper, when
 

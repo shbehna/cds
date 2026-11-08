@@ -1,7 +1,5 @@
 """Configuration of the etablissement contract (source file Etablissements.csv)."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from pyspark.sql import DataFrame, SparkSession

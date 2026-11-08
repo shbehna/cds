@@ -1,7 +1,5 @@
 """Configuration of the domaine_valeur contract (source file DomaineValeur.csv)."""
 
-from __future__ import annotations
-
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col
 
