@@ -112,7 +112,7 @@ def test_the_statistics_page(dashboard: dict[str, Any]) -> None:
     assert pie["spec"]["widgetType"] == "pie"
     assert (pie_position["x"], pie_position["width"]) == (0, 3), "the pie chart uses the left half"
     bars, _ = layout["occurrences_par_validation"]
-    assert bars["spec"]["encodings"]["x"]["fieldName"] == "validation", "vertical bars: the checks on the x axis"
+    assert bars["spec"]["encodings"]["y"]["fieldName"] == "validation", "horizontal bars: the checks on the y axis"
     table, _ = layout["occurrences_par_table"]
     assert [column["title"] for column in table["spec"]["encodings"]["columns"]] == [
         "Table",

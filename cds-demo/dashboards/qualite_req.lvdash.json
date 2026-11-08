@@ -309,21 +309,21 @@
               "widgetType": "bar",
               "encodings": {
                 "x": {
-                  "fieldName": "validation",
-                  "scale": {
-                    "type": "categorical",
-                    "sort": {
-                      "by": "y-reversed"
-                    }
-                  },
-                  "displayName": "Validation"
-                },
-                "y": {
                   "fieldName": "sum(occurrences)",
                   "scale": {
                     "type": "quantitative"
                   },
                   "displayName": "Occurrences"
+                },
+                "y": {
+                  "fieldName": "validation",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Validation"
                 },
                 "color": {
                   "fieldName": "severite",

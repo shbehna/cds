@@ -241,7 +241,7 @@ def table_widget(name: str, dataset_name: str, columns: Sequence[tuple[str, str,
 
 
 def occurrences_chart(name: str, dataset_name: str) -> dict[str, Any]:
-    """Vertical bars: number of occurrences of each check, stacked by severity."""
+    """Horizontal bars: number of occurrences of each check, stacked by severity."""
     count = "sum(occurrences)"
     return {
         "name": name,
@@ -256,12 +256,12 @@ def occurrences_chart(name: str, dataset_name: str) -> dict[str, Any]:
             "version": 3,
             "widgetType": "bar",
             "encodings": {
-                "x": {
+                "x": {"fieldName": count, "scale": {"type": "quantitative"}, "displayName": "Occurrences"},
+                "y": {
                     "fieldName": "validation",
-                    "scale": {"type": "categorical", "sort": {"by": "y-reversed"}},
+                    "scale": {"type": "categorical", "sort": {"by": "x-reversed"}},
                     "displayName": "Validation",
                 },
-                "y": {"fieldName": count, "scale": {"type": "quantitative"}, "displayName": "Occurrences"},
                 "color": {"fieldName": "severite", "scale": colors(SEVERITY_COLORS), "displayName": "Sévérité"},
             },
             "frame": frame("Occurrences par validation"),
