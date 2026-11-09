@@ -3,8 +3,10 @@
 The checks are DQX metadata dictionaries, applied with
 ``DQEngine.apply_checks_by_metadata``. They are inferred from the contract of a table:
 
-- ``required`` properties and primary key columns: ``is_not_null``;
-- the primary key, and ``unique`` properties: ``is_unique``;
+- ``required`` properties and primary key columns: ``is_not_null``, except for a key
+  column declared ``required: false``;
+- the primary key, and ``unique`` properties: ``is_unique``; nulls of a key with
+  nullable columns are compared as values (``nulls_distinct`` false);
 - ``enum`` values: ``is_in_list``;
 - ``logicalTypeOptions``: ``regex_match`` for ``pattern``, range checks for
   ``minimum``, ``maximum`` and their exclusive variants, SQL checks for ``minLength``,
@@ -176,7 +178,11 @@ class _ContractChecks:
         for prop in self.table.columns:
             self._property_checks(prop, keys)
         if keys:
-            self._add("primary_key_is_not_unique", "primary_key", "is_unique", columns=list(keys))
+            arguments: dict[str, object] = {"columns": list(keys)}
+            if any(prop.required is False for prop in self.table.columns if prop.column in keys):
+                # Two rows with the same key, nulls included, are duplicates: DQX ignores them by default.
+                arguments["nulls_distinct"] = False
+            self._add("primary_key_is_not_unique", "primary_key", "is_unique", **arguments)
         for relationship in self.table.schema_object.relationships:
             self._foreign_key(relationship, None)
         for rule in self.table.schema_object.quality:
@@ -187,7 +193,8 @@ class _ContractChecks:
 
     def _property_checks(self, prop: SchemaProperty, keys: tuple[str, ...]) -> None:
         column = prop.column
-        if prop.required or column in keys:
+        # A column of the primary key is not null, unless the contract states required: false.
+        if prop.required or (column in keys and prop.required is None):
             self._add(f"{column}_is_null", "required" if prop.required else "primary_key", "is_not_null", column=column)
         if prop.unique and keys != (column,):
             self._add(f"{column}_is_not_unique", "unique", "is_unique", columns=[column])

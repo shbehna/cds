@@ -100,7 +100,8 @@ class SchemaProperty:
     physical_type: str | None = None
     description: str | None = None
     business_name: str | None = None
-    required: bool = False
+    # None when the contract does not state it: a column of the primary key is then required.
+    required: bool | None = None
     unique: bool = False
     primary_key: bool = False
     primary_key_position: int | None = None
@@ -349,7 +350,7 @@ class _Parser:
             physical_type=physical_type,
             description=self._text(data, "description", where),
             business_name=self._text(data, "businessName", where),
-            required=self._bool(data, "required", where),
+            required=self._optional_bool(data, "required", where),
             unique=self._bool(data, "unique", where),
             primary_key=self._bool(data, "primaryKey", where),
             primary_key_position=self._position(data, "primaryKeyPosition", where),
@@ -451,9 +452,12 @@ class _Parser:
         return value
 
     def _bool(self, data: Mapping[str, Any], key: str, where: str) -> bool:
+        return self._optional_bool(data, key, where) or False
+
+    def _optional_bool(self, data: Mapping[str, Any], key: str, where: str) -> bool | None:
         value = data.get(key)
         if value is None:
-            return False
+            return None
         if not isinstance(value, bool):
             raise self._error(_join(where, key), f"must be true or false, got {value!r}")
         return value

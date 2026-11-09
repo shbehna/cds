@@ -100,6 +100,22 @@ def test_checks_inferred_from_a_contract(context: ServiceContext) -> None:
     ]
 
 
+def test_a_key_column_may_be_nullable(make_project: MakeProject, spark: FakeSpark) -> None:
+    contract = ORDER.replace("physicalType: INT\n", "physicalType: INT\n            required: false\n")
+    context = make_context(
+        spark, {"s/d/customer/customer.yaml": CUSTOMER, "s/d/order/order.yaml": contract}, make_project
+    )
+
+    checks = {check["name"]: check for check in checks_of(context, "order").checks}
+
+    assert "order_id_is_null" in checks and "line_is_null" not in checks
+    # Rows with the same key, nulls included, are duplicates.
+    assert checks["primary_key_is_not_unique"]["check"]["arguments"] == {
+        "columns": ["order_id", "line"],
+        "nulls_distinct": False,
+    }
+
+
 def test_checks_from_quality_rules(make_project: MakeProject, spark: FakeSpark) -> None:
     context = make_context(spark, {"s/d/measure/measure.yaml": RULES}, make_project)
 

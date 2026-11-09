@@ -34,10 +34,13 @@ schema:
           - { value: "CONTN", label: "Continuation" }
           - { value: "TRANS", label: "Transformation" }
       - name: code_regime_juridique
-        description: Code du régime juridique sous lequel l'entreprise est constituée (domaine de valeur REGIM_JURI). Colonne source COD_REGIM_JURI.
+        description: >-
+          Code du régime juridique sous lequel l'entreprise est constituée (domaine de valeur REGIM_JURI).
+          Souvent vide : la colonne fait partie de la clé primaire, mais peut être nulle. Colonne source
+          COD_REGIM_JURI.
         logicalType: string
         physicalType: STRING
-        required: true
+        required: false
         primaryKey: true
         primaryKeyPosition: 3
       - name: autre_regime_juridique

@@ -56,6 +56,8 @@ def test_parses_tables_and_columns() -> None:
     status = table.get_property("status")
     assert status is not None
     assert status.required and [value.value for value in status.enum] == ["open", "closed"]
+    # required is None when the contract does not state it.
+    assert label.required is None
     assert status.custom_properties == {"owner": "sales"}
     rule = status.quality[0]
     assert (rule.type, rule.metric, rule.thresholds, rule.severity) == (

@@ -202,6 +202,13 @@ The quality service infers checks from the contracts:
 | `quality` library metric `rowCount` | `is_aggr_*` |
 | `quality` rules of type `custom` with `engine: dqx` | the DQX check of their `implementation` |
 
+A column of the primary key is not null unless the contract declares it
+`required: false`. A nullable key column suits codes that the source often leaves
+empty: the uniqueness check of the key then compares nulls as values
+(`nulls_distinct: false`), so two rows with the same key, nulls included, are
+duplicates. The `scd` service matches keys with nulls (`<=>`), and the `snapshot`
+service groups them.
+
 Null values pass the checks of `logicalTypeOptions`: a property with `required: true`
 checks them. The
 rules and options no check implements, such as the `format` of a DATE column, a
