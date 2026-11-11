@@ -29,9 +29,15 @@ schema:
         primaryKey: true
         primaryKeyPosition: 2
       - name: nom_langue_etrangere
-        description: Version du nom dans une autre langue que le français. Colonne source NOM_ASSUJ_LANG_ETRNG.
+        description: >-
+          Version du nom dans une autre langue que le français. Un même nom peut avoir plusieurs versions,
+          inscrites le même jour : la colonne fait partie de la clé, et une valeur absente y compte comme une valeur.
+          Colonne source NOM_ASSUJ_LANG_ETRNG.
         logicalType: string
         physicalType: STRING
+        required: false
+        primaryKey: true
+        primaryKeyPosition: 5
       - name: code_statut_nom
         description: Code du statut du nom (domaine de valeur STAT_NOM). Colonne source STAT_NOM.
         logicalType: string
