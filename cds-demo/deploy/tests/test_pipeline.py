@@ -213,7 +213,8 @@ def test_the_stacks_load_synthetic_data_in_nprod_only() -> None:
 
     nprod, prod = config("nprod"), config("prod")
     assert (nprod["cds-demo:syntheticData"], nprod["cds-demo:createCatalog"]) == ("true", "false")
-    assert (prod["cds-demo:syntheticData"], prod["cds-demo:createCatalog"]) == ("false", "true")
+    # The account uses Default Storage: the catalogs are created in Catalog Explorer.
+    assert (prod["cds-demo:syntheticData"], prod["cds-demo:createCatalog"]) == ("false", "false")
     assert nprod["cds-demo:sourcePath"] == prod["cds-demo:sourcePath"]
 
 

@@ -1,7 +1,13 @@
 # Deploys the demo to Databricks with Pulumi. See cds-demo/deploy/README.md for the setup.
 #
-# - A push to master deploys the nprod environment.
-# - prod is deployed by running the workflow manually (Actions > Deploy demo > Run workflow).
+# A push to master that changes the framework or the demo, or a manual run (Actions >
+# Deploy demo > Run workflow), chains three jobs, each starting only if the previous
+# one succeeded:
+#
+#   build --> deploy nprod --> deploy prod
+#
+# build tests the repository and builds the wheel of the framework, which both
+# deployments install. The deployments are skipped until their secrets are configured.
 name: Deploy demo
 
 on:
@@ -14,71 +20,127 @@ on:
       - "uv.lock"
       - ".github/workflows/deploy-demo.yml"
   workflow_dispatch:
-    inputs:
-      environment:
-        description: Environment to deploy
-        type: choice
-        options: [nprod, prod]
-        default: nprod
 
+# One run at a time: a run waits for the previous one instead of interleaving with it.
 concurrency:
-  group: deploy-demo-${{ inputs.environment || 'nprod' }}
+  group: deploy-demo
   cancel-in-progress: false
 
 permissions:
   contents: read
 
+env:
+  UV_VERSION: "0.12.7"
+  WHEEL_ARTIFACT: cds-framework-wheel
+  PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+  # OAuth secret of the service principal whose client id is in Pulumi.<stack>.yaml.
+  DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+
 jobs:
-  deploy:
-    name: Deploy ${{ inputs.environment || 'nprod' }}
+  build:
+    name: Build
     runs-on: ubuntu-latest
-    env:
-      # The name of the Pulumi stack, and of its configuration file Pulumi.<stack>.yaml.
-      STACK: ${{ inputs.environment || 'nprod' }}
-      PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
-      # OAuth secret of the service principal whose client id is in Pulumi.<stack>.yaml.
-      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+    outputs:
+      # Whether the secrets of the deployments are configured.
+      configured: ${{ steps.secrets.outputs.configured }}
     steps:
       - name: Check the secrets
         id: secrets
         run: |
           if [ -z "$PULUMI_ACCESS_TOKEN" ] || [ -z "$DATABRICKS_CLIENT_SECRET" ]; then
-            echo "::warning::Deployment skipped: add the PULUMI_ACCESS_TOKEN and DATABRICKS_CLIENT_SECRET secrets, see cds-demo/deploy/README.md."
+            echo "::warning::Deployments skipped: add the PULUMI_ACCESS_TOKEN and DATABRICKS_CLIENT_SECRET secrets, see cds-demo/deploy/README.md."
             echo "configured=false" >> "$GITHUB_OUTPUT"
           else
             echo "configured=true" >> "$GITHUB_OUTPUT"
           fi
 
       - uses: actions/checkout@v5
-        if: steps.secrets.outputs.configured == 'true'
 
       - uses: astral-sh/setup-uv@v6
-        if: steps.secrets.outputs.configured == 'true'
         with:
-          version: "0.12.7"
+          version: ${{ env.UV_VERSION }}
           enable-cache: true
 
-      - name: Test
-        if: steps.secrets.outputs.configured == 'true'
+      - name: Test the framework and the demo
         run: |
           uv sync --all-packages --locked
           uv run pytest
           uv run cds validate cds-demo/products
 
+      - name: Test the deployment program
+        working-directory: cds-demo/deploy
+        run: |
+          uv sync --locked
+          uv run mypy
+          uv run pytest
+
       - name: Build the framework wheel
-        if: steps.secrets.outputs.configured == 'true'
         run: uv build --package cds-framework --wheel --out-dir dist
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.WHEEL_ARTIFACT }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  # The two deployments have the same steps; only their stack differs.
+  deploy-nprod:
+    name: Deploy nprod
+    needs: build
+    if: needs.build.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      # The wheel built and tested by the build job, where the Pulumi program looks for it.
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.WHEEL_ARTIFACT }}
+          path: dist
+
       - name: Install the deployment program
-        if: steps.secrets.outputs.configured == 'true'
         working-directory: cds-demo/deploy
         run: uv sync --locked
 
       - name: Deploy with Pulumi
-        if: steps.secrets.outputs.configured == 'true'
         uses: pulumi/actions@v6
         with:
           command: up
-          stack-name: ${{ env.STACK }}
+          stack-name: nprod
+          work-dir: cds-demo/deploy
+          upsert: true
+
+  deploy-prod:
+    name: Deploy prod
+    # Runs only once nprod is deployed: a skipped or failed nprod deployment skips it.
+    needs: deploy-nprod
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.WHEEL_ARTIFACT }}
+          path: dist
+
+      - name: Install the deployment program
+        working-directory: cds-demo/deploy
+        run: uv sync --locked
+
+      - name: Deploy with Pulumi
+        uses: pulumi/actions@v6
+        with:
+          command: up
+          stack-name: prod
           work-dir: cds-demo/deploy
           upsert: true

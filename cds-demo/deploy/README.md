@@ -36,7 +36,7 @@ The two environments differ by their data and their catalog:
 | | `nprod` | `prod` |
 | --- | --- | --- |
 | Data loaded by the job | the synthetic data set ([cds-demo/csv/testdata](../csv/testdata)), uploaded by the deployment next to the files of the register | the files of the register |
-| Catalog | created by an administrator | created by the deployment, owned by the service principal |
+| Catalog | created by an administrator | created by an administrator with Default Storage, owned by the service principal |
 
 The synthetic data set illustrates the quality service: 85 % of valid rows, 10 % with
 warnings and 5 % with errors (see [cds-demo/README.md](../README.md#synthetic-data-set)).
@@ -51,11 +51,20 @@ Pulumi *stack*, `nprod` or `prod`, configured by [Pulumi.nprod.yaml](Pulumi.npro
 
 The workflow [.github/workflows/deploy-demo.yml](../../.github/workflows/deploy-demo.yml):
 
-- deploys `nprod` on each push to `master` that changes the framework or the demo;
-- deploys `prod` when you run it manually, choosing `prod`.
+runs on each push to `master` that changes the framework or the demo, and when you run
+it manually. It chains three jobs, each starting only if the previous one succeeded:
 
-It runs the tests, builds the wheel of the framework, then runs `pulumi up`. Until the
-secrets below are configured, it skips the deployment with a warning instead of failing.
+```text
+build --> deploy nprod --> deploy prod
+```
+
+- **Build** runs the tests of the repository and of the deployment program, and builds
+  the wheel of the framework.
+- **Deploy nprod** runs `pulumi up` on the `nprod` stack, with that wheel.
+- **Deploy prod** does the same on the `prod` stack, once `nprod` is deployed.
+
+Until the secrets below are configured, the build runs and the deployments are skipped
+with a warning instead of failing.
 
 ## 1. Prepare Databricks (once)
 
@@ -84,14 +93,17 @@ you do not upload them.
 
 ### Grant access to the service principal
 
-Run, as a metastore administrator:
+The account uses the Default Storage of Databricks: the metastore has no storage root,
+and the API cannot create a catalog without a storage location. Create the `prod`
+catalog in **Catalog > + > Create catalog**, with **Default Storage**. Then run, as a
+metastore administrator:
 
 ```sql
 -- nprod: the catalog is created by an administrator.
 CREATE CATALOG IF NOT EXISTS nprod;
 GRANT USE CATALOG, CREATE SCHEMA ON CATALOG nprod TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
--- prod: the deployment creates the catalog.
-GRANT CREATE CATALOG ON METASTORE TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
+-- prod: the catalog created in Catalog Explorer is given to the service principal.
+ALTER CATALOG prod OWNER TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
 -- The files of the register, and the synthetic files uploaded by the nprod deployment.
 GRANT USE CATALOG ON CATALOG ext TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
 GRANT USE SCHEMA, READ VOLUME ON SCHEMA ext.donnees_qc TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
@@ -100,16 +112,18 @@ GRANT WRITE VOLUME ON VOLUME ext.donnees_qc.req TO `bf175dc4-c86b-4e88-83e9-9194
 
 The service principal owns the `prod` catalog, and the schemas and tables it creates.
 As a metastore administrator or the owner of the `nprod` catalog, you can query them. To
-let other users read the tables of `prod`, list them in `cds-demo:catalogReaders`: the
-deployment grants them `USE CATALOG`, `USE SCHEMA` and `SELECT` on the catalog. For
-`nprod`, grant `USE SCHEMA` and `SELECT` on the schema `donnees_qc_req`.
+let other users read the tables, grant them `USE CATALOG` on the catalog, and `USE
+SCHEMA` and `SELECT` on the schema `donnees_qc_req`.
 
-If the metastore has no storage location, the catalog needs one: set
-`cds-demo:catalogStorageRoot` in [Pulumi.prod.yaml](Pulumi.prod.yaml), and grant the
-service principal `CREATE MANAGED STORAGE` on its external location.
+#### Creating the catalog with Pulumi
 
-If the `prod` catalog already exists, import it in the state of the stack instead of
-creating it, once, before the first deployment of `prod`:
+With a metastore storage root, or an external location for the catalog, the deployment
+can create the catalog instead: set `cds-demo:createCatalog` to `"true"`, and
+`cds-demo:catalogStorageRoot` to the location when the metastore has none (the service
+principal then needs `CREATE MANAGED STORAGE` on the external location). Grant the
+service principal `CREATE CATALOG ON METASTORE`; `cds-demo:catalogReaders` lists the
+users or groups granted `USE CATALOG`, `USE SCHEMA` and `SELECT` on it. A catalog that
+already exists is imported in the state of the stack, once, before the deployment:
 
 ```bash
 pulumi import --stack prod databricks:index/catalog:Catalog catalog prod
@@ -149,19 +163,21 @@ never in the repository.
 The workflow passes `DATABRICKS_CLIENT_SECRET` to Pulumi as an environment variable.
 The client id of the service principal is not secret: it is in the stack files.
 
-GitHub masks secrets in the logs. If you later want approvals before deploying `prod`,
+GitHub masks secrets in the logs. If you later want an approval before deploying `prod`,
 create a `prod` environment in **Settings > Environments** with required reviewers,
-and add `environment: ${{ inputs.environment || 'nprod' }}` to the job of the workflow.
-Environments of private repositories require a paid GitHub plan.
+and add `environment: prod` to the `deploy-prod` job of the workflow: the run then waits
+for the approval once `nprod` is deployed. Environments of private repositories require
+a paid GitHub plan.
 
 ## 4. Deploy
 
-- **nprod**: push to `master`, or open **Actions > Deploy demo > Run workflow** and keep
-  `nprod`.
-- **prod**: open **Actions > Deploy demo > Run workflow** and choose `prod`.
+Push to `master`, or open **Actions > Deploy demo > Run workflow**: the run deploys
+`nprod`, then `prod`. If a job fails, the following ones do not run; fix the cause and
+run the workflow again.
 
-The logs of the **Deploy with Pulumi** step list the created resources and end with the
-URLs of the job (`job_url`) and of the quality dashboard (`dashboard_url`).
+In each deployment job, the logs of the **Deploy with Pulumi** step list the created
+resources and end with the URLs of the job (`job_url`) and of the quality dashboard
+(`dashboard_url`).
 
 ## 5. Run the pipeline
 
@@ -195,7 +211,7 @@ The stack files are the variables of the deployment.
 | `cds-demo:environment` | CDS environment id: `nprod` or `prod`. It is also the catalog of the tables. |
 | `cds-demo:sourcePath` | Folder of the CSV files. **Placeholder**: `/Volumes/ext/donnees_qc/req`. |
 | `cds-demo:syntheticData` | `true`: the deployment uploads the synthetic data set to `sourcePath` and the job loads it; `false`: the job loads the register. `true` in `nprod`, `false` in `prod`. |
-| `cds-demo:createCatalog` | `true`: the deployment creates the catalog of the environment. `false` in `nprod`, `true` in `prod`. |
+| `cds-demo:createCatalog` | `true`: the deployment creates the catalog of the environment, which needs a storage location (see [Creating the catalog with Pulumi](#creating-the-catalog-with-pulumi)). `false` in both stacks: the account uses Default Storage. |
 | `cds-demo:catalogStorageRoot` | Optional. Storage location of the created catalog, when the metastore has none. |
 | `cds-demo:catalogReaders` | Optional. Users or groups granted read access to the created catalog. |
 | `cds-demo:workspaceRoot` | Workspace folder of the deployed files. |
@@ -228,8 +244,8 @@ The stack files are the variables of the deployment.
    ```
 
 `pulumi destroy` removes the job, the dashboard and the files. It does not drop the tables.
-The catalog created for `prod` is protected: `pulumi destroy` fails until you run
-`pulumi state unprotect`, so that its data is not deleted by mistake.
+A catalog created by the deployment (`createCatalog`) is protected: `pulumi destroy`
+fails until you run `pulumi state unprotect`, so that its data is not deleted by mistake.
 
 ## Tests
 
