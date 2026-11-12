@@ -10,12 +10,32 @@ schema:
     physicalType: table
     businessName: Domaine de valeur
     description: Valeurs des domaines de valeur du registre, comme les activités économiques (fichier source DomaineValeur.csv).
+    quality:
+      - type: custom
+        engine: dqx
+        name: code_sans_espaces
+        description: Un code ne commence ni ne finit par une espace.
+        severity: warning
+        implementation:
+          check:
+            function: sql_expression
+            arguments:
+              expression: code = trim(code)
+              msg: Le code commence ou finit par une espace.
     properties:
       - name: domaine
         description: Domaine de valeur du code, par exemple ACT_ECON pour les activités économiques. Colonne source TYP_DOM_VAL.
         logicalType: string
         physicalType: STRING
         required: true
+        quality:
+          - metric: invalidValues
+            name: domaine_en_majuscules
+            description: Le nom d'un domaine est en majuscules, par exemple ACT_ECON.
+            severity: warning
+            arguments:
+              pattern: "^[A-Z_]+$"
+            mustBe: 0
         primaryKey: true
         primaryKeyPosition: 1
       - name: code

@@ -9,6 +9,16 @@ config:
   cds-demo:environment: prod
   # PLACEHOLDER: folder of the REQ CSV files (Entreprise.csv, Nom.csv...) in the ext catalog.
   cds-demo:sourcePath: /Volumes/ext/donnees_qc/req
+  # The job loads the files of the register.
+  cds-demo:syntheticData: "false"
+  # The deployment creates the prod catalog, owned by the service principal.
+  cds-demo:createCatalog: "true"
+  # Optional storage location of the catalog, required when the metastore has none, e.g.
+  # s3://bucket/prod. The service principal needs CREATE MANAGED STORAGE on its external location.
+  # cds-demo:catalogStorageRoot: s3://bucket/prod
+  # Optional users or groups reading the tables of the catalog (USE CATALOG, USE SCHEMA, SELECT).
+  # cds-demo:catalogReaders:
+  #   - data-readers
   # Workspace folder receiving the notebooks, the data products and the framework wheel.
   cds-demo:workspaceRoot: /Shared/cds-demo/prod
   # Serverless environment version of the job, and DQX version installed in it.

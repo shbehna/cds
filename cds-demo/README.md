@@ -25,9 +25,10 @@ products/                                   root folder of the data products
         ├── fusion_scission/
         ├── continuation_transformation/
         └── domaine_valeur/
+csv/                                        synthetic data set and its generator
 dashboards/                                 quality dashboard, generated from the contracts
 deploy/                                     deployment with Pulumi
-tests/                                      tests of the data products and the dashboard, without Spark
+tests/                                      tests of the data products, the data set and the dashboard, without Spark
 ```
 
 ## Language
@@ -52,7 +53,7 @@ naming convention of the `donnees_qc` group.
 | --- | --- | --- |
 | `entreprise` | `Entreprise.csv` | `numero_entreprise` |
 | `etablissement` | `Etablissements.csv` | `numero_entreprise`, `numero_etablissement` |
-| `nom_entreprise` | `Nom.csv` | `numero_entreprise`, `nom`, `code_type_nom`, `date_inscription` |
+| `nom_entreprise` | `Nom.csv` | `numero_entreprise`, `nom`, `code_type_nom`, `date_inscription`, `nom_langue_etrangere` |
 | `fusion_scission` | `FusionScissions.csv` | none: the register publishes no unique key |
 | `continuation_transformation` | `ContinuationsTransformations.csv` | `numero_entreprise`, `code_type_changement`, `date_effet`, `code_regime_juridique` |
 | `domaine_valeur` | `DomaineValeur.csv` | `domaine`, `code` |
@@ -68,9 +69,11 @@ The tables with a primary key have a history table, `<table>_historique`: the
   result to the types of the contract and rejects any column it does not declare.
 - **Quality**: the checks are inferred from the contracts: required columns, primary
   keys, foreign keys to `entreprise`, allowed values (`enum`), the format of the
-  enterprise number, a minimum row count and a custom DQX rule. The contract
-  configurations add checks computed at run time: the codes of activities and laws
-  must exist in `domaine_valeur`.
+  enterprise number and of the value domains, and custom DQX rules, as warnings, on the
+  consistency of the dates and of the relations. The contract configurations add checks
+  computed at run time: the codes of activities and laws must exist in
+  `domaine_valeur`, and `entreprise` must have at least a million rows (a hundred with
+  the synthetic data set).
 - **SCD**: the history uses the primary key of each contract. The register publishes a
   few rows sharing the same key, which the quality service reports: the `req`
   configuration keeps one row per key in the history instead of failing.
@@ -79,6 +82,41 @@ A profiling of the data set of October 2026 shows what the checks catch: 25 keys
 establishments and 2,245 keys of names used by several rows,
 16 enterprises without registration date, and a name and a merger referencing an
 unknown enterprise.
+
+## Synthetic data set
+
+[csv/testdata](csv/testdata) holds a synthetic version of each file of the register,
+named after it (`Entreprise_testdata.csv` for `Entreprise.csv`), to illustrate the
+quality service. Each file has 200 rows: 170 valid rows (85 %), 20 rows with a warning
+(10 %) and 10 rows with an error (5 %). Each of these rows fails a single check, chosen
+among the kinds of checks of its table:
+
+| Table | Errors | Warnings |
+| --- | --- | --- |
+| `entreprise` | enterprise number not matching its pattern, codes out of their `enum`, missing registration date, duplicated key | codes out of their value domain, limited liability ending before it starts |
+| `etablissement` | unknown enterprise, establishment number 0 or missing, invalid indicator, duplicated key | activity codes out of their value domain |
+| `nom_entreprise` | unknown enterprise, missing name, codes out of their `enum`, duplicated key | name withdrawn before its registration, former name without withdrawal date |
+| `fusion_scission` | unknown enterprise or linked enterprise, code out of its `enum`, missing date | enterprise linked to itself, date in the future |
+| `continuation_transformation` | unknown or missing enterprise, code out of its `enum`, missing date, duplicated key | law code out of its value domain, date in the future |
+| `domaine_valeur` | missing domain, code or description, duplicated key | code with spaces, domain not in capitals |
+
+The other rows reference each other as in the register: the establishments, names,
+mergers and continuations belong to enterprises without errors, and their codes belong
+to the value domains of `DomaineValeur_testdata.csv`.
+
+The transformations read the synthetic files instead of those of the register when the
+runtime parameter `synthetic_data` is true ([sources.py](products/donnees_qc/req/sources.py)).
+The deployment uploads them next to the files of the register, and the `nprod` job
+loads them; the `prod` job loads the register.
+
+[csv/generate_testdata.py](csv/generate_testdata.py) generates the files,
+deterministically. Regenerate them after changing it, and commit them: a test checks
+that they are up to date, and that each row fails exactly the checks the generator
+expects.
+
+```bash
+uv run python cds-demo/csv/generate_testdata.py
+```
 
 ## Quality dashboard
 
@@ -121,7 +159,7 @@ parameters as environment variables:
 
 ```bash
 export CDS_ENVIRONMENT=nprod CDS_ROOTS=cds-demo/products CDS_DATA_PRODUCT=donnees_qc.req
-export CDS_SOURCE_PATH=/Volumes/ext/donnees_qc/req
+export CDS_SOURCE_PATH=/Volumes/ext/donnees_qc/req CDS_SYNTHETIC_DATA=true   # false: the register
 uv run python -c "from cds import SchemaService, run_service; run_service(SchemaService)"
 ```
 

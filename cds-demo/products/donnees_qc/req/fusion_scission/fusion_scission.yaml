@@ -13,6 +13,29 @@ schema:
     physicalType: table
     businessName: Fusion et scission
     description: Fusions et scissions entre entreprises (fichier source FusionScissions.csv).
+    quality:
+      - type: custom
+        engine: dqx
+        name: entreprise_liee_distincte
+        description: Une entreprise n'est pas liée à elle-même.
+        severity: warning
+        implementation:
+          check:
+            function: sql_expression
+            arguments:
+              expression: numero_entreprise_liee <> numero_entreprise
+              msg: L'entreprise est liée à elle-même.
+      - type: custom
+        engine: dqx
+        name: date_effet_passee
+        description: La date d'effet n'est pas dans le futur.
+        severity: warning
+        implementation:
+          check:
+            function: sql_expression
+            arguments:
+              expression: date_effet <= current_date()
+              msg: La date d'effet est dans le futur.
     properties:
       - name: numero_entreprise
         businessName: Numéro d'entreprise du Québec (NEQ)
