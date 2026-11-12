@@ -10,6 +10,29 @@ schema:
     physicalType: table
     businessName: Nom d'entreprise
     description: Noms, autres noms et versions des noms des entreprises (fichier source Nom.csv).
+    quality:
+      - type: custom
+        engine: dqx
+        name: periode_nom_valide
+        description: Un nom ne peut être retiré avant son inscription.
+        severity: warning
+        implementation:
+          check:
+            function: sql_expression
+            arguments:
+              expression: date_retrait >= date_inscription
+              msg: Le nom est retiré avant son inscription.
+      - type: custom
+        engine: dqx
+        name: nom_anterieur_avec_date_retrait
+        description: Un nom antérieur (statut A) a une date de retrait.
+        severity: warning
+        implementation:
+          check:
+            function: sql_expression
+            arguments:
+              expression: code_statut_nom <> 'A' OR date_retrait IS NOT NULL
+              msg: Le nom antérieur n'a pas de date de retrait.
     properties:
       - name: numero_entreprise
         businessName: Numéro d'entreprise du Québec (NEQ)

@@ -9,6 +9,11 @@ config:
   cds-demo:environment: nprod
   # PLACEHOLDER: folder of the REQ CSV files (Entreprise.csv, Nom.csv...) in the ext catalog.
   cds-demo:sourcePath: /Volumes/ext/donnees_qc/req
+  # The job loads the synthetic data set (cds-demo/csv/testdata), which the deployment
+  # uploads to sourcePath, instead of the files of the register.
+  cds-demo:syntheticData: "true"
+  # The nprod catalog is created by an administrator (README.md).
+  cds-demo:createCatalog: "false"
   # Workspace folder receiving the notebooks, the data products and the framework wheel.
   cds-demo:workspaceRoot: /Shared/cds-demo/nprod
   # Serverless environment version of the job, and DQX version installed in it.
