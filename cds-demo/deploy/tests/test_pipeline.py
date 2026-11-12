@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -93,6 +95,7 @@ def test_job(settings: pipeline.Settings) -> pulumi.Output[None]:
             "data_product": "donnees_qc.req",
             "source_path": "/Volumes/ext/donnees_qc/req",
             "max_workers": "4",
+            "synthetic_data": "false",
         }
         assert value(run_as, "service_principal_name") == "bf175dc4-c86b-4e88-83e9-9194c485a080"
 
@@ -139,6 +142,84 @@ def test_quality_dashboard(settings: pipeline.Settings) -> pulumi.Output[None]:
         assert "/Shared/cds-demo/nprod/dashboards" in directories
 
     return job.id.apply(check)
+
+
+def created(typ: str, prefix: str = "") -> list[pulumi.runtime.MockResourceArgs]:
+    return [args for args in CREATED if args.typ == typ and args.name.startswith(prefix)]
+
+
+@pulumi.runtime.test
+def test_synthetic_data(settings: pipeline.Settings) -> pulumi.Output[None]:
+    CREATED.clear()
+    job = pipeline.deploy(dataclasses.replace(settings, synthetic_data=True))
+
+    def check(parameters: Sequence[Any] | None) -> None:
+        uploads = {args.inputs["path"]: args.inputs["source"] for args in created("databricks:index/file:File")}
+        names = sorted(path.name for path in pipeline.TESTDATA.glob("*.csv"))
+        assert len(names) == 6
+        assert sorted(uploads) == [f"/Volumes/ext/donnees_qc/req/{name}" for name in names]
+        assert all(Path(source).parent == pipeline.TESTDATA for source in uploads.values())
+        values = {value(parameter, "name"): value(parameter, "default") for parameter in parameters or []}
+        assert values["synthetic_data"] == "true"
+
+    return job.parameters.apply(check)
+
+
+@pulumi.runtime.test
+def test_no_catalog_nor_synthetic_data_by_default(settings: pipeline.Settings) -> pulumi.Output[None]:
+    CREATED.clear()
+    job = pipeline.deploy(settings)
+
+    def check(_: str) -> None:
+        assert not created("databricks:index/catalog:Catalog")
+        assert not created("databricks:index/grant:Grant")
+        assert not created("databricks:index/file:File")
+
+    return job.id.apply(check)
+
+
+@pulumi.runtime.test
+def test_catalog(settings: pipeline.Settings) -> pulumi.Output[None]:
+    CREATED.clear()
+    prod = dataclasses.replace(
+        settings,
+        environment="prod",
+        workspace_root="/Shared/cds-demo/prod",
+        create_catalog=True,
+        catalog_storage_root="s3://bucket/prod",
+        catalog_readers=("data-readers",),
+    )
+    job = pipeline.deploy(prod)
+
+    def check(_: str) -> None:
+        [catalog] = created("databricks:index/catalog:Catalog")
+        assert catalog.inputs["name"] == "prod"
+        assert catalog.inputs["storageRoot"] == "s3://bucket/prod"
+        [grant] = created("databricks:index/grant:Grant")
+        privileges = pipeline.READER_PRIVILEGES
+        assert grant.inputs == {"catalog": "prod", "principal": "data-readers", "privileges": privileges}
+
+    return job.id.apply(check)
+
+
+def test_the_stacks_load_synthetic_data_in_nprod_only() -> None:
+    def config(stack: str) -> dict[str, str]:
+        """Returns the values of the cds-demo namespace of a stack file (one per line, quotes removed)."""
+        text = (pipeline.REPOSITORY / "cds-demo" / "deploy" / f"Pulumi.{stack}.yaml").read_text(encoding="utf-8")
+        return {
+            f"cds-demo:{key}": raw.strip().strip('"')
+            for key, raw in re.findall(r"^  cds-demo:(\w+): *(.+)$", text, flags=re.MULTILINE)
+        }
+
+    nprod, prod = config("nprod"), config("prod")
+    assert (nprod["cds-demo:syntheticData"], nprod["cds-demo:createCatalog"]) == ("true", "false")
+    assert (prod["cds-demo:syntheticData"], prod["cds-demo:createCatalog"]) == ("false", "true")
+    assert nprod["cds-demo:sourcePath"] == prod["cds-demo:sourcePath"]
+
+
+def test_missing_testdata(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match=r"generate_testdata\.py"):
+        pipeline.testdata_files(tmp_path)
 
 
 def test_folders_are_listed_parents_first() -> None:

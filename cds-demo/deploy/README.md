@@ -31,6 +31,17 @@ schema --> metadata
 The job runs as the deployment service principal. The tables are created in the
 `<environment>` catalog, in the `donnees_qc_req` schema.
 
+The two environments differ by their data and their catalog:
+
+| | `nprod` | `prod` |
+| --- | --- | --- |
+| Data loaded by the job | the synthetic data set ([cds-demo/csv/testdata](../csv/testdata)), uploaded by the deployment next to the files of the register | the files of the register |
+| Catalog | created by an administrator | created by the deployment, owned by the service principal |
+
+The synthetic data set illustrates the quality service: 85 % of valid rows, 10 % with
+warnings and 5 % with errors (see [cds-demo/README.md](../README.md#synthetic-data-set)).
+The job receives the choice as its `synthetic_data` parameter.
+
 Pulumi keeps track of what it deployed in a *state*, stored by Pulumi Cloud, and
 updates the workspace to match the program on each deployment. Each environment is a
 Pulumi *stack*, `nprod` or `prod`, configured by [Pulumi.nprod.yaml](Pulumi.nprod.yaml) and
@@ -62,6 +73,9 @@ CREATE VOLUME IF NOT EXISTS ext.donnees_qc.req;
 Then, in **Catalog > ext > donnees_qc > req**, select **Upload to this volume**. If you use
 another volume or folder, set `cds-demo:sourcePath` in both stack files.
 
+The `nprod` deployment uploads the synthetic files (`*_testdata.csv`) to the same volume:
+you do not upload them.
+
 ### Create a secret for the service principal
 
 1. In the workspace, open **Settings > Identity and access > Service principals**.
@@ -70,18 +84,36 @@ another volume or folder, set `cds-demo:sourcePath` in both stack files.
 
 ### Grant access to the service principal
 
-Run, as an administrator or owner of the catalogs:
+Run, as a metastore administrator:
 
 ```sql
+-- nprod: the catalog is created by an administrator.
+CREATE CATALOG IF NOT EXISTS nprod;
 GRANT USE CATALOG, CREATE SCHEMA ON CATALOG nprod TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
-GRANT USE CATALOG, CREATE SCHEMA ON CATALOG prod TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
+-- prod: the deployment creates the catalog.
+GRANT CREATE CATALOG ON METASTORE TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
+-- The files of the register, and the synthetic files uploaded by the nprod deployment.
 GRANT USE CATALOG ON CATALOG ext TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
 GRANT USE SCHEMA, READ VOLUME ON SCHEMA ext.donnees_qc TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
+GRANT WRITE VOLUME ON VOLUME ext.donnees_qc.req TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
 ```
 
-The service principal owns the schemas and tables it creates. As the owner of the
-catalogs, you can query them. To let other users read them, grant `USE SCHEMA` and
-`SELECT` on the schema `donnees_qc_req`.
+The service principal owns the `prod` catalog, and the schemas and tables it creates.
+As a metastore administrator or the owner of the `nprod` catalog, you can query them. To
+let other users read the tables of `prod`, list them in `cds-demo:catalogReaders`: the
+deployment grants them `USE CATALOG`, `USE SCHEMA` and `SELECT` on the catalog. For
+`nprod`, grant `USE SCHEMA` and `SELECT` on the schema `donnees_qc_req`.
+
+If the metastore has no storage location, the catalog needs one: set
+`cds-demo:catalogStorageRoot` in [Pulumi.prod.yaml](Pulumi.prod.yaml), and grant the
+service principal `CREATE MANAGED STORAGE` on its external location.
+
+If the `prod` catalog already exists, import it in the state of the stack instead of
+creating it, once, before the first deployment of `prod`:
+
+```bash
+pulumi import --stack prod databricks:index/catalog:Catalog catalog prod
+```
 
 ### Let the service principal use a SQL warehouse
 
@@ -138,7 +170,8 @@ first run creates the tables of `nprod.donnees_qc_req`. Each run then:
 
 1. creates or updates the tables from their contracts (schema);
 2. documents them (metadata);
-3. loads them from the CSV files, with the names and types of their contracts (transformation);
+3. loads them from the CSV files, with the names and types of their contracts
+   (transformation): the synthetic files in `nprod`, those of the register in `prod`;
 4. checks them with DQX: each row gets its `_errors` and `_warnings` (quality);
 5. updates their history in the `<table>_historique` tables (scd).
 
@@ -161,6 +194,10 @@ The stack files are the variables of the deployment.
 | `databricks:clientId` | Application id of the deployment service principal; the job runs as it. |
 | `cds-demo:environment` | CDS environment id: `nprod` or `prod`. It is also the catalog of the tables. |
 | `cds-demo:sourcePath` | Folder of the CSV files. **Placeholder**: `/Volumes/ext/donnees_qc/req`. |
+| `cds-demo:syntheticData` | `true`: the deployment uploads the synthetic data set to `sourcePath` and the job loads it; `false`: the job loads the register. `true` in `nprod`, `false` in `prod`. |
+| `cds-demo:createCatalog` | `true`: the deployment creates the catalog of the environment. `false` in `nprod`, `true` in `prod`. |
+| `cds-demo:catalogStorageRoot` | Optional. Storage location of the created catalog, when the metastore has none. |
+| `cds-demo:catalogReaders` | Optional. Users or groups granted read access to the created catalog. |
 | `cds-demo:workspaceRoot` | Workspace folder of the deployed files. |
 | `cds-demo:environmentVersion` | Serverless environment version of the job. |
 | `cds-demo:dqxVersion` | Version of DQX installed in the job environment. |
@@ -191,6 +228,8 @@ The stack files are the variables of the deployment.
    ```
 
 `pulumi destroy` removes the job, the dashboard and the files. It does not drop the tables.
+The catalog created for `prod` is protected: `pulumi destroy` fails until you run
+`pulumi state unprotect`, so that its data is not deleted by mistake.
 
 ## Tests
 

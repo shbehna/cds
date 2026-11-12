@@ -1,0 +1,201 @@
+﻿TYP_DOM_VAL,COD_DOM_VAL,VAL_DOM_FRAN
+FORM_JURI,APE,Personne morale sans but lucratif
+FORM_JURI,ASS,Association
+FORM_JURI,AU,Autre
+FORM_JURI,AUG,Groupement de personnes
+FORM_JURI,CIE,Société par actions ou compagnie
+FORM_JURI,COP,Coopérative
+FORM_JURI,IND,Entreprise individuelle
+FORM_JURI,MUT,Mutuelle d'assurance
+FORM_JURI,SEC,Société en commandite
+FORM_JURI,SENC,Société en nom collectif
+FORM_JURI,SENCRL,Société en nom collectif à responsabilité limitée
+FORM_JURI,SEP,Société en participation
+FORM_JURI,SMU,Société de secours mutuel
+FORM_JURI,SOC,Société non constituée au Québec
+FORM_JURI,SYC,Syndicat de copropriété
+FORM_JURI,SYP,Syndicat professionnel
+INTVAL_EMPLO_QUE,A,De 1 à 5
+INTVAL_EMPLO_QUE,B,De 6 à 10
+INTVAL_EMPLO_QUE,C,De 11 à 25
+INTVAL_EMPLO_QUE,D,De 26 à 49
+INTVAL_EMPLO_QUE,E,De 50 à 99
+INTVAL_EMPLO_QUE,F,De 100 à 249
+INTVAL_EMPLO_QUE,G,De 250 à 499
+INTVAL_EMPLO_QUE,H,De 500 à 749
+INTVAL_EMPLO_QUE,I,De 750 à 999
+INTVAL_EMPLO_QUE,J,De 1000 à 2499
+INTVAL_EMPLO_QUE,K,De 2500 à 4999
+INTVAL_EMPLO_QUE,L,Plus de 5000
+INTVAL_EMPLO_QUE,N,Non déclaré
+INTVAL_EMPLO_QUE,O,Aucun
+INTVAL_EMPLO_QUE,P,Non déclaré
+PAYS,CDN,Canada
+PAYS, EU,États-unis
+PAYS,FR,France
+PAYS,GB,Royaume-Uni
+PAYS,MX,Mexique
+RELA_ASSUJ,CO,Conversion
+RELA_ASSUJ,FO,Fusion ordinaire
+RELA_ASSUJ,FS,Fusion simplifiée
+RELA_ASSUJ,IN,Intégration
+RELA_ASSUJ,RP,Remplacé par
+RELA_ASSUJ,SC,Scission
+STAT_IMMAT,AI,Avis d'intention de constitution
+STAT_IMMAT,IM,Immatriculée
+STAT_IMMAT,NI,Non immatriculée
+STAT_IMMAT,RD,Radiée sur demande
+STAT_IMMAT,RO,Radiée d'office
+STAT_IMMAT,RX,Radiée d'office (article 59)
+STAT_NOM,A,Antérieur
+STAT_NOM,F,Futur
+STAT_NOM,R,Réservé
+STAT_NOM,V,En vigueur
+TYP_CHANG,CONTN,Continuation
+TYP_CHANG,TRANS,Transformation
+TYP_NOM,A,Autre nom
+TYP_NOM,M,Denomination sociale
+TYP_NOM,N,Nom
+TYP_NOM,V,Version du nom
+TYP_RUE,AUT,Autoroute
+TYP_RUE,AVE,Avenue
+TYP_RUE,BOUL,Boulevard
+TYP_RUE,CAR,Carrefour
+TYP_RUE,CH,
+TYP_RUE,PARC,Parc
+TYP_RUE,PL,Place
+TYP_RUE,RANG,Rang
+TYP_RUE,RTE,Route
+typ_rue,RUE,Rue
+REGIM_JURI,011,"QUÉBEC : Loi sur les assurances (RLRQ, C. A-32)"
+REGIM_JURI,016,"QUÉBEC : Loi sur les sociétés d'exploration minière (RLRQ, C. S-26)"
+REGIM_JURI,021,"QUÉBEC : Loi sur les compagnies, Partie 1 (RLRQ, C. C-38)"
+REGIM_JURI,022,"QUÉBEC : Loi sur les compagnies, Partie 2 (RLRQ, C. C-38)"
+REGIM_JURI,023,"QUÉBEC : Loi sur les compagnies, Partie 3 (RLRQ, C. C-38)"
+REGIM_JURI,024,"QUÉBEC : Loi sur les sociétés par actions (RLRQ, C. S-31.1)"
+REGIM_JURI,025,"QUÉBEC : Loi sur les caisses d'épargne et de crédit (RLRQ, C. C-4)"
+REGIM_JURI,030,"QUÉBEC : Loi sur les coopératives (RLRQ, C. C-67.2)"
+REGIM_JURI,031,"QUÉBEC : Loi sur les sociétés d'entraide économique (RLRQ, C. S-25.1)"
+REGIM_JURI,032,Autre loi étrangère
+REGIM_JURI,036,"QUÉBEC : Loi sur les associations coopératives (RLRQ, C. A-24)"
+REGIM_JURI,042,"QUÉBEC : Loi sur les sociétés de fiducie et les sociétés d'épargne (RLRQ, C. S-29.01)"
+REGIM_JURI,051,"QUÉBEC : Loi sur les coopératives de services financiers (RLRQ, C. C-67.3)"
+REGIM_JURI,052,QUÉBEC : Loi du Québec à caractère privé
+REGIM_JURI,053,QUÉBEC : Loi du Québec à caractère public
+REGIM_JURI,101,CANADA : Loi du Canada à caractère privé
+REGIM_JURI,102,CANADA : Loi du Canada à caractère public
+REGIM_JURI,103,"ONTARIO : Loi sur les sociétés par actions, L.R.O. 1990, c. B.16"
+REGIM_JURI,104,"CANADA: Loi canadienne sur les sociétés par actions, L.R.C. (1985), c. C-44"
+REGIM_JURI,400,"QUÉBEC : Loi sur les compagnies partie 1A, RLRQ, C. C-38"
+PROV_ETAT,AB,Alberta
+PROV_ETAT,BC ,Colombie-Britannique
+PROV_ETAT,MB,Manitoba
+PROV_ETAT,NB,Nouveau-Brunswick
+PROV_ETAT,NL,Terre-Neuve-et-Labrador
+PROV_ETAT,NS,Nouvelle-Écosse
+PROV_ETAT,NT,Territoires du Nord-Ouest
+PROV_ETAT,NU,Nunavut
+PAYS,CDN,Île-du-Prince-Édouard
+PROV_ETAT,SK,Saskatchewan
+PROV_ETAT,,Territoire du Yukon
+ACT_ECON,1,Activités indéterminées et imprécises
+ACT_ECON,2,Information non déclarée
+ACT_ECON,3,Aucune
+ACT_ECON,0100,Agriculture
+act_econ,0139,Autres grandes cultures
+ACT_ECON,0151,Culture des fruits
+ACT_ECON,0164,Érablière
+ACT_ECON, 0222,Services de poudrage et de pulvérisation des cultures (sauf par aéronef)
+ACT_ECON,0410,Exploitation forestière
+ACT_ECON,0629,Autres mines de minerais non métalliques (sauf le charbon)
+,0921,Forage à forfait (sauf pétrole et gaz)
+ACT_ECON, 1060,Industrie des aliments pour animaux
+act_econ,1130,Industrie de la bière
+ACT_ECON,,Industrie des tuyaux et raccords de tuyauterie en matière plastique
+act_econ,1714,Industrie des accessoires pour bottes et chaussures
+ACT_ECON,1932,Industrie des sacs et poches en matière textile
+ACT_ECON,2442,Industrie des vêtements de sport pour femmes
+ACT_ECON,2510,Industrie du bois de sciage et des bardeaux
+ACT_ECON,2591,
+ACT_ECON,2611,Industrie des meubles de maison en bois
+ACT_ECON,2700,Industrie du papier et des produits en papier
+ACT_ECON,2800 ,"Imprimerie, édition et industrie connexes"
+ACT_ECON,2919,Autres industries sidérurgiques
+ACT_ECON,3020,Industries des produits de construction en métal
+ACT_ECON,3062,"Industrie des matrices, des moules et des outils tranchants et à profiler en métal"
+ACT_ECON,3192,Industrie de l'équipement de manutention
+ACT_ECON,3255,Industrie des roues et des freins pour véhicules automobiles
+ACT_ECON,3331,Industrie des appareils d'éclairage pour immeubles
+ACT_ECON,3390,Autres industries de produits électriques
+act_econ,3560,Industries du verre et des articles en verre
+ACT_ECON,3700,Industries chimiques
+ACT_ECON,3791,Industrie des encres d'imprimerie
+ACT_ECON,3971,Industrie des enseignes et étalages
+ACT_ECON,4011,Promotion et construction de maisons individuelles
+ACT_ECON,4030 ,Travaux de génie
+ACT_ECON,4220,Travaux de charpenterie et travaux connexes
+ACT_ECON,4231,Travaux de maçonnerie
+ACT_ECON,4241,Plomberie
+ACT_ECON,4243,Installation de systèmes de chauffage par fluide caloporteur et de systèmes de climatisation
+ACT_ECON,4277,Pose de revêtements de plancher en bois dur
+ACT_ECON,4520,Services relatifs aux transports aériens
+ACT_ECON,4555,Agences d'expédition maritime
+ACT_ECON,4561,Camionnage de marchandises ordinaires
+ACT_ECON,4591,"Entretien des routes, rues et ponts"
+ACT_ECON,4814,Câblovision
+ACT_ECON,4999,Autres services publics
+act_econ,5216,Commerce de gros de fruits et légumes frais
+ACT_ECON,5314,Commerce de gros de chaussures
+act_econ,5500,"Commerces de gros de véhicules automobiles, pièces et accessoires"
+ACT_ECON,5631,"Commerce de gros de bois de construction, de contre-plaqués et de bois travaillé"
+ACT_ECON,5749,"Autres types de commerce de machines, matériel et fournitures électriques et électroniques"
+act_econ,5931,Commerce de gros d'aliments pour animaux
+ACT_ECON,5993,Commerce de gros de produits forestiers
+ACT_ECON,6012,Épiceries (sauf supermarchés)
+ACT_ECON,6013,Boulangeries et pâtisseries
+ACT_ECON,6111,
+act_econ,6212,Commerce de détail de meubles de maison (sans appareils ménagers ni accessoires d'ameublement)
+,6321,Commerce de détail de roulottes motorisées et de roulottes de voyage
+ACT_ECON,6351,Garages (réparations générales)
+ACT_ECON,6392,
+ACT_ECON,6511,Librairies et papeteries
+ACT_ECON,6531,Quincailleries
+ACT_ECON,6541,Commerce de détail d'articles de sport
+ACT_ECON,6552,Commerce de détail de disques et de bandes magnétiques
+ACT_ECON,6598,Commerce de détail de maisons mobiles
+ACT_ECON,7052,Caisses centrales d'épargne et de crédit
+ACT_ECON,7215,Sociétés de portefeuille (holdings)
+ACT_ECON,7221,Sociétés de placement hypothécaire
+ACT_ECON,7413,Courtiers en marchandises
+ACT_ECON,7611,Agences d'assurances
+ACT_ECON,7612,Agences ou courtiers immobiliers
+ACT_ECON,7614,"Évaluateurs agréés, estimateurs agréés"
+ACT_ECON,7721,Services d'informatique
+ACT_ECON,7730,Services de comptabilité et de tenue de livres
+ACT_ECON,7741,Agences de publicité
+ACT_ECON,7751,Bureaux d'architectes
+ACT_ECON,7752,Bureaux d'ingénieurs
+ACT_ECON,7756,Bureaux de chimistes ou de chimistes professionnels
+ACT_ECON,7771,Bureaux de conseillers en gestion
+ACT_ECON,7796,Services de reproduction
+ACT_ECON, 8142,Aide internationale
+ACT_ECON,8176,Gestion de la recherche
+ACT_ECON,8262 ,Gestion des services sociaux
+act_econ,8350,Services administratifs généraux
+ACT_ECON, 8411,Organismes internationaux et autres organismes extraterritoriaux
+ACT_ECON,8611,Centres hospitaliers de soins de courte durée
+ACT_ECON,8641,Garderies pour enfants
+ACT_ECON,8648,Services d'aide de nature affective ou psychologique
+ACT_ECON,8666,Cabinets d'optométristes
+ACT_ECON,8685,Banques de sang
+ACT_ECON,9111,Hôtels et auberges routières
+ACT_ECON, 9131,Terrains de camping et parcs à roulottes
+ACT_ECON,9211,Restaurants avec permis d'alcool
+ACT_ECON,9212,Restaurants sans permis d'alcool
+ACT_ECON,9620,Projection de films cinématographiques
+ACT_ECON,9631,Agences de spectacles et d'artistes
+ACT_ECON,9659,Autres clubs sportifs et services de loisirs
+ACT_ECON,9713,Salons de coiffure et de beauté pour hommes et femmes
+ACT_ECON,9721,Blanchissage ou nettoyage à sec mécanisés
+ACT_ECON,9811,Organisations religieuses
+ACT_ECON,9920,Services de location d'automobiles et de camions

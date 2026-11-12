@@ -32,7 +32,9 @@ def domain_checks(
     table = service_context.full_table_name(data_product.get_table("domaine_valeur"))
     codes: dict[str, list[str]] = defaultdict(list)
     for row in spark.table(table).select("domaine", "code").collect():
-        codes[row["domaine"]].append(row["code"])
+        # Values without domain or code fail the quality checks of domaine_valeur: they are not codes.
+        if row["domaine"] is not None and row["code"] is not None:
+            codes[row["domaine"]].append(row["code"])
     checks = []
     for column, domain in columns.items():
         if not codes[domain]:

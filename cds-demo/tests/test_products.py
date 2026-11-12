@@ -8,6 +8,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any, cast
 
+import generate_testdata
 import pytest
 from pyspark.sql import Column, SparkSession
 from pyspark.sql.connect.expressions import ColumnAlias, ColumnReference, Expression
@@ -121,8 +122,9 @@ class Reader:
     def csv(self, path: str, **options: object) -> Frame:
         assert options["header"] is True and options["encoding"] == "UTF-8"
         self.paths.append(path)
-        columns = SOURCE_HEADERS[path.rsplit("/", 1)[1]].split(",")
-        return Frame(["﻿" + columns[0], *columns[1:]])
+        # The files of the synthetic data set have the columns of those of the register.
+        columns = SOURCE_HEADERS[path.rsplit("/", 1)[1].replace("_testdata.", ".")].split(",")
+        return Frame(["\ufeff" + columns[0], *columns[1:]])
 
 
 class Spark:
@@ -139,12 +141,15 @@ def data_context() -> DataContext:
     return DataContext.discover(PRODUCTS)
 
 
-def service_context(data_context: DataContext, spark: Spark | None = None) -> ServiceContext:
+def service_context(
+    data_context: DataContext, spark: Spark | None = None, synthetic_data: bool = False
+) -> ServiceContext:
+    parameters = {"environment": "nprod", "source_path": "/Volumes/ext/req/", "synthetic_data": synthetic_data}
     return ServiceContext(
         spark=cast("SparkSession", spark or Spark()),
         environment="nprod",
         data_context=data_context,
-        runtime_configuration=RuntimeConfiguration({"environment": "nprod", "source_path": "/Volumes/ext/req/"}),
+        runtime_configuration=RuntimeConfiguration(parameters),
     )
 
 
@@ -177,6 +182,44 @@ def test_transformations_produce_the_contract_columns(data_context: DataContext,
     unused = set(result.source_columns) - referenced
     assert not unused, f"source columns not mapped: {sorted(unused)}"
     conform_to_contract(result, table)
+
+
+@pytest.mark.parametrize("table_name", TABLES)
+def test_the_synthetic_data_set_replaces_the_files_of_the_register(data_context: DataContext, table_name: str) -> None:
+    table = data_context.get_table(table_name)
+    spark = Spark()
+    context = service_context(data_context, spark, synthetic_data=True)
+    injection = ContractInjection(context, table=table, contract=table.contract, data_product=table.data_product)
+    transformation = find_transformation(table)
+    assert transformation is not None
+
+    injection.call(transformation)
+
+    [path] = spark.read.paths
+    folder, name = path.rsplit("/", 1)
+    assert folder == "/Volumes/ext/req"
+    assert name in {source.file_name for source in generate_testdata.generate()}
+
+
+def test_the_synthetic_files_have_the_columns_of_the_register() -> None:
+    assert {name: ",".join(columns) for name, columns in generate_testdata.HEADERS.items()} == SOURCE_HEADERS
+
+
+@pytest.mark.parametrize(("synthetic_data", "minimum"), [(False, 1_000_000), (True, 100)])
+def test_the_row_count_threshold_depends_on_the_data_set(
+    data_context: DataContext, synthetic_data: bool, minimum: int
+) -> None:
+    rows = [{"domaine": "ACT_ECON", "code": "0100"}, {"domaine": "REGIM_JURI", "code": "024"}]
+    spark = Spark({"nprod.donnees_qc_req.domaine_valeur": Frame(["domaine", "code"], rows=rows)})
+    context = service_context(data_context, spark, synthetic_data=synthetic_data)
+
+    checks = {check["name"]: check for check in build_checks(data_context.get_table("entreprise"), context).checks}
+
+    assert checks["row_count_minimum"]["criticality"] == "warn"
+    assert checks["row_count_minimum"]["check"] == {
+        "function": "is_aggr_not_less_than",
+        "arguments": {"column": "*", "aggr_type": "count", "limit": minimum},
+    }
 
 
 @pytest.mark.parametrize("table_name", TABLES)

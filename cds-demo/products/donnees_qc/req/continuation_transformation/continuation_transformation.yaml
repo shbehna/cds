@@ -12,6 +12,18 @@ schema:
     physicalType: table
     businessName: Continuation et transformation
     description: Continuations et transformations des entreprises (fichier source ContinuationsTransformations.csv).
+    quality:
+      - type: custom
+        engine: dqx
+        name: date_effet_passee
+        description: La date d'effet n'est pas dans le futur.
+        severity: warning
+        implementation:
+          check:
+            function: sql_expression
+            arguments:
+              expression: date_effet <= current_date()
+              msg: La date d'effet est dans le futur.
     properties:
       - name: numero_entreprise
         businessName: Numéro d'entreprise du Québec (NEQ)
