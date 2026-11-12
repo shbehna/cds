@@ -131,8 +131,12 @@ HEADERS: dict[str, tuple[str, ...]] = {
     "DomaineValeur.csv": ("TYP_DOM_VAL", "COD_DOM_VAL", "VAL_DOM_FRAN"),
 }
 
+# Prefix of the enterprise numbers of the data set. The register does not use it (its
+# numbers start with 114 to 118, 224 to 228, 334 to 338 and 881 to 888): no synthetic row
+# has the number of a real enterprise.
+NEQ_PREFIX = "999"
 # Enterprise numbers matching the pattern of the NEQ, but absent from the entreprise file.
-UNKNOWN_NEQS = ("1179099001", "1179099002", "1179099003", "1179099004", "1179099005", "1179099006")
+UNKNOWN_NEQS = tuple(f"{NEQ_PREFIX}0099{number:03d}" for number in range(1, 7))
 # Codes absent from the value domains.
 UNKNOWN_REGIMES = ("009", "099", "777", "888", "999")
 UNKNOWN_ACTIVITIES = ("0000", "1234", "4321", "9998", "9999")
@@ -624,11 +628,17 @@ def address(rng: random.Random) -> Address:
     return Address(f"{rng.randrange(10, 9999)} {rng.choice(STREETS)}", city, postal_code)
 
 
+def numbered_name(rng: random.Random, number: int) -> str:
+    """Returns the name of a numbered company. The register numbers them from 9000-0000: these
+    names start with 0, so that they are not those of real companies."""
+    return f"0{number:03d}-{rng.randrange(1000, 10000)} QUÉBEC INC."
+
+
 def enterprise_names(rng: random.Random, form: str, activity: Activity, word: str, number: int) -> tuple[str, str]:
     """Returns the name of an enterprise, and its English version (empty if none)."""
     if form == "CIE":
         if rng.random() < 0.15:
-            return f"9{number:03d}-{rng.randrange(1000, 10000)} QUÉBEC INC.", ""
+            return numbered_name(rng, number), ""
         english = f"{word} {activity.english} INC." if rng.random() < 0.3 else ""
         return f"{activity.noun} {word} INC.", english
     names = {
@@ -660,7 +670,9 @@ def enterprises(rng: random.Random) -> list[Enterprise]:
         name, english_name = enterprise_names(rng, form, activity, word, number)
         registered = date(1995, 1, 1) + timedelta(days=rng.randrange(30 * 365))
         found.append(
-            Enterprise(f"11790{number:05d}", form, regime, registered, name, english_name, activity, address(rng))
+            Enterprise(
+                f"{NEQ_PREFIX}00{number:05d}", form, regime, registered, name, english_name, activity, address(rng)
+            )
         )
     return found
 
@@ -733,7 +745,9 @@ def entreprise_file(rng: random.Random, found: Sequence[Enterprise]) -> SourceFi
         source.add(enterprise_row(rng, enterprise))
     picker = Picker(rng, source)
     # Errors.
-    for index, neq in zip(picker.take(3), ("117900012", "11790A0045", "1179-00078"), strict=True):
+    for index, neq in zip(
+        picker.take(3), (f"{NEQ_PREFIX}000012", f"{NEQ_PREFIX}00A0045", f"{NEQ_PREFIX}0-00078"), strict=True
+    ):
         source.fail(index, "numero_entreprise_does_not_match_pattern", {"NEQ": neq})
     for index, form in zip(picker.take(2), ("INC", "LTEE"), strict=True):
         source.fail(index, "code_forme_juridique_is_not_in_enum", {"COD_FORME_JURI": form})
@@ -841,7 +855,7 @@ def nom_file(rng: random.Random, clean: Sequence[Enterprise]) -> SourceFile:
     while len(source.rows) < ROWS:
         enterprise = rng.choice(clean)
         registered = enterprise.registered
-        if enterprise.form == "CIE" and enterprise.neq not in renamed and not enterprise.name.startswith("9"):
+        if enterprise.form == "CIE" and enterprise.neq not in renamed and not enterprise.name.startswith("0"):
             # A numbered company renamed: its former name is withdrawn when the current one is registered.
             renamed.add(enterprise.neq)
             renaming = later(rng, registered, 30, 1500)
@@ -849,7 +863,7 @@ def nom_file(rng: random.Random, clean: Sequence[Enterprise]) -> SourceFile:
             source.add(
                 {
                     "NEQ": enterprise.neq,
-                    "NOM_ASSUJ": f"9{rng.randrange(100, 1000)}-{rng.randrange(1000, 10000)} QUÉBEC INC.",
+                    "NOM_ASSUJ": numbered_name(rng, rng.randrange(100, 1000)),
                     "STAT_NOM": "A",
                     "TYP_NOM_ASSUJ": "M",
                     "DAT_INIT_NOM_ASSUJ": iso(registered),
