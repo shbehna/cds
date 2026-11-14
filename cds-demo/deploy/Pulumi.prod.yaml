@@ -25,3 +25,8 @@ config:
   # PLACEHOLDER: SQL warehouse running the queries of the quality dashboard. The service
   # principal needs the CAN USE permission on it.
   cds-demo:warehouseName: Serverless Starter Warehouse
+  # Masks the columns classified restricted (the addresses), except
+  # for the service principal. The classification tag is a governed tag of the account,
+  # created by the nprod stack.
+  cds-demo:masking: "true"
+  cds-demo:createTagPolicies: "false"
