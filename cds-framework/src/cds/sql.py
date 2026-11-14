@@ -130,3 +130,38 @@ def create_table_statement(
     if properties:
         statement += f"\nTBLPROPERTIES ({table_properties(properties)})"
     return statement
+
+
+# Characters Unity Catalog does not allow in the key of a tag.
+_TAG_KEY_FORBIDDEN = re.compile(r"[.,\-=/:]")
+TAG_KEY_MAX_LENGTH = 255
+
+
+def tag_key_problem(key: str) -> str | None:
+    """Returns why a string cannot be the key of a Unity Catalog tag, or ``None`` if it can."""
+    if not key or not key.strip():
+        return "a tag key cannot be empty"
+    if key != key.strip():
+        return f"the tag key {key!r} has leading or trailing spaces"
+    if len(key) > TAG_KEY_MAX_LENGTH:
+        return f"the tag key {key!r} is longer than {TAG_KEY_MAX_LENGTH} characters"
+    forbidden = _TAG_KEY_FORBIDDEN.search(key)
+    if forbidden:
+        return f"the tag key {key!r} contains {forbidden.group()!r}, not allowed in Unity Catalog (. , - = / :)"
+    return None
+
+
+def set_tags_statement(full_table_name: str, tags: Mapping[str, str], column: str | None = None) -> str:
+    """Returns the statement setting tags on a table, or on one of its columns."""
+    assignments = ", ".join(f"{string_literal(key)} = {string_literal(value)}" for key, value in tags.items())
+    return f"{_tags_target(full_table_name, column)} SET TAGS ({assignments})"
+
+
+def unset_tags_statement(full_table_name: str, keys: Iterable[str], column: str | None = None) -> str:
+    """Returns the statement removing tags from a table, or from one of its columns."""
+    return f"{_tags_target(full_table_name, column)} UNSET TAGS ({', '.join(string_literal(key) for key in keys)})"
+
+
+def _tags_target(full_table_name: str, column: str | None) -> str:
+    target = f"ALTER TABLE {quote_name(full_table_name)}"
+    return f"{target} ALTER COLUMN {quote_identifier(column)}" if column else target

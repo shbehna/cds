@@ -5,6 +5,7 @@ from cds import (
     ContractConfig,
     DataProductConfig,
     GroupConfig,
+    MetadataSettings,
     NamingSettings,
     QualitySettings,
     ScdSettings,
@@ -58,6 +59,34 @@ def test_invalid_settings() -> None:
         resolve_settings(ScdSettings, ContractConfig(name="c", scd="history"))  # type: ignore[arg-type]
     with pytest.raises(ConfigurationError, match="Invalid scd settings"):
         resolve_settings(ScdSettings, ContractConfig(name="c", scd={"unknown": 1}))  # type: ignore[arg-type]
+    with pytest.raises(ConfigurationError, match="contains '-'"):
+        MetadataSettings(field_tags={"domain": "business-domain"})
+    with pytest.raises(ConfigurationError, match="cannot be empty"):
+        MetadataSettings(classification_tag=" ")
+    with pytest.raises(ConfigurationError, match="list of classifications"):
+        MetadataSettings(classifications="public")
+
+
+def test_metadata_settings() -> None:
+    defaults = resolve_settings(MetadataSettings, None)
+
+    assert defaults.tags is True
+    assert defaults.field_tags == {"domain": "domain", "dataProduct": "data_product"}
+    assert defaults.certification is None and defaults.classifications is None
+    assert (defaults.certification_tag, defaults.classification_tag) == (
+        "system.certification_status",
+        "classification",
+    )
+
+    group = GroupConfig(name="g", metadata=MetadataSettings(certification={"active": "certified"}))
+    contract = ContractConfig(
+        name="c",
+        metadata=MetadataSettings(field_tags={"dataProduct": ""}, certification={"draft": "deprecated"}),
+    )
+    settings = resolve_settings(MetadataSettings, contract, group)
+
+    assert settings.field_tags == {"domain": "domain", "dataProduct": ""}
+    assert settings.certification == {"active": "certified", "draft": "deprecated"}
 
 
 def test_subclasses_keep_their_class_attributes() -> None:

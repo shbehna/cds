@@ -28,6 +28,8 @@ def contract(**overrides: object) -> dict[str, Any]:
                         "logicalType": "string",
                         "required": True,
                         "enum": [{"value": "open", "label": "Open"}, "closed"],
+                        "classification": "internal",
+                        "tags": ["state", "pii:none"],
                         "customProperties": [{"property": "owner", "value": "sales"}],
                         "quality": [{"metric": "nullValues", "mustBe": 0, "severity": "warning"}],
                     },
@@ -59,6 +61,8 @@ def test_parses_tables_and_columns() -> None:
     # required is None when the contract does not state it.
     assert label.required is None
     assert status.custom_properties == {"owner": "sales"}
+    assert status.classification == "internal" and label.classification is None
+    assert status.tags == ("state", "pii:none")
     rule = status.quality[0]
     assert (rule.type, rule.metric, rule.thresholds, rule.severity) == (
         "library",

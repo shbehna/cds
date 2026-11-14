@@ -2,6 +2,9 @@ apiVersion: v3.2.0
 kind: DataContract
 id: donnees_qc.req.fusion_scission
 version: 1.0.0
+# Deprecated to show the certification of the tables: the badge of the table is
+# "deprecated" in Catalog Explorer, that of the other tables "certified".
+status: deprecated
 name: Fusion et scission
 description:
   purpose: >-

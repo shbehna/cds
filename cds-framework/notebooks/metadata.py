@@ -2,7 +2,8 @@
 # MAGIC %md
 # MAGIC # CDS - Metadata service
 # MAGIC
-# MAGIC Applies the descriptions of the data contracts as comments on the tables and columns of a data product.
+# MAGIC Applies the descriptions of the data contracts as comments on the tables and columns of a data product, and
+# MAGIC synchronizes their Unity Catalog tags with the contracts.
 # MAGIC
 # MAGIC | Parameter | Required | Description |
 # MAGIC |---|---|---|

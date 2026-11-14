@@ -52,6 +52,44 @@ def test_cli_validate(project: Path, capsys: pytest.CaptureFixture[str]) -> None
     assert "+ order: 6 column(s), key (order_id, line), 7 check(s)" in output
 
 
+TAGS_CONFIG = """
+    from cds import GroupConfig, MetadataSettings
+
+    config = GroupConfig(name="s", metadata=MetadataSettings(classifications=["public", "restricted"]))
+"""
+
+TAGS_CONTRACT = """
+    apiVersion: v3.2.0
+    kind: DataContract
+    id: c
+    version: 1.0.0
+    schema:
+      - name: t
+        properties:
+          - {name: a, physicalType: STRING, classification: secret}
+          - {name: b, physicalType: STRING, classification: public}
+"""
+
+
+def test_cli_validate_reports_invalid_tags(make_project: MakeProject, capsys: pytest.CaptureFixture[str]) -> None:
+    contract = TAGS_CONTRACT.replace("schema:", "tags: [open-data]\n    schema:")
+    root = make_project({"s/d/c/c.yaml": contract})
+
+    assert main(["validate", str(root)]) == 1
+    assert "x t: invalid tags: s.d.t: invalid tag 'open-data'" in capsys.readouterr().out
+
+
+def test_cli_validate_reports_invalid_classifications(
+    make_project: MakeProject, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = make_project({"s/s_config.py": TAGS_CONFIG, "s/d/c/c.yaml": TAGS_CONTRACT})
+
+    assert main(["validate", str(root)]) == 1
+    output = capsys.readouterr().out
+    assert "x t: invalid tags: the classification 'secret' of a is not one of public, restricted" in output
+    assert "classification 'public'" not in output
+
+
 def test_cli_validate_reports_errors(make_project: MakeProject, capsys: pytest.CaptureFixture[str]) -> None:
     root = make_project({"s/d/c/c.yaml": "apiVersion: v3.2.0\nkind: DataContract\nversion: 1\n"})
 

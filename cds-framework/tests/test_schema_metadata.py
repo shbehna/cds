@@ -2,7 +2,7 @@ from collections.abc import Sequence
 
 import pytest
 from conftest import CUSTOMER, MakeProject
-from fakes import FakeField, FakeSpark
+from fakes import FakeField, FakeSpark, Row
 
 from cds import DataContext, MetadataService, SchemaService, Service, ServiceContext, ServiceReport, Status
 
@@ -100,6 +100,81 @@ def test_metadata_documents_existing_tables(context: ServiceContext, spark: Fake
     assert spark.statements_matching(r"ALTER COLUMN `Name` COMMENT 'Name of the customer.'")
     assert not spark.statements_matching(r"ALTER COLUMN `customer_id`")
     assert spark.statements_matching(r"SET TBLPROPERTIES \('cds.contract.id' = 'sales.orders.customer'")
+
+
+TAGGED_PROJECT = {
+    "sales/sales_config.py": """
+        from cds import GroupConfig, MetadataSettings
+
+        config = GroupConfig(
+            name="sales",
+            metadata=MetadataSettings(certification={"active": "certified"}),
+            contract_defaults={"status": "active", "tags": ["demo"]},
+        )
+    """,
+    "sales/orders/customer/customer.yaml": CUSTOMER.replace(
+        "description: Name of the customer.",
+        "description: Name of the customer.\n            classification: restricted",
+    ),
+}
+
+
+def test_metadata_synchronizes_the_tags(make_project: MakeProject, spark: FakeSpark) -> None:
+    root = make_project(TAGGED_PROJECT)
+    context = ServiceContext(spark=spark.as_session(), environment="dev", data_context=DataContext.discover(root))
+    spark.add_table(CUSTOMER_TABLE, [FakeField("customer_id", "string"), FakeField("Name", "string"), "created_on"])
+    spark.on(
+        r"FROM `dev`.`information_schema`.`table_tags` WHERE schema_name = 'sales_orders'",
+        [
+            Row(table_name="customer", tag_name="demo", tag_value=""),
+            Row(table_name="customer", tag_name="owner", tag_value="ops"),
+            Row(table_name="customer", tag_name="legacy", tag_value="x"),
+        ],
+    )
+    spark.on(
+        r"FROM `dev`.`information_schema`.`column_tags`",
+        [
+            Row(table_name="customer", column_name="name", tag_name="class.name", tag_value=None),
+            Row(table_name="customer", column_name="customer_id", tag_name="pii", tag_value="id"),
+        ],
+    )
+    spark.on(
+        r"^SHOW TBLPROPERTIES `dev`.`sales_orders`.`customer`$",
+        [Row(key="cds.tags", value='{"table":["demo","legacy"],"columns":{"customer_id":["pii"]}}')],
+    )
+
+    [result] = run(MetadataService, context).results
+
+    assert result.status is Status.SUCCESS and "4 tag(s) set or removed" in result.message
+    table = "ALTER TABLE `dev`.`sales_orders`.`customer`"
+    tag_statements = spark.statements_matching(r"SET TAGS|UNSET TAGS")
+    assert tag_statements == [
+        f"{table} SET TAGS ('system.certification_status' = 'certified')",
+        f"{table} UNSET TAGS ('legacy')",
+        f"{table} ALTER COLUMN `customer_id` UNSET TAGS ('pii')",
+        f"{table} ALTER COLUMN `Name` SET TAGS ('classification' = 'restricted')",
+    ]
+    [properties] = spark.statements_matching(r"SET TBLPROPERTIES")
+    recorded = '{"columns":{"Name":["classification"]},"table":["demo","system.certification_status"]}'
+    assert f"'cds.tags' = '{recorded}'" in properties
+    assert spark.statements.index(properties) == len(spark.statements) - 1
+
+
+def test_metadata_leaves_the_tags_when_disabled(make_project: MakeProject, spark: FakeSpark) -> None:
+    files = dict(TAGGED_PROJECT)
+    files["sales/sales_config.py"] = """
+        from cds import GroupConfig, MetadataSettings
+
+        config = GroupConfig(name="sales", metadata=MetadataSettings(tags=False), contract_defaults={"tags": ["demo"]})
+    """
+    root = make_project(files)
+    context = ServiceContext(spark=spark.as_session(), environment="dev", data_context=DataContext.discover(root))
+    spark.add_table(CUSTOMER_TABLE, ["customer_id", "name", "created_on"])
+
+    [result] = run(MetadataService, context).results
+
+    assert result.status is Status.SUCCESS and "tag" not in result.message
+    assert not spark.statements_matching(r"information_schema|TAGS|SHOW TBLPROPERTIES|cds\.tags")
 
 
 @pytest.mark.parametrize("service_class", [SchemaService, MetadataService])
