@@ -17,6 +17,7 @@ from dataclasses import Field, dataclass, fields
 from typing import Any, ClassVar, Protocol, TypeVar
 
 from cds.errors import ConfigurationError
+from cds.sql import tag_key_problem
 
 T = TypeVar("T")
 
@@ -175,6 +176,53 @@ class SnapshotSettings:
     condition: str | None = None
 
 
+@dataclass(frozen=True)
+class MetadataSettings:
+    """Settings of the metadata service.
+
+    Attributes:
+        tags: Whether the Unity Catalog tags of the tables and columns are synchronized
+            with their contracts: their ``tags``, the fields of ``field_tags``, the
+            certification and the classification of the columns. Default: ``True``.
+        field_tags: Top-level fields of the contracts applied as table tags: ODCS field
+            name to tag key, e.g. ``{"domain": "domain"}``. Levels are merged field by
+            field; a field mapped to an empty key is not applied. Default: ``domain`` and
+            ``dataProduct`` (tag ``data_product``).
+        certification: Certification of the tables by the ``status`` of their contract:
+            status to value of the certification tag, such as ``{"active": "certified",
+            "deprecated": "deprecated"}``. Statuses are compared ignoring case; a table
+            whose status is not listed is not certified. Levels are merged status by
+            status. Default: none, the tables are not certified.
+        certification_tag: Key of the certification tag. Default:
+            ``system.certification_status``, the governed tag of Unity Catalog showing the
+            certified and deprecated badges.
+        classification_tag: Key of the tag holding the ``classification`` of a column.
+            Default: ``classification``.
+        classifications: Allowed classifications of the columns, checked by ``cds
+            validate``. Default: none, any classification is allowed.
+    """
+
+    attribute: ClassVar[str] = "metadata"
+
+    tags: bool | None = None
+    field_tags: Mapping[str, str] | None = None
+    certification: Mapping[str, str] | None = None
+    certification_tag: str | None = None
+    classification_tag: str | None = None
+    classifications: Sequence[str] | None = None
+
+    def __post_init__(self) -> None:
+        keys = [key for key in (self.field_tags or {}).values() if key]
+        if self.classification_tag is not None:
+            keys.append(self.classification_tag)
+        for key in keys:
+            problem = tag_key_problem(key)
+            if problem:
+                raise ConfigurationError(f"MetadataSettings: {problem}.")
+        if isinstance(self.classifications, str):
+            raise ConfigurationError("MetadataSettings.classifications must be a list of classifications.")
+
+
 DEFAULTS: Mapping[type[Settings], Settings] = {
     NamingSettings: NamingSettings(catalog="{environment}", schema="{group}_{data_product}"),
     SchemaSettings: SchemaSettings(on_breaking_change="replace"),
@@ -195,6 +243,12 @@ DEFAULTS: Mapping[type[Settings], Settings] = {
         hash_column="_row_hash",
     ),
     SnapshotSettings: SnapshotSettings(enabled=False),
+    MetadataSettings: MetadataSettings(
+        tags=True,
+        field_tags={"domain": "domain", "dataProduct": "data_product"},
+        certification_tag="system.certification_status",
+        classification_tag="classification",
+    ),
 }
 
 
@@ -267,6 +321,7 @@ class _LevelConfig:
         quality: Settings of the quality service.
         scd: Settings of the SCD service.
         snapshot: Settings of the snapshot service.
+        metadata: Settings of the metadata service.
     """
 
     name: str | None = None
@@ -276,6 +331,7 @@ class _LevelConfig:
     quality: QualitySettings | None = None
     scd: ScdSettings | None = None
     snapshot: SnapshotSettings | None = None
+    metadata: MetadataSettings | None = None
 
     def _assign(self, values: Mapping[str, Any]) -> None:
         # Only set the given values: the class attributes of a subclass remain the
@@ -309,6 +365,7 @@ class GroupConfig(_LevelConfig):
         quality: QualitySettings | None = None,
         scd: ScdSettings | None = None,
         snapshot: SnapshotSettings | None = None,
+        metadata: MetadataSettings | None = None,
         contract_defaults: Mapping[str, Any] | None = None,
     ) -> None:
         self._assign(locals())
@@ -334,6 +391,7 @@ class DataProductConfig(_LevelConfig):
         quality: QualitySettings | None = None,
         scd: ScdSettings | None = None,
         snapshot: SnapshotSettings | None = None,
+        metadata: MetadataSettings | None = None,
         contract_defaults: Mapping[str, Any] | None = None,
     ) -> None:
         self._assign(locals())
@@ -367,6 +425,7 @@ class ContractConfig(_LevelConfig):
         quality: QualitySettings | None = None,
         scd: ScdSettings | None = None,
         snapshot: SnapshotSettings | None = None,
+        metadata: MetadataSettings | None = None,
         transform: Callable[..., Any] | Mapping[str, Callable[..., Any]] | None = None,
         quality_checks: (
             Sequence[Mapping[str, Any]] | Mapping[str, Sequence[Mapping[str, Any]]] | Callable[..., Any] | None

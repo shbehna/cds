@@ -2,7 +2,7 @@
 
 The model covers the parts of the standard the services rely on: schema objects
 (tables), their properties (columns), keys, partitioning, relationships, enumerations
-of allowed values and data quality rules. Each element keeps its source mapping in
+of allowed values, classifications, tags and data quality rules. Each element keeps its source mapping in
 ``raw``, so any other part of a contract remains readable.
 
 Reference: https://bitol-io.github.io/open-data-contract-standard/latest/
@@ -109,6 +109,8 @@ class SchemaProperty:
     partition_key_position: int | None = None
     logical_type_options: Mapping[str, Any] = field(default_factory=dict)
     enum: tuple[EnumValue, ...] = ()
+    # Sensitivity of the data, such as public or restricted (ODCS ``classification``).
+    classification: str | None = None
     tags: tuple[str, ...] = ()
     custom_properties: Mapping[str, Any] = field(default_factory=dict)
     quality: tuple[QualityRule, ...] = ()
@@ -361,6 +363,7 @@ class _Parser:
                 self.enum_value(item, f"{where}.enum[{index}]")
                 for index, item in enumerate(self._list(data, "enum", where))
             ),
+            classification=self._text(data, "classification", where),
             tags=self._tags(data, where),
             custom_properties=self._custom_properties(data, where),
             quality=self._quality_rules(data, where),

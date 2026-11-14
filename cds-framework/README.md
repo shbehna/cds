@@ -104,6 +104,12 @@ group, then the framework default).
 | | `source` | the SCD history table |
 | | `order_by` | `_valid_from DESC` |
 | | `condition` | none |
+| `MetadataSettings` | `tags` | `True` |
+| | `field_tags` | `domain` and `dataProduct` (tag `data_product`) |
+| | `certification` | none: the tables are not certified |
+| | `certification_tag` | `system.certification_status` |
+| | `classification_tag` | `classification` |
+| | `classifications` | none: any classification |
 
 ```python
 # donnees_qc/req/req_config.py
@@ -138,7 +144,10 @@ Contracts are ODCS v3 documents (`apiVersion: v3.0.0` to `v3.2.0`). CDS reads:
 - `relationships` of type `foreignKey`, with the shorthand notation
   `[[<group>.]<data_product>.]<table>.<property>`, or `schema/<id>/properties/<id>` in
   the same contract;
-- `quality` rules (see the quality service).
+- `quality` rules (see the quality service);
+- `tags` of the contract, of its `schema` objects and of their properties, the
+  `classification` of the properties, and the `status`, `domain` and `dataProduct` of
+  the contract (see the tags of the metadata service).
 
 Everything else remains available in the `raw` attribute of the object model
 (`cds.odcs`).
@@ -174,7 +183,7 @@ per table: success, skipped, warning or error. A run fails if a table is in erro
 | Service | What it does |
 | --- | --- |
 | `schema` | Creates the schema and the tables of the contracts. Adds the columns added to a contract. Replaces a table whose columns were removed or retyped, or reports an error, depending on `on_breaking_change`. Columns are nullable: required columns are checked by the quality service, row by row. |
-| `metadata` | Applies the descriptions of the contracts as table and column comments, and records the contract in the table properties. |
+| `metadata` | Applies the descriptions of the contracts as table and column comments, synchronizes the Unity Catalog tags of the tables and columns with the contracts, and records the contract in the table properties. |
 | `transformation` | Calls the `transform` of the contract configuration, checks that its result has exactly the columns of the contract, casts them to their contract types and replaces the content of the table (`INSERT OVERWRITE ... BY NAME`). |
 | `quality` | Applies DQX checks and writes their results in the `_errors` and `_warnings` columns of each row. |
 | `scd` | Keeps the history (SCD type 2) of the tables with a primary key, in `<table>_history`. |
@@ -220,6 +229,44 @@ function, called with injected parameters, to compute checks at run time, for ex
 from a reference table. DQX reads the strings of an `allowed` list as SQL expressions
 (`"open"` is a column, `"0100"` the number 100): pass the values through
 `cds.literal_values` to compare them as strings.
+
+### Tags
+
+The metadata service synchronizes the Unity Catalog tags of the tables and their columns
+with their contracts:
+
+| Contract | Unity Catalog tag |
+| --- | --- |
+| `tags` of the contract and of the `schema` object | tags of the table |
+| fields of `MetadataSettings.field_tags`, such as `domain` | tags of the table: `domain`, `data_product` |
+| `status`, through `MetadataSettings.certification` | certification of the table: `system.certification_status` |
+| `tags` of a property | tags of its column |
+| `classification` of a property | tag `classification` of its column |
+
+A tag `key:value` becomes the tag `key` with the value `value`; a tag without colon, a
+tag without value. Unity Catalog does not allow `.`, `,`, `-`, `=`, `/` and `:` in the
+keys: `cds validate` reports the invalid tags, and the classifications not listed in
+`MetadataSettings.classifications`.
+
+The certification shows a badge in Catalog Explorer: map the statuses of the contracts
+to the values of the governed tag `system.certification_status`, `certified` or
+`deprecated`:
+
+```python
+from cds import GroupConfig, MetadataSettings
+
+config = GroupConfig(
+    name="donnees_qc",
+    metadata=MetadataSettings(certification={"active": "certified", "deprecated": "deprecated"}),
+)
+```
+
+The service only changes the tags it applied, whose keys it records in the `cds.tags`
+table property: it removes a tag no longer in the contract, and leaves the tags set by
+other means, such as the data classification of Databricks. Setting a governed tag
+requires the `ASSIGN` permission on it, and setting tags the `APPLY TAG` privilege on
+the table, which its owner has. With `MetadataSettings(tags=False)`, the service does
+not change the tags.
 
 ### History tables
 
@@ -277,5 +324,4 @@ uv run mypy
 
 - Injection of the DataFrames of tables by parameter name.
 - Data products defined as sources, with implicit contracts.
-- Unity Catalog tags from the contracts.
 - Open Data Product Standard (ODPS) descriptors.
