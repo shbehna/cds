@@ -160,6 +160,34 @@ def test_metadata_synchronizes_the_tags(make_project: MakeProject, spark: FakeSp
     assert spark.statements.index(properties) == len(spark.statements) - 1
 
 
+def test_metadata_tags_the_columns_of_the_history_table(make_project: MakeProject, spark: FakeSpark) -> None:
+    root = make_project(TAGGED_PROJECT)
+    context = ServiceContext(spark=spark.as_session(), environment="dev", data_context=DataContext.discover(root))
+    spark.add_table(CUSTOMER_TABLE, ["customer_id", "name", "created_on"])
+    spark.add_table(f"{CUSTOMER_TABLE}_history", ["customer_id", "Name", "created_on", "_valid_from", "_is_current"])
+    spark.on(
+        r"^SHOW TBLPROPERTIES `dev`.`sales_orders`.`customer_history`$",
+        [Row(key="cds.tags", value='{"table":[],"columns":{"created_on":["pii"]}}')],
+    )
+    spark.on(
+        r"FROM `dev`.`information_schema`.`column_tags`",
+        [Row(table_name="customer_history", column_name="created_on", tag_name="pii", tag_value="")],
+    )
+
+    [result] = run(MetadataService, context).results
+
+    assert result.status is Status.SUCCESS and "history table included" in result.message
+    history = "ALTER TABLE `dev`.`sales_orders`.`customer_history`"
+    assert spark.statements_matching(r"customer_history.*TAGS") == [
+        f"{history} ALTER COLUMN `created_on` UNSET TAGS ('pii')",
+        f"{history} ALTER COLUMN `Name` SET TAGS ('classification' = 'restricted')",
+    ]
+    # Only the tags of the columns: the history is not certified.
+    assert not spark.statements_matching(r"customer_history` SET TAGS")
+    [properties] = spark.statements_matching(r"customer_history` SET TBLPROPERTIES")
+    assert """'cds.tags' = '{"columns":{"Name":["classification"]},"table":[]}'""" in properties
+
+
 def test_metadata_leaves_the_tags_when_disabled(make_project: MakeProject, spark: FakeSpark) -> None:
     files = dict(TAGGED_PROJECT)
     files["sales/sales_config.py"] = """

@@ -14,8 +14,12 @@ config = GroupConfig(
     scd=ScdSettings(table="{table}_historique"),
     # The status of the contracts shows as a badge in Catalog Explorer: the tables of the
     # active contracts are certified, those of the deprecated or retired ones deprecated.
+    # The classification of the columns becomes their classification tag, a governed tag
+    # whose values are these (cds-demo/manifest): the columns classified restreint are
+    # masked by the deployment.
     metadata=MetadataSettings(
         certification={"active": "certified", "deprecated": "deprecated", "retired": "deprecated"},
+        classifications=["public", "interne", "confidentiel", "restreint"],
     ),
     # Merged under every contract of the group. The tags become Unity Catalog tags, whose
     # keys cannot contain hyphens.

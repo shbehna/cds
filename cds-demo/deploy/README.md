@@ -24,9 +24,35 @@ It also creates the job `cds-demo-req-<environment>`, which runs the services of
 framework on serverless compute. The job has no schedule: you run it on demand.
 
 ```text
-schema --> metadata
-       --> transformation --> quality --> scd
+schema --> transformation --> quality --> scd --> metadata
 ```
+
+`metadata` runs last, even if a previous step failed: the history tables created by
+`scd` get the tags of their columns in the same run, so that the masking below also
+protects them.
+
+### Masking of the classified columns
+
+The contracts classify their columns (`classification`), and the metadata step tags each
+column with its classification: the addresses of `etablissement` are `restreint` (see
+[cds-demo/README.md](../README.md#classification-and-masking)). With `cds-demo:masking`,
+the deployment masks the columns of the classifications `cds-demo:maskedClassifications`
+(`restreint`):
+
+| Resource | Name | Role |
+| --- | --- | --- |
+| Governed tag | `classification` | The allowed values of the classifications, from [cds-demo/manifest](../manifest). It belongs to the account: only the `nprod` stack creates it (`createTagPolicies`). |
+| Schema | `<environment>.gouvernance` | Holds the masking function. |
+| SQL function | `<environment>.gouvernance.masquer` | Replaces a value by `****`. The provider has no resource for SQL functions: the deployment runs `CREATE OR REPLACE FUNCTION` on the SQL warehouse ([sql_statement.py](sql_statement.py)). |
+| ABAC policy | `masquer_restreint`, on the catalog `<environment>` | Masks the columns tagged `classification = restreint` of every table of the catalog, history tables included, for every user of the account except the service principal and `cds-demo:maskingExemptPrincipals`. |
+
+The service principal is exempted: it runs the job, whose quality checks and history need
+the data as it is. The dashboard runs its queries with its credentials, but shows no
+address.
+
+The deployment reads the classifications in the manifest
+[cds-demo/manifest/req_manifest.json](../manifest/req_manifest.json), generated from the
+contracts: regenerate it after changing them (`uv run python cds-demo/manifest/manifest.py`).
 
 The job runs as the deployment service principal. The tables are created in the
 `<environment>` catalog, in the `donnees_qc_req` schema.
@@ -137,6 +163,22 @@ The metadata step certifies the tables with the governed tag `system.certificati
 **Permissions**, and give the service principal **ASSIGN**. Without it, the metadata step
 fails on the tables to certify.
 
+### Let the service principal mask the classified columns
+
+The masking ([What is deployed](#masking-of-the-classified-columns)) uses attribute-based
+access control (ABAC) and governed tags. If the workspace shows them as previews, enable
+them in **Settings > Previews** (*Attribute Based Access Control* and *Tag policies*).
+Then, as a metastore administrator or the owner of the `nprod` catalog:
+
+```sql
+-- The masking policy is defined on the catalog. In prod, the service principal owns it.
+GRANT MANAGE ON CATALOG nprod TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
+```
+
+The `nprod` deployment creates the governed tag `classification`: the service principal,
+a workspace administrator, can create governed tags unless an account administrator
+prevents it. It can then assign the tag, which the metadata step does.
+
 ### Let the service principal use a SQL warehouse
 
 The quality dashboard runs its queries on the SQL warehouse named by
@@ -193,11 +235,14 @@ In Databricks, open **Jobs & Pipelines > cds-demo-req-nprod** and select **Run n
 first run creates the tables of `nprod.donnees_qc_req`. Each run then:
 
 1. creates or updates the tables from their contracts (schema);
-2. documents them (metadata);
-3. loads them from the CSV files, with the names and types of their contracts
+2. loads them from the CSV files, with the names and types of their contracts
    (transformation): the synthetic files in `nprod`, those of the register in `prod`;
-4. checks them with DQX: each row gets its `_errors` and `_warnings` (quality);
-5. updates their history in the `<table>_historique` tables (scd).
+3. checks them with DQX: each row gets its `_errors` and `_warnings` (quality);
+4. updates their history in the `<table>_historique` tables (scd);
+5. documents and tags them, and their history tables (metadata).
+
+On the first run, the columns are tagged at the end: until then, the classified columns
+of a new table are not masked.
 
 The quality dashboard then shows the results of the quality step. To query them
 directly, for example the rows with quality errors:
@@ -206,6 +251,14 @@ directly, for example the rows with quality errors:
 SELECT numero_entreprise, numero_etablissement, _errors
 FROM nprod.donnees_qc_req.etablissement
 WHERE size(_errors) > 0;
+```
+
+The addresses of the establishments are masked for the users, and not for the service
+principal: compare the result of this query run by a user and by the service principal
+(the quality dashboard, for instance, runs as the service principal).
+
+```sql
+SELECT numero_entreprise, adresse_ligne_1 FROM nprod.donnees_qc_req.etablissement LIMIT 5;
 ```
 
 ## Variables
@@ -228,6 +281,10 @@ The stack files are the variables of the deployment.
 | `cds-demo:maxWorkers` | Number of tables processed in parallel by each service. |
 | `cds-demo:warehouseName` | SQL warehouse of the quality dashboard. **Placeholder**: `Serverless Starter Warehouse`. |
 | `cds-demo:schema` | Optional. Schema of the tables, read by the dashboard: `donnees_qc_req` by default. |
+| `cds-demo:masking` | `true`: the deployment masks the classified columns (see [Masking of the classified columns](#masking-of-the-classified-columns)). `true` in both stacks. |
+| `cds-demo:maskedClassifications` | Optional. Classifications masked, among the values of the manifest: `["restreint"]` by default. |
+| `cds-demo:maskingExemptPrincipals` | Optional. Users or groups reading the masked columns as they are, besides the service principal. |
+| `cds-demo:createTagPolicies` | `true`: the deployment creates the governed tag `classification`. It belongs to the account: `true` in `nprod` only. |
 
 ## Deploy from your computer (optional)
 
@@ -251,7 +308,9 @@ The stack files are the variables of the deployment.
    pulumi up        # applies them
    ```
 
-`pulumi destroy` removes the job, the dashboard and the files. It does not drop the tables.
+`pulumi destroy` removes the job, the dashboard, the files and the masking (policy,
+function, `gouvernance` schema). It does not drop the tables. Destroying the `nprod`
+stack also removes the governed tag `classification`, which the `prod` masking uses.
 A catalog created by the deployment (`createCatalog`) is protected: `pulumi destroy`
 fails until you run `pulumi state unprotect`, so that its data is not deleted by mistake.
 

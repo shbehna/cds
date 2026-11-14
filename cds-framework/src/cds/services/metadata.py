@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from cds.config import MetadataSettings
+from cds.config import MetadataSettings, ScdSettings
 from cds.data_context import DataProduct, Table
 from cds.services.base import Service, TableResult
+from cds.services.scd import history_table_name
 from cds.services.schema import contract_properties
 from cds.services.tables import list_tables
 from cds.services.tags import (
@@ -37,8 +38,10 @@ class MetadataService(Service):
     The table comment and the contract properties are set on each run; column
     comments only when they differ from their contract. The tags of the tables and
     columns are synchronized with their contracts (see ``cds.services.tags``) when
-    ``MetadataSettings.tags`` is set. Tables that do not exist are skipped: they are
-    created by the schema service.
+    ``MetadataSettings.tags`` is set. The history table of a table gets the tags of its
+    columns, such as their classification, so that the policies based on them also
+    protect the history. Tables that do not exist are skipped: they are created by the
+    schema service, and the history tables by the SCD service.
     """
 
     name = "metadata"
@@ -79,16 +82,21 @@ class MetadataService(Service):
         message = f"documented {full_name}, {columns} column comment(s) updated"
 
         properties = contract_properties(table)
+        history: list[str] = []
         if table.settings(MetadataSettings).tags:
+            expected = expected_tags(table)
             names = {name: field.name for name, field in fields.items()}
-            applied = self._applied_tags(table, names)
-            tag_statements, changed = self._tag_statements(table, full_name, applied, names)
+            applied = _restricted(expected, names)
+            tag_statements, changed = self._tag_statements(full_schema_name, table.name, full_name, applied, names)
             statements += tag_statements
             properties[MANAGED_TAGS_PROPERTY] = managed_property(applied)
-            message += f", {changed} tag(s) set or removed"
-        # Last: the recorded tags are those applied by the statements above.
+            history, history_changed = self._history_statements(table, expected)
+            message += f", {changed + history_changed} tag(s) set or removed"
+            if history:
+                message += ", history table included"
+        # The recorded tags are those applied by the statements above.
         statements.append(f"ALTER TABLE {quoted} SET TBLPROPERTIES ({table_properties(properties)})")
-        for statement in statements:
+        for statement in [*statements, *history]:
             self.spark.sql(statement)
         return TableResult.success(table.qualified_name, message)
 
@@ -109,32 +117,38 @@ class MetadataService(Service):
             by_column.setdefault(row.column_name.lower(), {})[row.tag_name] = row.tag_value or ""
         return table_tags, column_tags
 
-    @staticmethod
-    def _applied_tags(table: Table, columns: Mapping[str, str]) -> TableTags:
-        """The expected tags of a table, restricted to the columns it has, named as in the table."""
-        expected = expected_tags(table)
-        applied = {
-            columns[column.lower()]: tags for column, tags in expected.columns.items() if column.lower() in columns
-        }
-        return TableTags(expected.table, applied)
+    def _history_statements(self, table: Table, expected: TableTags) -> tuple[list[str], int]:
+        """The statements applying the column tags of a table to its history table, if it exists."""
+        if not table.settings(ScdSettings).enabled or not table.primary_key:
+            return [], 0
+        full_schema_name = self.context.full_schema_name(table)
+        history = history_table_name(table)
+        if history.lower() not in self._existing[full_schema_name]:
+            return [], 0
+        full_name = self.context.full_table_name(table, history)
+        names = {field.name.lower(): field.name for field in self.spark.table(quote_name(full_name)).schema.fields}
+        applied = _restricted(TableTags({}, expected.columns), names)
+        statements, changed = self._tag_statements(full_schema_name, history, full_name, applied, names)
+        properties = {MANAGED_TAGS_PROPERTY: managed_property(applied)}
+        statements.append(f"ALTER TABLE {quote_name(full_name)} SET TBLPROPERTIES ({table_properties(properties)})")
+        return statements, changed
 
     def _tag_statements(
-        self, table: Table, full_name: str, applied: TableTags, columns: Mapping[str, str]
+        self, full_schema_name: str, table_name: str, full_name: str, applied: TableTags, columns: Mapping[str, str]
     ) -> tuple[list[str], int]:
         """The statements applying the tags of a table and of its columns, and the number of tags they change.
 
         Args:
-            table: The table.
+            full_schema_name: The schema of the table.
+            table_name: Its name.
             full_name: Its unquoted full name.
             applied: Its expected tags, restricted to its columns.
             columns: Its columns, lowercase name to name.
         """
-        full_schema_name = self.context.full_schema_name(table)
-        key = table.name.lower()
+        key = table_name.lower()
         actual_table = self._table_tags.get(full_schema_name, {}).get(key, {})
         actual_columns = self._column_tags.get(full_schema_name, {}).get(key, {})
-        properties = self._properties(full_name)
-        managed_table, managed_columns = managed_keys(properties)
+        managed_table, managed_columns = managed_keys(self._properties(full_name))
 
         statements = []
         changed = 0
@@ -162,3 +176,9 @@ class MetadataService(Service):
     def _properties(self, full_name: str) -> dict[str, str]:
         rows = self.spark.sql(f"SHOW TBLPROPERTIES {quote_name(full_name)}").collect()
         return {row.key: row.value for row in rows}
+
+
+def _restricted(expected: TableTags, columns: Mapping[str, str]) -> TableTags:
+    """The expected tags of a table, restricted to the columns it has (lowercase name to name), named as in it."""
+    applied = {columns[column.lower()]: tags for column, tags in expected.columns.items() if column.lower() in columns}
+    return TableTags(expected.table, applied)

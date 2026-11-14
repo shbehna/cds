@@ -1,0 +1,12 @@
+{
+  "data_product": "donnees_qc.req",
+  "classification": {
+    "tag": "classification",
+    "values": [
+      "public",
+      "interne",
+      "confidentiel",
+      "restreint"
+    ]
+  }
+}

@@ -73,11 +73,19 @@ def test_job(settings: pipeline.Settings) -> pulumi.Output[None]:
         ]
         assert dependencies == [
             ("schema", []),
-            ("metadata", ["schema"]),
             ("transformation", ["schema"]),
             ("quality", ["transformation"]),
             ("scd", ["quality"]),
+            ("metadata", ["scd"]),
         ]
+        # metadata runs even if a previous service failed.
+        assert {value(task, "task_key"): value(task, "run_if") for task in tasks} == {
+            "schema": None,
+            "transformation": None,
+            "quality": None,
+            "scd": None,
+            "metadata": "ALL_DONE",
+        }
         assert {value(value(task, "notebook_task"), "notebook_path") for task in tasks} == {
             f"/Shared/cds-demo/nprod/notebooks/{service}" for service in pipeline.TASKS
         }
@@ -235,3 +243,91 @@ def test_folders_are_listed_parents_first() -> None:
 def test_missing_wheel(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="uv build --package cds-framework"):
         pipeline.framework_wheel(tmp_path)
+
+
+DYNAMIC = "pulumi-python:dynamic:Resource"
+
+
+@pulumi.runtime.test
+def test_masking(settings: pipeline.Settings) -> pulumi.Output[None]:
+    CREATED.clear()
+    masked = dataclasses.replace(
+        settings, masking=True, create_tag_policies=True, masking_exempt_principals=("data-stewards",)
+    )
+    job = pipeline.deploy(masked)
+
+    def check(_: str) -> None:
+        [tag_policy] = created("databricks:index/tagPolicy:TagPolicy")
+        assert tag_policy.inputs["tagKey"] == "classification"
+        names = [value(item, "name") for item in tag_policy.inputs["values"]]
+        assert names == ["public", "interne", "confidentiel", "restreint"]
+        [schema] = created("databricks:index/schema:Schema")
+        assert (schema.inputs["catalogName"], schema.inputs["name"]) == ("nprod", "gouvernance")
+        [function] = created(DYNAMIC, "mask-function")
+        assert function.inputs["create"].startswith(
+            "CREATE OR REPLACE FUNCTION `nprod`.`gouvernance`.`masquer`(valeur STRING) RETURNS STRING"
+        )
+        assert function.inputs["delete"] == "DROP FUNCTION IF EXISTS `nprod`.`gouvernance`.`masquer`"
+        assert value(function.inputs, "warehouse_id") == "warehouse-of-Serverless Starter Warehouse"
+        assert value(function.inputs, "client_id") == "bf175dc4-c86b-4e88-83e9-9194c485a080"
+        [policy] = created("databricks:index/policyInfo:PolicyInfo")
+        inputs = policy.inputs
+        assert inputs["name"] == "masquer_restreint"
+        assert (inputs["onSecurableType"], inputs["onSecurableFullname"]) == ("CATALOG", "nprod")
+        assert (inputs["forSecurableType"], inputs["policyType"]) == ("TABLE", "POLICY_TYPE_COLUMN_MASK")
+        assert inputs["toPrincipals"] == ["account users"]
+        # The service principal running the job reads the data as it is.
+        assert inputs["exceptPrincipals"] == ["bf175dc4-c86b-4e88-83e9-9194c485a080", "data-stewards"]
+        [match] = inputs["matchColumns"]
+        assert value(match, "condition") == "has_tag_value('classification', 'restreint')"
+        mask = inputs["columnMask"]
+        assert value(mask, "function_name") == "nprod.gouvernance.masquer"
+        assert value(mask, "on_column") == value(match, "alias")
+
+    return job.id.apply(check)
+
+
+@pulumi.runtime.test
+def test_masking_without_creating_the_tag_policy(settings: pipeline.Settings) -> pulumi.Output[None]:
+    CREATED.clear()
+    job = pipeline.deploy(dataclasses.replace(settings, masking=True))
+
+    def check(_: str) -> None:
+        assert not created("databricks:index/tagPolicy:TagPolicy")
+        assert len(created("databricks:index/policyInfo:PolicyInfo")) == 1
+
+    return job.id.apply(check)
+
+
+@pulumi.runtime.test
+def test_no_masking_by_default(settings: pipeline.Settings) -> pulumi.Output[None]:
+    CREATED.clear()
+    job = pipeline.deploy(settings)
+
+    def check(_: str) -> None:
+        assert not created("databricks:index/policyInfo:PolicyInfo")
+        assert not created("databricks:index/schema:Schema")
+        assert not created(DYNAMIC)
+
+    return job.id.apply(check)
+
+
+def test_masking_errors(settings: pipeline.Settings, tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="needs the service principal"):
+        pipeline.governance(dataclasses.replace(settings, masking=True, service_principal=None), "w", None)
+    with pytest.raises(ValueError, match="Unknown masked classification"):
+        pipeline.governance(dataclasses.replace(settings, masked_classifications=("secret",)), "w", None)
+    with pytest.raises(FileNotFoundError, match=r"manifest\.py"):
+        pipeline.manifest_classification(tmp_path / "req_manifest.json")
+
+
+def test_the_stacks_mask_the_classified_columns() -> None:
+    def config(stack: str) -> dict[str, str]:
+        text = (pipeline.REPOSITORY / "cds-demo" / "deploy" / f"Pulumi.{stack}.yaml").read_text(encoding="utf-8")
+        values = re.findall(r"^  cds-demo:(\w+): *(.+)$", text, flags=re.MULTILINE)
+        return {key: raw.strip().strip('"') for key, raw in values}
+
+    nprod, prod = config("nprod"), config("prod")
+    assert nprod["masking"] == prod["masking"] == "true"
+    # The tag policy belongs to the account: the nprod stack creates it for both.
+    assert (nprod["createTagPolicies"], prod["createTagPolicies"]) == ("true", "false")

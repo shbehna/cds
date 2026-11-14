@@ -27,6 +27,7 @@ products/                                   root folder of the data products
         └── domaine_valeur/
 csv/                                        synthetic data set and its generator
 dashboards/                                 quality dashboard, generated from the contracts
+manifest/                                   what the deployment needs of the contracts, generated from them
 deploy/                                     deployment with Pulumi
 tests/                                      tests of the data products, the data set and the dashboard, without Spark
 ```
@@ -69,7 +70,9 @@ The tables with a primary key have a history table, `<table>_historique`: the
   set by the `donnees_qc` group, `domain` and `data_product`. The `donnees_qc` group
   certifies the tables by the status of their contract: Catalog Explorer shows the
   tables of the active contracts as certified, and `fusion_scission`, whose contract is
-  deprecated for the demonstration, as deprecated.
+  deprecated for the demonstration, as deprecated. The classification of the columns
+  becomes their `classification` tag, on the tables and their history tables (see
+  [Classification and masking](#classification-and-masking)).
 - **Transformation**: the `transform` of each contract configuration reads its CSV file
   and renames its columns; indicators (`O`/`N`) become booleans. The service casts the
   result to the types of the contract and rejects any column it does not declare.
@@ -88,6 +91,32 @@ A profiling of the data set of October 2026 shows what the checks catch: 25 keys
 establishments and 2,245 keys of names used by several rows,
 16 enterprises without registration date, and a name and a merger referencing an
 unknown enterprise.
+
+## Classification and masking
+
+The contracts classify the sensitive columns with the ODCS `classification` of their
+properties. The `donnees_qc` group declares the allowed classifications, which `cds
+validate` checks: `public`, `interne`, `confidentiel` and `restreint`. The addresses of
+the establishments (`etablissement.adresse_ligne_1` to `adresse_ligne_4`) are
+`restreint`.
+
+The metadata service tags each classified column, and the same column of the history
+table, with its classification: `classification = restreint`. The deployment declares
+`classification` as a governed tag, and an ABAC policy of the catalog masks the columns
+tagged `restreint` for every user except the service principal of the job (see
+[deploy/README.md](deploy/README.md#masking-of-the-classified-columns)). Classifying
+another column in a contract is enough to mask it: the policy matches the tags, not the
+columns.
+
+The deployment cannot load the data products: it reads the classifications in the
+manifest [manifest/req_manifest.json](manifest/req_manifest.json), generated from the
+contracts by [manifest/manifest.py](manifest/manifest.py). Regenerate it after changing
+the contracts or their configurations, and commit it: a test checks that it is up to
+date.
+
+```bash
+uv run python cds-demo/manifest/manifest.py
+```
 
 ## Synthetic data set
 

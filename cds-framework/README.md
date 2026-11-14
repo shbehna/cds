@@ -261,6 +261,10 @@ config = GroupConfig(
 )
 ```
 
+The history table of a table gets the tags of its columns, but not those of the table
+nor its certification: a policy based on the classification of the columns also protects
+the history.
+
 The service only changes the tags it applied, whose keys it records in the `cds.tags`
 table property: it removes a tag no longer in the contract, and leaves the tags set by
 other means, such as the data classification of Databricks. Setting a governed tag
@@ -301,7 +305,9 @@ Any other parameter is available to the configuration through the
 environment variables (`CDS_ENVIRONMENT=nprod`) or passed to `run_service`.
 
 A typical pipeline runs `schema`, then `metadata` and `transformation`, then `quality`,
-then `scd`.
+then `scd`. When the tags protect data, for instance a masking policy matching the
+classification of the columns, run `metadata` last instead: the history tables created by
+`scd` then get their tags in the same run.
 
 ## Command line
 
