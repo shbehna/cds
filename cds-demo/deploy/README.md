@@ -33,24 +33,24 @@ A failed step fails the run, and the steps after it do not run.
 ### Masking of the classified columns
 
 The contracts classify their columns (`classification`): the addresses of `entreprise`,
-`etablissement` and `fusion_scission` are `restreint` (see
+`etablissement` and `fusion_scission` are `restricted` (see
 [cds-demo/README.md](../README.md#classification-and-masking)). The job tags each column
 with its classification, before writing to it: the schema step tags the columns of the
 tables it creates, and the scd step those of the history tables. With `cds-demo:masking`, the deployment masks the
-columns of the classifications `cds-demo:maskedClassifications` (`restreint`):
+columns of the classifications `cds-demo:maskedClassifications` (`restricted`):
 
 | Resource | Name | Role |
 | --- | --- | --- |
 | Governed tag | `classification` | The allowed values of the classifications, from [cds-demo/manifest](../manifest). It belongs to the account: only the `nprod` stack creates it (`createTagPolicies`), protected (see [Deploy from your computer](#deploy-from-your-computer-optional)). |
 | Schema | `<environment>.governance` | Holds the masking function. |
 | SQL function | `<environment>.governance.mask` | Replaces a string by `****`. The provider has no resource for SQL functions: the deployment runs `CREATE OR REPLACE FUNCTION` on the SQL warehouse ([sql_statement.py](sql_statement.py)). |
-| ABAC policy | `mask_restreint`, on the catalog `<environment>` | Masks the columns tagged `classification = restreint` of every table of the catalog, history tables included, for every user of the account except the service principal and `cds-demo:maskingExemptPrincipals`. |
+| ABAC policy | `mask_restricted`, on the catalog `<environment>` | Masks the columns tagged `classification = restricted` of every table of the catalog, history tables included, for every user of the account except the service principal and `cds-demo:maskingExemptPrincipals`. |
 
 The service principal is exempted: it runs the job, whose quality checks and history need
 the data as it is. The dashboard runs its queries with its credentials: it leaves the
 classified columns out of the key of the rows it shows.
 
-The masking function takes and returns a string: only classify `restreint` the columns of
+The masking function takes and returns a string: only classify as `restricted` the columns of
 type `STRING`, which a test of the demo checks (`cds-demo/tests/test_manifest.py`).
 
 The deployment reads the classifications in the manifest
@@ -287,7 +287,7 @@ The stack files are the variables of the deployment.
 | `cds-demo:warehouseName` | SQL warehouse of the quality dashboard. **Placeholder**: `Serverless Starter Warehouse`. |
 | `cds-demo:schema` | Optional. Schema of the tables, read by the dashboard: `donnees_qc_req` by default. |
 | `cds-demo:masking` | `true`: the deployment masks the classified columns (see [Masking of the classified columns](#masking-of-the-classified-columns)). `true` in both stacks. |
-| `cds-demo:maskedClassifications` | Optional. List of the classifications masked, among the values of the manifest: `["restreint"]` by default, `[]` for none. |
+| `cds-demo:maskedClassifications` | Optional. List of the classifications masked, among the values of the manifest: `["restricted"]` by default, `[]` for none. |
 | `cds-demo:maskingExemptPrincipals` | Optional. List of the users or groups reading the masked columns as they are, besides the service principal. |
 | `cds-demo:createTagPolicies` | `true`: the deployment creates the governed tag `classification`. It belongs to the account: `true` in `nprod` only. |
 

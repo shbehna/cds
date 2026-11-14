@@ -30,7 +30,7 @@ def test_classification(data_context: DataContext) -> None:
     assert document["data_product"] == "donnees_qc.req"
     assert document["classification"] == {
         "tag": "classification",
-        "values": ["public", "interne", "confidentiel", "restreint"],
+        "values": ["public", "internal", "confidential", "restricted"],
     }
 
 
@@ -45,7 +45,7 @@ def test_the_classified_columns_use_the_declared_values(data_context: DataContex
 
     # The addresses: of the establishments, of the home of the enterprises, and of the linked enterprises.
     assert classified == {
-        (table, f"adresse_ligne_{line}"): "restreint"
+        (table, f"adresse_ligne_{line}"): "restricted"
         for table in ("entreprise", "etablissement", "fusion_scission")
         for line in (1, 2, 3, 4)
     }
@@ -58,7 +58,7 @@ def test_the_masked_columns_are_strings(data_context: DataContext) -> None:
         f"{table.name}.{prop.column} ({prop.data_type})"
         for table in data_context.get_data_product(manifest.DATA_PRODUCT).tables
         for prop in table.columns
-        if prop.classification == "restreint" and prop.data_type.upper() != "STRING"
+        if prop.classification == "restricted" and prop.data_type.upper() != "STRING"
     ]
 
     assert not_strings == []

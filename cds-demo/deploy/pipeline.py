@@ -91,7 +91,7 @@ class Settings:
     # principals. The classification tag is a governed tag, created by the deployment if
     # create_tag_policies.
     masking: bool = False
-    masked_classifications: tuple[str, ...] = ("restreint",)
+    masked_classifications: tuple[str, ...] = ("restricted",)
     masking_exempt_principals: tuple[str, ...] = ()
     create_tag_policies: bool = False
     manifest: Path = field(default=MANIFEST)

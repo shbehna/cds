@@ -53,22 +53,22 @@ schema:
         description: Adresse de l'établissement, ligne 1. Colonne source LIGN1_ADR.
         logicalType: string
         physicalType: STRING
-        classification: restreint
+        classification: restricted
       - name: adresse_ligne_2
         description: Adresse de l'établissement, ligne 2. Colonne source LIGN2_ADR.
         logicalType: string
         physicalType: STRING
-        classification: restreint
+        classification: restricted
       - name: adresse_ligne_3
         description: Adresse de l'établissement, ligne 3. Colonne source LIGN3_ADR.
         logicalType: string
         physicalType: STRING
-        classification: restreint
+        classification: restricted
       - name: adresse_ligne_4
         description: Adresse de l'établissement, ligne 4. Colonne source LIGN4_ADR.
         logicalType: string
         physicalType: STRING
-        classification: restreint
+        classification: restricted
       - name: code_premiere_activite
         description: Code de la première activité économique de l'établissement (domaine de valeur ACT_ECON). Colonne source COD_ACT_ECON.
         logicalType: string

@@ -96,16 +96,16 @@ unknown enterprise.
 
 The contracts classify the sensitive columns with the ODCS `classification` of their
 properties. The `donnees_qc` group declares the allowed classifications, which `cds
-validate` checks: `public`, `interne`, `confidentiel` and `restreint`. The addresses are
-`restreint` (`adresse_ligne_1` to `adresse_ligne_4`): those of the establishments
+validate` checks: `public`, `internal`, `confidential` and `restricted`. The addresses are
+`restricted` (`adresse_ligne_1` to `adresse_ligne_4`): those of the establishments
 (`etablissement`), of the home of the enterprises (`entreprise`) and of the linked
 enterprises (`fusion_scission`).
 
 The services tag each classified column, and the same column of the history table, with
-its classification: `classification = restreint`. The schema and scd services tag the
+its classification: `classification = restricted`. The schema and scd services tag the
 columns of the tables they create before writing to them, and the metadata service keeps
 the tags in sync. The deployment declares `classification` as a governed tag, and an ABAC policy of
-the catalog masks the columns tagged `restreint` for every user except the service
+the catalog masks the columns tagged `restricted` for every user except the service
 principal of the job (see
 [deploy/README.md](deploy/README.md#masking-of-the-classified-columns)). Classifying
 another `STRING` column in a contract is enough to mask it: the policy matches the tags,

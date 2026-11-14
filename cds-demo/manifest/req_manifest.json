@@ -4,9 +4,9 @@
     "tag": "classification",
     "values": [
       "public",
-      "interne",
-      "confidentiel",
-      "restreint"
+      "internal",
+      "confidential",
+      "restricted"
     ]
   }
 }

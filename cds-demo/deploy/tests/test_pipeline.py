@@ -254,7 +254,7 @@ def test_masking(settings: pipeline.Settings) -> pulumi.Output[None]:
         [tag_policy] = created("databricks:index/tagPolicy:TagPolicy")
         assert tag_policy.inputs["tagKey"] == "classification"
         names = [value(item, "name") for item in tag_policy.inputs["values"]]
-        assert names == ["public", "interne", "confidentiel", "restreint"]
+        assert names == ["public", "internal", "confidential", "restricted"]
         [schema] = created("databricks:index/schema:Schema")
         assert (schema.inputs["catalogName"], schema.inputs["name"]) == ("nprod", "governance")
         [function] = created(DYNAMIC, "mask-function")
@@ -267,14 +267,14 @@ def test_masking(settings: pipeline.Settings) -> pulumi.Output[None]:
         assert value(function.inputs, "client_id") == "bf175dc4-c86b-4e88-83e9-9194c485a080"
         [policy] = created("databricks:index/policyInfo:PolicyInfo")
         inputs = policy.inputs
-        assert inputs["name"] == "mask_restreint"
+        assert inputs["name"] == "mask_restricted"
         assert (inputs["onSecurableType"], inputs["onSecurableFullname"]) == ("CATALOG", "nprod")
         assert (inputs["forSecurableType"], inputs["policyType"]) == ("TABLE", "POLICY_TYPE_COLUMN_MASK")
         assert inputs["toPrincipals"] == ["account users"]
         # The service principal running the job reads the data as it is.
         assert inputs["exceptPrincipals"] == ["bf175dc4-c86b-4e88-83e9-9194c485a080", "data-stewards"]
         [match] = inputs["matchColumns"]
-        assert value(match, "condition") == "has_tag_value('classification', 'restreint')"
+        assert value(match, "condition") == "has_tag_value('classification', 'restricted')"
         mask = inputs["columnMask"]
         assert value(mask, "function_name") == "nprod.governance.mask"
         assert value(mask, "on_column") == value(match, "alias")
@@ -331,7 +331,7 @@ def test_string_list() -> None:
     assert pipeline.string_list("k", None, ("default",)) == ("default",)
     assert pipeline.string_list("k", [], ("default",)) == ()
     assert pipeline.string_list("k", ["a", "b"]) == ("a", "b")
-    for invalid in ("restreint", ["a", 1], {"a": "b"}):
+    for invalid in ("restricted", ["a", 1], {"a": "b"}):
         with pytest.raises(ValueError, match="cds-demo:k must be a list of strings"):
             pipeline.string_list("k", invalid)
 
