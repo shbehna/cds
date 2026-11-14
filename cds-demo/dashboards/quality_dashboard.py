@@ -31,6 +31,8 @@ WARNING = "Warning"
 OK = "OK"
 STATUS_COLORS = {OK: "#00A972", WARNING: "#FFAB00", ERROR: "#FF3621"}
 SEVERITY_COLORS = {WARNING: "#FFAB00", ERROR: "#FF3621"}
+# The classification of the columns readable by everyone.
+PUBLIC = "public"
 # Format of the check times, in the time zone of the warehouse (UTC by default).
 TIME_FORMAT = "yyyy-MM-dd HH:mm:ss"
 
@@ -45,9 +47,19 @@ def key_expression(table: Table) -> str:
     """SQL expression of the key of a row, as a JSON object: column name to value.
 
     The key is the primary key of the contract; rows of a table without primary key are
-    identified by all their columns.
+    identified by all their columns. The classified columns, except the public ones, are
+    left out: the dashboard queries run with the credentials of the deployment service
+    principal, which their masking exempts.
+
+    Raises:
+        ValueError: If every column of the key is classified.
     """
-    columns = list(table.primary_key) or [prop.column for prop in table.columns]
+    classified = {prop.column for prop in table.columns if prop.classification not in (None, PUBLIC)}
+    columns = [
+        column for column in table.primary_key or [prop.column for prop in table.columns] if column not in classified
+    ]
+    if not columns:
+        raise ValueError(f"{table.qualified_name}: every column of its key is classified, its rows cannot be shown.")
     pairs = ", ".join(f"{string_literal(column)}, {quote_identifier(column)}" for column in columns)
     # Null values are kept: the key shows all its columns.
     return f"to_json(named_struct({pairs}), map('ignoreNullFields', 'false'))"

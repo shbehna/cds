@@ -173,6 +173,60 @@ def test_scd_creates_the_history_and_merges(context: ServiceContext, spark: Fake
     assert "timestamp_micros(1767225600000000)" in merge
 
 
+HISTORY_TABLE = "ALTER TABLE `dev`.`sales_orders`.`customer_history`"
+CLASSIFIED_CUSTOMER = CUSTOMER.replace(
+    "description: Name of the customer.", "description: Name of the customer.\n            classification: restricted"
+)
+
+
+def test_scd_tags_the_columns_of_the_history_it_creates(make_project: MakeProject, spark: FakeSpark) -> None:
+    root = make_project({"sales/orders/customer/customer.yaml": CLASSIFIED_CUSTOMER})
+    context = ServiceContext(spark=spark.as_session(), environment="dev", data_context=DataContext.discover(root))
+    spark.add_table(CUSTOMER_TABLE, ["customer_id", "name", "created_on"])
+    spark.on(r"duplicate_keys", [Row(duplicate_keys=0)])
+
+    [result] = run(scd_service(context), context).results
+
+    assert result.status is Status.SUCCESS
+    [create] = spark.statements_matching(r"^CREATE TABLE IF NOT EXISTS `dev`.`sales_orders`.`customer_history`")
+    assert """'cds.tags' = '{"columns":{"name":["classification"]},"table":[]}'""" in create
+    tagging = f"{HISTORY_TABLE} ALTER COLUMN `name` SET TAGS ('classification' = 'restricted')"
+    # The columns are tagged before the first version is written.
+    assert spark.statements_matching(r"customer_history.*TAGS") == [tagging]
+    assert spark.statements.index(tagging) < spark.statements.index(spark.statements_matching(r"^MERGE")[0])
+
+
+def test_scd_drops_a_new_history_it_cannot_tag(make_project: MakeProject, spark: FakeSpark) -> None:
+    root = make_project({"sales/orders/customer/customer.yaml": CLASSIFIED_CUSTOMER})
+    context = ServiceContext(spark=spark.as_session(), environment="dev", data_context=DataContext.discover(root))
+    spark.add_table(CUSTOMER_TABLE, ["customer_id", "name", "created_on"])
+    spark.on(r"SET TAGS", RuntimeError("PERMISSION_DENIED"))
+
+    [result] = run(scd_service(context), context).results
+
+    assert result.status is Status.ERROR and "PERMISSION_DENIED" in result.message
+    assert spark.statements[-1] == "DROP TABLE IF EXISTS `dev`.`sales_orders`.`customer_history`"
+    assert not spark.statements_matching(r"^MERGE")
+
+
+def test_scd_tags_the_columns_it_adds_to_the_history(make_project: MakeProject, spark: FakeSpark) -> None:
+    root = make_project({"sales/orders/customer/customer.yaml": CLASSIFIED_CUSTOMER})
+    context = ServiceContext(spark=spark.as_session(), environment="dev", data_context=DataContext.discover(root))
+    spark.add_table(CUSTOMER_TABLE, ["customer_id", "name", "created_on"])
+    spark.add_table(
+        "dev.sales_orders.customer_history",
+        ["customer_id", "created_on", "_row_hash", "_valid_from", "_valid_to", "_is_current"],
+    )
+    spark.on(r"duplicate_keys", [Row(duplicate_keys=0)])
+
+    run(scd_service(context), context)
+
+    assert spark.statements_matching(r"ADD COLUMNS|TAGS") == [
+        f"{HISTORY_TABLE} ADD COLUMNS (`name` STRING)",
+        f"{HISTORY_TABLE} ALTER COLUMN `name` SET TAGS ('classification' = 'restricted')",
+    ]
+
+
 def test_scd_fails_on_duplicate_keys_by_default(context: ServiceContext, spark: FakeSpark) -> None:
     spark.add_table(CUSTOMER_TABLE, ["customer_id", "name", "created_on"])
     spark.on(r"duplicate_keys", [Row(duplicate_keys=3)])

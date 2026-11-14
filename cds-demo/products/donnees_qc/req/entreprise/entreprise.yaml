@@ -214,15 +214,19 @@ schema:
         description: Adresse du domicile, ligne 1. Colonne source ADR_DOMCL_LIGN1_ADR.
         logicalType: string
         physicalType: STRING
+        classification: restricted
       - name: adresse_ligne_2
         description: Adresse du domicile, ligne 2. Colonne source ADR_DOMCL_LIGN2_ADR.
         logicalType: string
         physicalType: STRING
+        classification: restricted
       - name: adresse_ligne_3
         description: Adresse du domicile, ligne 3. Colonne source ADR_DOMCL_LIGN3_ADR.
         logicalType: string
         physicalType: STRING
+        classification: restricted
       - name: adresse_ligne_4
         description: Adresse du domicile, ligne 4. Colonne source ADR_DOMCL_LIGN4_ADR.
         logicalType: string
         physicalType: STRING
+        classification: restricted
