@@ -129,6 +129,14 @@ already exists is imported in the state of the stack, once, before the deploymen
 pulumi import --stack prod databricks:index/catalog:Catalog catalog prod
 ```
 
+### Let the service principal certify the tables
+
+The metadata step certifies the tables with the governed tag `system.certification_status`
+(see [cds-demo/README.md](../README.md#how-the-services-use-the-contracts)). In
+**Catalog > Govern > Governed tags**, open `system.certification_status`, then
+**Permissions**, and give the service principal **ASSIGN**. Without it, the metadata step
+fails on the tables to certify.
+
 ### Let the service principal use a SQL warehouse
 
 The quality dashboard runs its queries on the SQL warehouse named by

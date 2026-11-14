@@ -64,6 +64,12 @@ The tables with a primary key have a history table, `<table>_historique`: the
 ## How the services use the contracts
 
 - **Schema**: the contracts define the tables, their column types and comments.
+- **Metadata**: the descriptions of the contracts become the comments of the tables and
+  columns, and their tags Unity Catalog tags: `donnees_quebec` and `donnees_ouvertes`,
+  set by the `donnees_qc` group, `domain` and `data_product`. The `donnees_qc` group
+  certifies the tables by the status of their contract: Catalog Explorer shows the
+  tables of the active contracts as certified, and `fusion_scission`, whose contract is
+  deprecated for the demonstration, as deprecated.
 - **Transformation**: the `transform` of each contract configuration reads its CSV file
   and renames its columns; indicators (`O`/`N`) become booleans. The service casts the
   result to the types of the contract and rejects any column it does not declare.

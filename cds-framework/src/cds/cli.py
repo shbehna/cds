@@ -18,6 +18,7 @@ from cds.context import ServiceContext
 from cds.data_context import DataContext, Table
 from cds.errors import CdsError
 from cds.services.checks import CheckSet, build_checks, configured_checks
+from cds.services.tags import tag_problems
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -80,10 +81,14 @@ def _validate(context: ServiceContext) -> int:
                 details += " + checks computed at run time"
             for note in check_set.unsupported:
                 details += f"\n      not checked: {note}"
+            tags = tag_problems(table)
             if problems:
                 failed = True
                 print(f"  x {table.name}: invalid checks: {'; '.join(problems)}")
-            else:
+            if tags:
+                failed = True
+                print(f"  x {table.name}: invalid tags: {'; '.join(tags)}")
+            if not problems and not tags:
                 print(f"  + {table.name}: {details}")
     if validator is None:
         print("DQX is not installed: the checks were not validated (install cds-framework[dqx]).")
