@@ -3,7 +3,11 @@
 The Databricks provider has no resource for some Unity Catalog objects, such as the SQL
 functions. A ``SqlStatement`` creates such an object with a statement (``CREATE OR
 REPLACE ...``), runs it again when it changes, and drops the object with another
-statement when the resource is deleted.
+statement when the resource is deleted. When the name of the object changes, the
+resource is replaced: the new object is created, then the previous one dropped.
+
+A statement still running after 10 minutes, for instance on a SQL warehouse that does
+not start, is canceled and fails the deployment.
 
 The statements run with the Databricks SDK, authenticated as the provider: the host and
 the client id of the service principal are inputs of the resource, and its OAuth secret
@@ -28,6 +32,9 @@ def statement_provider() -> pulumi.dynamic.ResourceProvider:
     """
 
     class SqlStatementProvider(pulumi.dynamic.ResourceProvider):
+        # How long a statement may run before it is canceled.
+        timeout_seconds = 600
+
         def _run(self, props: dict[str, Any], statement: str) -> None:
             import time
 
@@ -35,6 +42,7 @@ def statement_provider() -> pulumi.dynamic.ResourceProvider:
             from databricks.sdk.service.sql import StatementState
 
             client = WorkspaceClient(host=props.get("host") or None, client_id=props.get("client_id") or None)
+            deadline = time.monotonic() + self.timeout_seconds
             response = client.statement_execution.execute_statement(
                 statement=statement, warehouse_id=props["warehouse_id"], wait_timeout="30s"
             )
@@ -43,6 +51,12 @@ def statement_provider() -> pulumi.dynamic.ResourceProvider:
                 and response.status.state in (StatementState.PENDING, StatementState.RUNNING)
                 and response.statement_id
             ):
+                if time.monotonic() > deadline:
+                    client.statement_execution.cancel_execution(response.statement_id)
+                    raise RuntimeError(
+                        f"The statement did not finish within {self.timeout_seconds} seconds, it was canceled. "
+                        f"Is the SQL warehouse {props['warehouse_id']} running?\n{statement}"
+                    )
                 time.sleep(2)
                 response = client.statement_execution.get_statement(response.statement_id)
             state = response.status.state if response.status else None
@@ -53,16 +67,20 @@ def statement_provider() -> pulumi.dynamic.ResourceProvider:
 
         def create(self, props: dict[str, Any]) -> pulumi.dynamic.CreateResult:
             self._run(props, props["create"])
-            return pulumi.dynamic.CreateResult(id_=props["name"], outs=props)
+            return pulumi.dynamic.CreateResult(id_=props["object_name"], outs=props)
 
         def diff(self, _id: str, _olds: dict[str, Any], _news: dict[str, Any]) -> pulumi.dynamic.DiffResult:
-            # The inputs whose change runs the create statement again.
-            inputs = ("create", "delete", "warehouse_id", "host", "client_id")
+            inputs = ("object_name", "create", "delete", "warehouse_id", "host", "client_id")
             changed = [key for key in inputs if _olds.get(key) != _news.get(key)]
-            return pulumi.dynamic.DiffResult(changes=bool(changed), replaces=[], delete_before_replace=False)
+            # Another object is created first, then the previous one dropped.
+            replaces = ["object_name"] if "object_name" in changed else []
+            return pulumi.dynamic.DiffResult(changes=bool(changed), replaces=replaces, delete_before_replace=False)
 
         def update(self, _id: str, _olds: dict[str, Any], _news: dict[str, Any]) -> pulumi.dynamic.UpdateResult:
-            self._run(_news, _news["create"])
+            # The same object: it is created again if its statement changed. The other
+            # inputs, such as the statement dropping it, are only recorded.
+            if _olds.get("create") != _news["create"]:
+                self._run(_news, _news["create"])
             return pulumi.dynamic.UpdateResult(outs=_news)
 
         def delete(self, _id: str, _props: dict[str, Any]) -> None:
@@ -79,6 +97,7 @@ class SqlStatement(pulumi.dynamic.Resource):
         name: str,
         *,
         warehouse_id: pulumi.Input[str],
+        object_name: str,
         create: pulumi.Input[str],
         delete: pulumi.Input[str],
         host: str | None,
@@ -88,8 +107,9 @@ class SqlStatement(pulumi.dynamic.Resource):
         """Declares the object.
 
         Args:
-            name: Name of the resource, also its id.
+            name: Name of the resource.
             warehouse_id: Id of the SQL warehouse running the statements.
+            object_name: Full name of the object, also the id of the resource.
             create: Statement creating or replacing the object, run again when it changes.
             delete: Statement dropping the object.
             host: URL of the workspace; the default authentication of the SDK if ``None``.
@@ -99,6 +119,7 @@ class SqlStatement(pulumi.dynamic.Resource):
         props = {
             "name": name,
             "warehouse_id": warehouse_id,
+            "object_name": object_name,
             "create": create,
             "delete": delete,
             "host": host,

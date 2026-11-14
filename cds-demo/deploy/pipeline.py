@@ -4,11 +4,10 @@ The deployment uploads the framework wheel, the service notebooks and the data p
 of the demo to a workspace folder, publishes the quality dashboard, and creates the job
 running the services in order:
 
-    schema --> transformation --> quality --> scd --> metadata
+    schema --> metadata
+           --> transformation --> quality --> scd
 
-metadata runs last, even if a previous service failed: the history tables created by
-scd get the tags of their columns, such as their classification, in the same run. The
-job has no schedule: it runs on demand.
+The job has no schedule: it runs on demand.
 
 Depending on the stack, the deployment also creates the catalog of the environment
 (createCatalog), uploads the synthetic data set (cds-demo/csv/testdata) next to the
@@ -45,19 +44,17 @@ READER_PRIVILEGES = ["USE_CATALOG", "USE_SCHEMA", "SELECT"]
 # Services run by the job, with the services they wait for.
 TASKS: dict[str, list[str]] = {
     "schema": [],
+    "metadata": ["schema"],
     "transformation": ["schema"],
     "quality": ["transformation"],
     "scd": ["quality"],
-    "metadata": ["scd"],
 }
-# Services run once the services they wait for are done, even if one of them failed.
-RUN_IF_ALL_DONE = {"metadata"}
 ENVIRONMENT_KEY = "cds"
 
 # Schema of the catalog of an environment holding the masking function, created by the
 # deployment, and the function.
-GOVERNANCE_SCHEMA = "gouvernance"
-MASK_FUNCTION = "masquer"
+GOVERNANCE_SCHEMA = "governance"
+MASK_FUNCTION = "mask"
 # Principals whose queries are masked: every user of the account, except the exempted ones.
 MASKED_PRINCIPALS = ["account users"]
 
@@ -89,9 +86,10 @@ class Settings:
     create_catalog: bool = False
     catalog_storage_root: str | None = None
     catalog_readers: tuple[str, ...] = ()
-    # Whether the deployment masks the columns of the classifications masked_classifications,
-    # except for the deployment service principal and the exempted principals. The
-    # classification tag is a governed tag, created by the deployment if create_tag_policies.
+    # Whether the deployment masks the columns of the classifications masked_classifications
+    # (none if empty), except for the deployment service principal and the exempted
+    # principals. The classification tag is a governed tag, created by the deployment if
+    # create_tag_policies.
     masking: bool = False
     masked_classifications: tuple[str, ...] = ("restreint",)
     masking_exempt_principals: tuple[str, ...] = ()
@@ -118,12 +116,29 @@ class Settings:
             synthetic_data=config.get_bool("syntheticData") or False,
             create_catalog=config.get_bool("createCatalog") or False,
             catalog_storage_root=config.get("catalogStorageRoot"),
-            catalog_readers=tuple(config.get_object("catalogReaders") or ()),
+            catalog_readers=string_list("catalogReaders", config.get_object("catalogReaders")),
             masking=config.get_bool("masking") or False,
-            masked_classifications=tuple(config.get_object("maskedClassifications") or cls.masked_classifications),
-            masking_exempt_principals=tuple(config.get_object("maskingExemptPrincipals") or ()),
+            masked_classifications=string_list(
+                "maskedClassifications", config.get_object("maskedClassifications"), cls.masked_classifications
+            ),
+            masking_exempt_principals=string_list(
+                "maskingExemptPrincipals", config.get_object("maskingExemptPrincipals")
+            ),
             create_tag_policies=config.get_bool("createTagPolicies") or False,
         )
+
+
+def string_list(key: str, value: object, default: tuple[str, ...] = ()) -> tuple[str, ...]:
+    """Returns the value of a stack variable holding a list of strings, its default if it is not set.
+
+    Raises:
+        ValueError: If the value is not a list of strings.
+    """
+    if value is None:
+        return default
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError(f'cds-demo:{key} must be a list of strings, such as ["a", "b"], not {value!r}.')
+    return tuple(value)
 
 
 def framework_wheel(directory: Path) -> Path:
@@ -221,14 +236,18 @@ def governance(
 ) -> list[pulumi.Resource]:
     """Masks the classified columns of the tables of the catalog of the environment.
 
-    The metadata service tags each column with its classification (cds-demo/manifest). An
-    ABAC policy of the catalog masks the columns tagged with each masked classification,
-    with the masking function of the gouvernance schema, for every user of the account
-    except the deployment service principal, which runs the job and must read the data as
-    it is, and the exempted principals.
+    The services of the job tag each column with its classification (cds-demo/manifest),
+    the schema and scd services before writing to it. An ABAC policy of the catalog masks
+    the columns tagged with each masked classification, with the masking function of the
+    governance schema, for every user of the account except the deployment service
+    principal, which runs the job and must read the data as it is, and the exempted
+    principals. The function masks strings: a masked classification only applies to
+    STRING columns (cds-demo/tests/test_manifest.py).
 
     The classification tag is a governed tag: the policy needs it. Tag policies belong to
     the account, shared by the environments: only one stack creates it (createTagPolicies).
+    It is protected, so that destroying that stack does not remove the masking of the
+    others: unprotect it first (see the README).
 
     Returns:
         The resources the job needs: the tag policy, when the deployment creates it.
@@ -250,6 +269,7 @@ def governance(
             tag_key=tag,
             description="Classification of the columns of the CDS demo, from their data contracts (cds-demo/manifest).",
             values=[databricks.TagPolicyValueArgs(name=value) for value in values],
+            opts=pulumi.ResourceOptions(protect=True),
         )
         if settings.create_tag_policies
         else None
@@ -267,10 +287,11 @@ def governance(
     mask = SqlStatement(
         "mask-function",
         warehouse_id=warehouse_id,
+        object_name=function,
         create=(
-            f"CREATE OR REPLACE FUNCTION {quoted}(valeur STRING) RETURNS STRING "
+            f"CREATE OR REPLACE FUNCTION {quoted}(value STRING) RETURNS STRING "
             "COMMENT 'CDS demo: masks a classified column.' "
-            "RETURN CASE WHEN valeur IS NULL THEN NULL ELSE '****' END"
+            "RETURN CASE WHEN value IS NULL THEN NULL ELSE '****' END"
         ),
         delete=f"DROP FUNCTION IF EXISTS {quoted}",
         host=settings.host,
@@ -280,7 +301,7 @@ def governance(
     for value in settings.masked_classifications:
         databricks.PolicyInfo(
             f"mask-policy:{value}",
-            name=f"masquer_{value}",
+            name=f"mask_{value}",
             comment=f"CDS demo: masks the columns classified {value}, except for the service principal of the job.",
             on_securable_type="CATALOG",
             on_securable_fullname=settings.environment,
@@ -289,9 +310,11 @@ def governance(
             to_principals=MASKED_PRINCIPALS,
             except_principals=[settings.service_principal, *settings.masking_exempt_principals],
             match_columns=[
-                databricks.PolicyInfoMatchColumnArgs(alias="colonne", condition=f"has_tag_value('{tag}', '{value}')")
+                databricks.PolicyInfoMatchColumnArgs(
+                    alias="masked_column", condition=f"has_tag_value('{tag}', '{value}')"
+                )
             ],
-            column_mask=databricks.PolicyInfoColumnMaskArgs(function_name=function, on_column="colonne"),
+            column_mask=databricks.PolicyInfoColumnMaskArgs(function_name=function, on_column="masked_column"),
             opts=pulumi.ResourceOptions(depends_on=[mask, *([tag_policy] if tag_policy else [])]),
         )
     pulumi.export("mask_function", function)
@@ -415,7 +438,6 @@ def deploy(settings: Settings) -> databricks.Job:
                     notebook_path=notebooks[service].path, source="WORKSPACE"
                 ),
                 max_retries=0,
-                run_if="ALL_DONE" if service in RUN_IF_ALL_DONE else None,
                 timeout_seconds=2 * 3600,
             )
             for service, upstreams in TASKS.items()

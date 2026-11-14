@@ -60,8 +60,10 @@ def test_rows_are_identified_by_their_primary_key(dashboard: dict[str, Any]) -> 
         "to_json(named_struct('numero_entreprise', `numero_entreprise`, 'numero_etablissement', "
         "`numero_etablissement`), map('ignoreNullFields', 'false')) AS row_key" in query
     )
-    # fusion_scission has no primary key: its rows are identified by all their columns.
+    # fusion_scission has no primary key: its rows are identified by all their columns,
+    # except the classified ones, which the dashboard would show unmasked.
     assert "'numero_entreprise_liee', `numero_entreprise_liee`" in query
+    assert "adresse_ligne" not in query
 
 
 def test_a_row_with_errors_and_warnings_is_in_error(dashboard: dict[str, Any]) -> None:

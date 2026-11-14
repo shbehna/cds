@@ -205,6 +205,75 @@ def test_metadata_leaves_the_tags_when_disabled(make_project: MakeProject, spark
     assert not spark.statements_matching(r"information_schema|TAGS|SHOW TBLPROPERTIES|cds\.tags")
 
 
+def tagged_context(make_project: MakeProject, spark: FakeSpark) -> ServiceContext:
+    root = make_project(TAGGED_PROJECT)
+    return ServiceContext(spark=spark.as_session(), environment="dev", data_context=DataContext.discover(root))
+
+
+def test_schema_tags_the_tables_it_creates(make_project: MakeProject, spark: FakeSpark) -> None:
+    context = tagged_context(make_project, spark)
+
+    [result] = run(SchemaService, context).results
+
+    assert result.status is Status.SUCCESS and result.message.endswith("(3 columns), 1 tag(s) set")
+    [create] = spark.statements_matching(r"^CREATE TABLE")
+    # The columns only: the tags of the table, such as its certification, are set by the metadata service.
+    assert spark.statements[-2:] == [
+        create,
+        "ALTER TABLE `dev`.`sales_orders`.`customer` ALTER COLUMN `name` SET TAGS ('classification' = 'restricted')",
+    ]
+    assert """'cds.tags' = '{"columns":{"name":["classification"]},"table":[]}'""" in create
+
+
+def test_schema_drops_a_new_table_it_cannot_tag(make_project: MakeProject, spark: FakeSpark) -> None:
+    context = tagged_context(make_project, spark)
+    spark.on(r"ALTER COLUMN `name` SET TAGS", RuntimeError("PERMISSION_DENIED"))
+
+    [result] = run(SchemaService, context).results
+
+    assert result.status is Status.ERROR and "PERMISSION_DENIED" in result.message
+    assert spark.statements[-1] == "DROP TABLE IF EXISTS `dev`.`sales_orders`.`customer`"
+
+
+def test_schema_tags_the_columns_it_adds(make_project: MakeProject, spark: FakeSpark) -> None:
+    context = tagged_context(make_project, spark)
+    spark.add_table(CUSTOMER_TABLE, [FakeField("customer_id", "string"), FakeField("created_on", "date")])
+
+    [result] = run(SchemaService, context).results
+
+    assert result.status is Status.SUCCESS and result.message.endswith(": name, 1 tag(s) set")
+    assert spark.statements_matching(r"TAGS") == [
+        "ALTER TABLE `dev`.`sales_orders`.`customer` ALTER COLUMN `name` SET TAGS ('classification' = 'restricted')"
+    ]
+
+
+def test_schema_tags_the_tables_it_replaces(make_project: MakeProject, spark: FakeSpark) -> None:
+    context = tagged_context(make_project, spark)
+    spark.add_table(CUSTOMER_TABLE, [FakeField("customer_id", "int"), "name", FakeField("created_on", "date")])
+
+    [result] = run(SchemaService, context).results
+
+    assert result.status is Status.WARNING and result.message.endswith(", 1 tag(s) set")
+    assert len(spark.statements_matching(r"SET TAGS")) == 1
+    assert not spark.statements_matching(r"^DROP")
+
+
+def test_schema_leaves_the_tags_when_disabled(make_project: MakeProject, spark: FakeSpark) -> None:
+    files = dict(TAGGED_PROJECT)
+    files["sales/sales_config.py"] = """
+        from cds import GroupConfig, MetadataSettings
+
+        config = GroupConfig(name="sales", metadata=MetadataSettings(tags=False), contract_defaults={"tags": ["demo"]})
+    """
+    root = make_project(files)
+    context = ServiceContext(spark=spark.as_session(), environment="dev", data_context=DataContext.discover(root))
+
+    [result] = run(SchemaService, context).results
+
+    assert result.status is Status.SUCCESS and "tag" not in result.message
+    assert not spark.statements_matching(r"TAGS|cds\.tags")
+
+
 @pytest.mark.parametrize("service_class", [SchemaService, MetadataService])
 def test_unknown_tables_are_rejected(context: ServiceContext, service_class: type[Service]) -> None:
     from cds import ConfigurationError

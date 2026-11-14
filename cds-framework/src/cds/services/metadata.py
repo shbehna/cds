@@ -16,6 +16,7 @@ from cds.services.tags import (
     expected_tags,
     managed_keys,
     managed_property,
+    restricted,
     tag_changes,
 )
 from cds.sql import (
@@ -40,8 +41,8 @@ class MetadataService(Service):
     columns are synchronized with their contracts (see ``cds.services.tags``) when
     ``MetadataSettings.tags`` is set. The history table of a table gets the tags of its
     columns, such as their classification, so that the policies based on them also
-    protect the history. Tables that do not exist are skipped: they are created by the
-    schema service, and the history tables by the SCD service.
+    protect the history. Tables that do not exist are skipped: they are created, with the
+    tags of their columns, by the schema service, and the history tables by the SCD service.
     """
 
     name = "metadata"
@@ -86,7 +87,7 @@ class MetadataService(Service):
         if table.settings(MetadataSettings).tags:
             expected = expected_tags(table)
             names = {name: field.name for name, field in fields.items()}
-            applied = _restricted(expected, names)
+            applied = restricted(expected, names)
             tag_statements, changed = self._tag_statements(full_schema_name, table.name, full_name, applied, names)
             statements += tag_statements
             properties[MANAGED_TAGS_PROPERTY] = managed_property(applied)
@@ -127,7 +128,7 @@ class MetadataService(Service):
             return [], 0
         full_name = self.context.full_table_name(table, history)
         names = {field.name.lower(): field.name for field in self.spark.table(quote_name(full_name)).schema.fields}
-        applied = _restricted(TableTags({}, expected.columns), names)
+        applied = restricted(TableTags({}, expected.columns), names)
         statements, changed = self._tag_statements(full_schema_name, history, full_name, applied, names)
         properties = {MANAGED_TAGS_PROPERTY: managed_property(applied)}
         statements.append(f"ALTER TABLE {quote_name(full_name)} SET TBLPROPERTIES ({table_properties(properties)})")
@@ -176,9 +177,3 @@ class MetadataService(Service):
     def _properties(self, full_name: str) -> dict[str, str]:
         rows = self.spark.sql(f"SHOW TBLPROPERTIES {quote_name(full_name)}").collect()
         return {row.key: row.value for row in rows}
-
-
-def _restricted(expected: TableTags, columns: Mapping[str, str]) -> TableTags:
-    """The expected tags of a table, restricted to the columns it has (lowercase name to name), named as in it."""
-    applied = {columns[column.lower()]: tags for column, tags in expected.columns.items() if column.lower() in columns}
-    return TableTags(expected.table, applied)

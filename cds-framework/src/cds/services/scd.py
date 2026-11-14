@@ -12,6 +12,7 @@ from cds.odcs import SchemaProperty
 from cds.services.base import Service, TableResult
 from cds.services.schema import contract_properties
 from cds.services.tables import add_columns, column_definition, last_operation_metrics, list_tables
+from cds.services.tags import MANAGED_TAGS_PROPERTY, TableTags, creation_tags, managed_property, set_tags_statements
 from cds.sql import column_list, create_table_statement, normalize_type, quote_identifier, quote_name, string_literal
 
 if TYPE_CHECKING:
@@ -139,6 +140,11 @@ class ScdService(Service):
     version. Tables without a primary key are skipped. Columns added to a contract are
     added to its history table.
 
+    The columns of a history table get the tags of the columns of its table, such as their
+    classification, when they are created and before any version is written: the policies
+    based on the tags also protect the history. A new history table whose columns cannot
+    be tagged is dropped.
+
     Args:
         context: The service context.
         timestamp: Start of validity of the versions created by the run; now by default.
@@ -200,22 +206,38 @@ class ScdService(Service):
         return TableResult.success(table.qualified_name, message)
 
     def _prepare_history(self, table: Table, target: str, settings: ScdSettings, exists: bool) -> None:
-        """Creates the history table, or adds the columns added to the contract."""
+        """Creates the history table, or adds the columns added to the contract, with their tags."""
         if not exists:
+            columns = [prop.column for prop in table.columns]
+            tags = creation_tags(table, columns)
+            properties = contract_properties(table)
+            if tags is not None:
+                properties[MANAGED_TAGS_PROPERTY] = managed_property(tags)
             self.spark.sql(
                 create_table_statement(
                     target,
                     table.columns,
                     description=f"History (SCD type 2) of {table.qualified_name}.",
-                    properties=contract_properties(table),
+                    properties=properties,
                     extra_columns=history_columns(settings),
                 )
             )
+            try:
+                self._set_tags(target, tags)
+            except Exception:
+                # The new history table is still empty.
+                self.spark.sql(f"DROP TABLE IF EXISTS {quote_name(target)}")
+                raise
             return
         existing = {field.name.lower() for field in self.spark.table(quote_name(target)).schema.fields}
         missing = [
-            column_definition(name, data_type)
+            (name, data_type)
             for name, data_type in [(prop.column, prop.data_type) for prop in table.columns] + history_columns(settings)
             if name.lower() not in existing
         ]
-        add_columns(self.spark, target, missing)
+        add_columns(self.spark, target, [column_definition(name, data_type) for name, data_type in missing])
+        self._set_tags(target, creation_tags(table, [name for name, _ in missing]))
+
+    def _set_tags(self, target: str, tags: TableTags | None) -> None:
+        for statement in set_tags_statements(target, tags) if tags else []:
+            self.spark.sql(statement)

@@ -19,6 +19,7 @@ import sql_statement
 PROPS = {
     "name": "mask-function",
     "warehouse_id": "w1",
+    "object_name": "main.governance.f",
     "create": "CREATE OR REPLACE FUNCTION f() RETURNS INT RETURN 1",
     "delete": "DROP FUNCTION IF EXISTS f",
     "host": "https://workspace",
@@ -34,6 +35,7 @@ class FakeStatements:
         self.error: str | None = None
         self.executed: list[tuple[str, str]] = []
         self.clients: list[dict[str, Any]] = []
+        self.canceled: list[str] = []
 
     def client(self, **kwargs: Any) -> SimpleNamespace:
         self.clients.append(kwargs)
@@ -51,6 +53,9 @@ class FakeStatements:
     def get_statement(self, statement_id: str) -> SimpleNamespace:
         return self._response()
 
+    def cancel_execution(self, statement_id: str) -> None:
+        self.canceled.append(statement_id)
+
 
 @pytest.fixture
 def statements(monkeypatch: pytest.MonkeyPatch) -> FakeStatements:
@@ -65,12 +70,21 @@ def test_create_update_and_delete_run_their_statements(statements: FakeStatement
     updated = {**PROPS, "create": "CREATE OR REPLACE FUNCTION f() RETURNS INT RETURN 2"}
 
     result = provider.create(dict(PROPS))
-    provider.update("mask-function", dict(PROPS), updated)
-    provider.delete("mask-function", dict(PROPS))
+    provider.update("main.governance.f", dict(PROPS), updated)
+    provider.delete("main.governance.f", dict(PROPS))
 
-    assert result.id == "mask-function"
+    assert result.id == "main.governance.f"
     assert statements.executed == [("w1", PROPS["create"]), ("w1", updated["create"]), ("w1", PROPS["delete"])]
     assert statements.clients[0] == {"host": "https://workspace", "client_id": "sp"}
+
+
+def test_an_update_of_the_other_inputs_runs_nothing(statements: FakeStatements) -> None:
+    updated = {**PROPS, "delete": "DROP FUNCTION f", "warehouse_id": "w2"}
+
+    result = sql_statement.statement_provider().update("main.governance.f", dict(PROPS), updated)
+
+    assert statements.executed == []
+    assert result.outs == updated
 
 
 def test_waits_for_the_statement(statements: FakeStatements) -> None:
@@ -89,11 +103,26 @@ def test_a_failed_statement_raises(statements: FakeStatements) -> None:
         sql_statement.statement_provider().create(dict(PROPS))
 
 
+def test_a_statement_still_running_is_canceled(statements: FakeStatements, monkeypatch: pytest.MonkeyPatch) -> None:
+    statements.states = [StatementState.RUNNING] * 3
+    clock = iter([0.0, 300.0, 601.0])
+    monkeypatch.setattr("time.monotonic", lambda: next(clock))
+
+    with pytest.raises(RuntimeError, match="did not finish within 600 seconds"):
+        sql_statement.statement_provider().create(dict(PROPS))
+
+    assert statements.canceled == ["s1"]
+
+
 def test_diff() -> None:
     provider = sql_statement.statement_provider()
 
     assert not provider.diff("id", dict(PROPS), dict(PROPS)).changes
-    assert provider.diff("id", dict(PROPS), {**PROPS, "create": "CREATE OR REPLACE FUNCTION g()"}).changes
+    updated = provider.diff("id", dict(PROPS), {**PROPS, "create": "CREATE OR REPLACE FUNCTION f() RETURN 2"})
+    assert updated.changes and not updated.replaces
+    renamed = provider.diff("id", dict(PROPS), {**PROPS, "object_name": "main.governance.g"})
+    # The new object is created before the previous one is dropped.
+    assert renamed.changes and renamed.replaces == ["object_name"] and not renamed.delete_before_replace
 
 
 def test_the_provider_runs_without_its_module(tmp_path: Path) -> None:

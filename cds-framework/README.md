@@ -182,11 +182,11 @@ per table: success, skipped, warning or error. A run fails if a table is in erro
 
 | Service | What it does |
 | --- | --- |
-| `schema` | Creates the schema and the tables of the contracts. Adds the columns added to a contract. Replaces a table whose columns were removed or retyped, or reports an error, depending on `on_breaking_change`. Columns are nullable: required columns are checked by the quality service, row by row. |
+| `schema` | Creates the schema and the tables of the contracts, with the tags of their columns. Adds the columns added to a contract. Replaces a table whose columns were removed or retyped, or reports an error, depending on `on_breaking_change`. Columns are nullable: required columns are checked by the quality service, row by row. |
 | `metadata` | Applies the descriptions of the contracts as table and column comments, synchronizes the Unity Catalog tags of the tables and columns with the contracts, and records the contract in the table properties. |
 | `transformation` | Calls the `transform` of the contract configuration, checks that its result has exactly the columns of the contract, casts them to their contract types and replaces the content of the table (`INSERT OVERWRITE ... BY NAME`). |
 | `quality` | Applies DQX checks and writes their results in the `_errors` and `_warnings` columns of each row. |
-| `scd` | Keeps the history (SCD type 2) of the tables with a primary key, in `<table>_history`. |
+| `scd` | Keeps the history (SCD type 2) of the tables with a primary key, in `<table>_history`, whose columns get the tags of those of the table. |
 | `snapshot` | Loads a table with the latest record of each key of a historical table. |
 
 ### Quality checks
@@ -265,6 +265,13 @@ The history table of a table gets the tags of its columns, but not those of the 
 nor its certification: a policy based on the classification of the columns also protects
 the history.
 
+The tags of the columns also protect the data from its first write: the `schema`
+service tags the columns of the tables it creates or replaces and the columns it adds,
+and the `scd` service those of the history tables, before any data is written to them. A
+new table whose columns cannot be tagged is dropped, and its service reports an error,
+so that no data is loaded into it untagged. The tags of the tables, such as the
+certification, are set by the `metadata` service.
+
 The service only changes the tags it applied, whose keys it records in the `cds.tags`
 table property: it removes a tag no longer in the contract, and leaves the tags set by
 other means, such as the data classification of Databricks. Setting a governed tag
@@ -305,9 +312,7 @@ Any other parameter is available to the configuration through the
 environment variables (`CDS_ENVIRONMENT=nprod`) or passed to `run_service`.
 
 A typical pipeline runs `schema`, then `metadata` and `transformation`, then `quality`,
-then `scd`. When the tags protect data, for instance a masking policy matching the
-classification of the columns, run `metadata` last instead: the history tables created by
-`scd` then get their tags in the same run.
+then `scd`.
 
 ## Command line
 

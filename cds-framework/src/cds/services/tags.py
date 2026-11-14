@@ -11,6 +11,11 @@ An ODCS tag ``key:value`` becomes the Unity Catalog tag ``key`` with the value
 The metadata service only removes the tags it applied: it records their keys in the
 ``cds.tags`` table property, so that the tags set by other means, such as the automatic
 data classification of Databricks, are left untouched.
+
+The schema and SCD services tag the columns of the tables they create, and the columns
+they add, before any data is written to them: the policies based on their tags, such as
+a column mask, protect the data from its first write. The tags of the tables are left to
+the metadata service.
 """
 
 from __future__ import annotations
@@ -22,7 +27,7 @@ from typing import TYPE_CHECKING, Any
 
 from cds.config import MetadataSettings, resolved
 from cds.errors import ContractError
-from cds.sql import tag_key_problem
+from cds.sql import set_tags_statement, tag_key_problem
 
 if TYPE_CHECKING:
     from cds.data_context import Table
@@ -175,3 +180,57 @@ def managed_keys(properties: Mapping[str, str]) -> tuple[set[str], dict[str, set
 def managed_property(tags: TableTags) -> str:
     """Returns the value of the ``cds.tags`` property recording the keys of the applied tags."""
     return json.dumps(tags.keys(), separators=(",", ":"), sort_keys=True, ensure_ascii=False)
+
+
+def restricted(tags: TableTags, columns: Mapping[str, str]) -> TableTags:
+    """Returns the tags of a table, restricted to the columns it has, named as in it.
+
+    Args:
+        tags: The tags of the table and of its columns.
+        columns: The columns of the table, lowercase name to name.
+    """
+    applied = {
+        columns[column.lower()]: column_tags
+        for column, column_tags in tags.columns.items()
+        if column.lower() in columns
+    }
+    return TableTags(tags.table, applied)
+
+
+def creation_tags(table: Table, columns: Iterable[str]) -> TableTags | None:
+    """Returns the tags of new columns, to apply before writing data to them.
+
+    The tags of the table, such as its certification, are not included: they do not
+    protect data, and are left to the metadata service.
+
+    Args:
+        table: The table whose contract gives the tags.
+        columns: The new columns.
+
+    Returns:
+        The tags of the columns, or ``None`` if the tags of the table are not synchronized
+        (``MetadataSettings.tags``).
+
+    Raises:
+        ContractError: If a tag of the contract is not a valid Unity Catalog tag.
+    """
+    if not table.settings(MetadataSettings).tags:
+        return None
+    expected = restricted(expected_tags(table), {column.lower(): column for column in columns})
+    return TableTags({}, expected.columns)
+
+
+def set_tags_statements(full_table_name: str, tags: TableTags) -> list[str]:
+    """Returns the statements setting tags on a table and its columns, which do not have them yet."""
+    statements = [set_tags_statement(full_table_name, tags.table)] if tags.table else []
+    statements += [
+        set_tags_statement(full_table_name, column_tags, column=column)
+        for column, column_tags in sorted(tags.columns.items())
+        if column_tags
+    ]
+    return statements
+
+
+def tag_count(tags: TableTags) -> int:
+    """Returns the number of tags of a table and of its columns."""
+    return len(tags.table) + sum(len(column_tags) for column_tags in tags.columns.values())

@@ -43,8 +43,25 @@ def test_the_classified_columns_use_the_declared_values(data_context: DataContex
         if prop.classification
     }
 
-    assert classified == {("etablissement", f"adresse_ligne_{line}"): "restreint" for line in (1, 2, 3, 4)}
+    # The addresses: of the establishments, of the home of the enterprises, and of the linked enterprises.
+    assert classified == {
+        (table, f"adresse_ligne_{line}"): "restreint"
+        for table in ("entreprise", "etablissement", "fusion_scission")
+        for line in (1, 2, 3, 4)
+    }
     assert set(classified.values()) <= set(values)
+
+
+def test_the_masked_columns_are_strings(data_context: DataContext) -> None:
+    """The masking function of the deployment (cds-demo/deploy) takes and returns a string."""
+    not_strings = [
+        f"{table.name}.{prop.column} ({prop.data_type})"
+        for table in data_context.get_data_product(manifest.DATA_PRODUCT).tables
+        for prop in table.columns
+        if prop.classification == "restreint" and prop.data_type.upper() != "STRING"
+    ]
+
+    assert not_strings == []
 
 
 def write(root: Path, files: dict[str, str]) -> Path:

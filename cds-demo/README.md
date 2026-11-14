@@ -96,17 +96,20 @@ unknown enterprise.
 
 The contracts classify the sensitive columns with the ODCS `classification` of their
 properties. The `donnees_qc` group declares the allowed classifications, which `cds
-validate` checks: `public`, `interne`, `confidentiel` and `restreint`. The addresses of
-the establishments (`etablissement.adresse_ligne_1` to `adresse_ligne_4`) are
-`restreint`.
+validate` checks: `public`, `interne`, `confidentiel` and `restreint`. The addresses are
+`restreint` (`adresse_ligne_1` to `adresse_ligne_4`): those of the establishments
+(`etablissement`), of the home of the enterprises (`entreprise`) and of the linked
+enterprises (`fusion_scission`).
 
-The metadata service tags each classified column, and the same column of the history
-table, with its classification: `classification = restreint`. The deployment declares
-`classification` as a governed tag, and an ABAC policy of the catalog masks the columns
-tagged `restreint` for every user except the service principal of the job (see
+The services tag each classified column, and the same column of the history table, with
+its classification: `classification = restreint`. The schema and scd services tag the
+columns of the tables they create before writing to them, and the metadata service keeps
+the tags in sync. The deployment declares `classification` as a governed tag, and an ABAC policy of
+the catalog masks the columns tagged `restreint` for every user except the service
+principal of the job (see
 [deploy/README.md](deploy/README.md#masking-of-the-classified-columns)). Classifying
-another column in a contract is enough to mask it: the policy matches the tags, not the
-columns.
+another `STRING` column in a contract is enough to mask it: the policy matches the tags,
+not the columns. The masking function only takes strings, which a test checks.
 
 The deployment cannot load the data products: it reads the classifications in the
 manifest [manifest/req_manifest.json](manifest/req_manifest.json), generated from the
