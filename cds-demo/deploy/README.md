@@ -83,6 +83,20 @@ In `nprod`, the error rate of the synthetic data set triggers the first alert af
 run. As the schedule of the job is paused, the latency alert triggers 18 days after the
 last run.
 
+To receive the alerts, add your address to the secret `cds-demo:alertEmails` of the
+stack, with the [Pulumi CLI](#deploy-from-your-computer-optional) logged in to Pulumi
+Cloud, from `cds-demo/deploy`:
+
+```bash
+pulumi config set --stack nprod --secret --path "cds-demo:alertEmails[0]" you@example.com
+pulumi config set --stack nprod --secret --path "cds-demo:alertEmails[1]" teammate@example.com
+```
+
+Pulumi Cloud encrypts each address in [Pulumi.nprod.yaml](Pulumi.nprod.yaml), which only
+holds their encrypted values (`secure: v1:...`): commit it, and the next deployment adds
+them to the notification destination. The deployment reads them as a secret, kept
+encrypted in the state of the stack and hidden in its logs.
+
 The job runs as the deployment service principal. The tables are created in the
 `<environment>` catalog, in the `donnees_qc_req` schema.
 
@@ -336,7 +350,7 @@ The stack files are the variables of the deployment.
 | `cds-demo:createTagPolicies` | `true`: the deployment creates the governed tag `classification`. It belongs to the account: `true` in `nprod` only. |
 | `cds-demo:timezone` | Time zone of the schedules of the job and of the alerts: `America/Toronto`. |
 | `cds-demo:pauseSchedule` | `true`: the schedule of the job is paused, and the job runs on demand. `true` in `nprod`, `false` in `prod`. |
-| `cds-demo:alertEmails` | Optional. List of the addresses receiving the alerts, besides the support channel of the contracts. |
+| `cds-demo:alertEmails` | Optional secret. List of the addresses receiving the alerts, besides the support channel of the contracts (see [Alerts of the service levels](#alerts-of-the-service-levels)). |
 
 ## Deploy from your computer (optional)
 

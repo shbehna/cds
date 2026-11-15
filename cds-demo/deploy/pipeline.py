@@ -23,7 +23,7 @@ import hashlib
 import json
 import posixpath
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -113,8 +113,9 @@ class Settings:
     timezone: str = "America/Toronto"
     # Whether the schedule of the job is paused: the job then runs on demand.
     pause_schedule: bool = False
-    # Addresses receiving the alerts, besides the email support channels of the contracts.
-    alert_emails: tuple[str, ...] = ()
+    # Addresses receiving the alerts, besides the email support channels of the contracts:
+    # a secret of the stack, read as a secret output (None when not set).
+    alert_emails: pulumi.Input[Sequence[str]] | None = None
     manifest: Path = field(default=MANIFEST)
     wheel_directory: Path = field(default=REPOSITORY / "dist")
     testdata_directory: Path = field(default=TESTDATA)
@@ -148,7 +149,8 @@ class Settings:
             create_tag_policies=config.get_bool("createTagPolicies") or False,
             timezone=config.get("timezone") or cls.timezone,
             pause_schedule=config.get_bool("pauseSchedule") or False,
-            alert_emails=string_list("alertEmails", config.get_object("alertEmails")),
+            # A secret: the addresses stay out of the repository and of the logs.
+            alert_emails=config.get_secret_object("alertEmails"),
         )
 
 
@@ -160,7 +162,7 @@ def string_list(key: str, value: object, default: tuple[str, ...] = ()) -> tuple
     """
     if value is None:
         return default
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+    if not isinstance(value, (list, tuple)) or not all(isinstance(item, str) for item in value):
         raise ValueError(f'cds-demo:{key} must be a list of strings, such as ["a", "b"], not {value!r}.')
     return tuple(value)
 
@@ -289,6 +291,24 @@ def job_schedule(settings: Settings, manifest: Mapping[str, Any]) -> databricks.
     )
 
 
+def alert_addresses(
+    recipients: Sequence[str], emails: pulumi.Input[Sequence[str]] | None
+) -> pulumi.Input[Sequence[str]]:
+    """The addresses receiving the alerts: the recipients of the manifest, and the alertEmails.
+
+    Returns:
+        A list when the alertEmails are not set or a plain list; otherwise an output,
+        secret when the alertEmails are, as the secret of the stack.
+    """
+    if emails is None or isinstance(emails, (list, tuple)):
+        return list(dict.fromkeys([*recipients, *string_list("alertEmails", emails)]))
+
+    def with_recipients(value: Sequence[str]) -> list[str]:
+        return list(dict.fromkeys([*recipients, *string_list("alertEmails", value)]))
+
+    return pulumi.Output.from_input(emails).apply(with_recipients)
+
+
 def alerts(
     settings: Settings,
     manifest: Mapping[str, Any],
@@ -303,9 +323,13 @@ def alerts(
     a table breaks its SLA (the maximum of the exceeded column is above 0), and sends an
     email to the support channels of the contracts and the alertEmails when it triggers
     and when it is back to normal. Without address, the alerts send nothing.
+
+    The alertEmails are a secret of the stack: the addresses of the notification
+    destination are a secret output, kept encrypted in the state of the stack.
     """
     definitions = manifest.get("alerts") or []
-    addresses = list(dict.fromkeys([*manifest.get("recipients", []), *settings.alert_emails]))
+    recipients = [str(address) for address in manifest.get("recipients") or []]
+    addresses = alert_addresses(recipients, settings.alert_emails)
     destination = (
         databricks.NotificationDestination(
             "alert-destination",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import json
 import re
@@ -470,3 +471,16 @@ def test_the_stacks_pause_the_schedule_in_nprod_only() -> None:
     nprod, prod = config("nprod"), config("prod")
     assert (nprod["pauseSchedule"], prod["pauseSchedule"]) == ("true", "false")
     assert nprod["timezone"] == prod["timezone"] == "America/Toronto"
+
+
+def test_the_alert_emails_stay_secret() -> None:
+    addresses = pipeline.alert_addresses(["support@example.com"], pulumi.Output.secret(["me@example.org"]))
+
+    assert isinstance(addresses, pulumi.Output)
+    loop = asyncio.get_event_loop()
+    assert loop.run_until_complete(addresses.is_secret())
+    assert loop.run_until_complete(addresses.future()) == ["support@example.com", "me@example.org"]
+    # Without the secret, the recipients of the manifest, as a plain list.
+    assert pipeline.alert_addresses(["support@example.com"], None) == ["support@example.com"]
+    with pytest.raises(ValueError, match="cds-demo:alertEmails must be a list of strings"):
+        pipeline.alert_addresses([], [1])  # type: ignore[list-item]
