@@ -85,7 +85,8 @@ The tables with a primary key have a history table, `<table>_historique`: the
   the synthetic data set).
 - **SCD**: the history uses the primary key of each contract. The register publishes a
   few rows sharing the same key, which the quality service reports: the `req`
-  configuration keeps one row per key in the history instead of failing.
+  configuration keeps one row per key in the history instead of failing. The history
+  keeps the replaced versions 10 years (see [Service levels](#service-levels)).
 
 A profiling of the data set of October 2026 shows what the checks catch: 25 keys of
 establishments and 2,245 keys of names used by several rows,
@@ -113,13 +114,40 @@ not the columns. The masking function only takes strings, which a test checks.
 
 The deployment cannot load the data products: it reads the classifications in the
 manifest [manifest/req_manifest.json](manifest/req_manifest.json), generated from the
-contracts by [manifest/manifest.py](manifest/manifest.py). Regenerate it after changing
-the contracts or their configurations, and commit it: a test checks that it is up to
-date.
+contracts by [manifest/manifest.py](manifest/manifest.py), with the schedule and the
+alerts of the service levels. Regenerate it after changing the contracts or their
+configurations, and commit it: a test checks that it is up to date.
 
 ```bash
 uv run python cds-demo/manifest/manifest.py
 ```
+
+## Service levels
+
+The `req` configuration gives every contract the service levels of the data product
+(`slaProperties` of its `contract_defaults`), and a support channel:
+
+| Property | Value | Checked | Applied by |
+| --- | --- | --- | --- |
+| `frequency` | the 1st and the 15th of each month, at 6 am (`0 6 1,15 * *`): the register is published twice a month | | the schedule of the job |
+| `latency` | 18 days since the last change of each table: up to 17 days separate two loads | every day at 7 am | an alert |
+| `errorRate` | at most 1 % of the rows of each table with a quality error | after each load, the 1st and the 15th at noon | an alert |
+| `retention` | the history keeps the replaced versions 10 years | | the scd service |
+
+The manifest converts them for the deployment: the schedule of the job, and the queries
+of the two SQL alerts (see
+[deploy/README.md](deploy/README.md#alerts-of-the-service-levels)). Each query returns a
+row per table: its error rate, or the time of its last change, and whether it breaks its
+service level. The alerts are sent to the email support channel of the contracts, whose
+address is fictitious, and to the addresses of the deployment. The 5 % of rows in error
+of the synthetic data set trigger the error rate alert in `nprod`.
+
+The latency measures the last change of a table (`last_altered` of the information
+schema), which the metadata step updates after each load. It does not run when the load
+fails: the alert detects the failed loads and a job that no longer runs. A contract can
+measure the freshness of its data instead, with a date column as the `element` of its
+latency: the alert then checks the latest value of the column. The failed runs of the job
+also send an email.
 
 ## Synthetic data set
 

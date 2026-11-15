@@ -10,6 +10,7 @@ The Pulumi program ([pipeline.py](pipeline.py)) creates, in the workspace folder
 
 ```text
 /Shared/cds-demo/nprod/
+├── alerts/          the SQL alerts of the service levels (cds-demo/manifest)
 ├── dashboards/      the quality dashboard (cds-demo/dashboards), published
 ├── notebooks/       the service notebooks of the framework (cds-framework/notebooks)
 ├── products/        the data products of the demo (cds-demo/products)
@@ -21,14 +22,21 @@ the quality service. Its queries run on a SQL warehouse with the credentials of 
 service principal, which owns the tables; it reads the tables of its environment.
 
 It also creates the job `cds-demo-req-<environment>`, which runs the services of the
-framework on serverless compute. The job has no schedule: you run it on demand.
+framework on serverless compute. It runs on the schedule of the `frequency` of the
+contracts, the 1st and the 15th of each month at 6 am (`cds-demo:timezone`). The
+schedule is paused unless `cds-demo:pauseSchedule` is `false`, as in `prod`: in `nprod`,
+you run the job on demand.
 
 ```text
-schema --> metadata
-       --> transformation --> quality --> scd
+schema --> transformation --> metadata
+                          --> quality --> scd
 ```
 
-A failed step fails the run, and the steps after it do not run.
+A failed step fails the run, and the steps after it do not run. A failed run sends an
+email to the addresses of the alerts (see
+[Alerts of the service levels](#alerts-of-the-service-levels)). The metadata step runs
+after the load: as it changes the tables on each run, a failed load leaves them
+unchanged, which the latency alert detects.
 
 ### Masking of the classified columns
 
@@ -56,6 +64,38 @@ type `STRING`, which a test of the demo checks (`cds-demo/tests/test_manifest.py
 The deployment reads the classifications in the manifest
 [cds-demo/manifest/req_manifest.json](../manifest/req_manifest.json), generated from the
 contracts: regenerate it after changing them (`uv run python cds-demo/manifest/manifest.py`).
+
+### Alerts of the service levels
+
+The contracts state service levels (see
+[cds-demo/README.md](../README.md#service-levels)), which the manifest turns into two SQL
+alerts, in the `alerts` folder:
+
+| Alert | Triggers when | Checked |
+| --- | --- | --- |
+| **REQ error rate SLA (&lt;environment&gt;)** | more than 1 % of the rows of a table have a quality error | after each load: the 1st and the 15th of each month at noon |
+| **REQ latency SLA (&lt;environment&gt;)** | a table has not changed for 18 days, as its load failed or the job did not run | every day at 7 am |
+
+Their queries run on the SQL warehouse of the dashboard, as the service principal, and
+return a row per table: the alert triggers when one of them breaks its service level. It
+then sends an email to a notification destination, **CDS demo alerts
+(&lt;environment&gt;)**, holding the address of the support channel of the contracts
+(fictitious) and those of the GitHub secret `ALERT_EMAILS`, and another one when it is back to
+normal. Creating a notification destination requires a workspace administrator, which the
+service principal is.
+
+The error rate is checked once the job has loaded and checked the tables. If the quality
+step fails, the error rate of the tables cannot be measured: the failed run sends its own
+email.
+
+In `nprod`, run the error rate alert after a run of the job (**Run now** on the alert):
+the error rate of the synthetic data set triggers it. As the schedule of the job is
+paused, the latency alert triggers 18 days after the last run.
+
+To receive the alerts, add your address to the GitHub secret `ALERT_EMAILS` (see
+[Add the secrets to GitHub](#3-add-the-secrets-to-github-once)): the next deployment adds
+it to the notification destination of both environments. The deployment reads it as a
+Pulumi secret, kept encrypted in the state of the stacks and hidden in their logs.
 
 The job runs as the deployment service principal. The tables are created in the
 `<environment>` catalog, in the `donnees_qc_req` schema.
@@ -215,8 +255,11 @@ never in the repository.
    | --- | --- |
    | `DATABRICKS_CLIENT_SECRET` | The secret of the service principal (step 1). |
    | `PULUMI_ACCESS_TOKEN` | The Pulumi access token (step 2). |
+   | `ALERT_EMAILS` | Optional. The addresses receiving the alerts of the service levels, separated by commas, such as `you@example.com, teammate@example.com`. |
 
-The workflow passes `DATABRICKS_CLIENT_SECRET` to Pulumi as an environment variable.
+The workflow passes `DATABRICKS_CLIENT_SECRET` and `ALERT_EMAILS` to Pulumi as
+environment variables. The deployments run without `ALERT_EMAILS`: the alerts are then
+only sent to the fictitious address of the contracts.
 The client id of the service principal is not secret: it is in the stack files.
 
 GitHub masks secrets in the logs. If you later want an approval before deploying `prod`,
@@ -242,12 +285,12 @@ first run creates the tables of `nprod.donnees_qc_req`. Each run then:
 
 1. creates or updates the tables from their contracts, with the tags of their columns
    (schema);
-2. documents and tags them, and their history tables (metadata);
-3. loads them from the CSV files, with the names and types of their contracts
+2. loads them from the CSV files, with the names and types of their contracts
    (transformation): the synthetic files in `nprod`, those of the register in `prod`;
+3. documents and tags them, and their history tables (metadata);
 4. checks them with DQX: each row gets its `_errors` and `_warnings` (quality);
 5. updates their history in the `<table>_historique` tables, created with the tags of
-   their columns (scd).
+   their columns, and deletes the versions replaced more than 10 years ago (scd).
 
 The columns of a new table, or of a new history table, are tagged before any data is
 written to it: its classified columns are masked from the first run. If they cannot be
@@ -308,6 +351,8 @@ The stack files are the variables of the deployment.
 | `cds-demo:maskedClassifications` | Optional. List of the classifications masked, among the values of the manifest: `["restricted"]` by default, `[]` for none. |
 | `cds-demo:maskingExemptPrincipals` | Optional. List of the users or groups reading the masked columns as they are, besides the service principal. |
 | `cds-demo:createTagPolicies` | `true`: the deployment creates the governed tag `classification`. It belongs to the account: `true` in `nprod` only. |
+| `cds-demo:timezone` | Time zone of the schedules of the job and of the alerts: `America/Toronto`. |
+| `cds-demo:pauseSchedule` | `true`, the default: the schedule of the job is paused, and the job runs on demand. `true` in `nprod`, `false` in `prod`. |
 
 ## Deploy from your computer (optional)
 
@@ -320,7 +365,8 @@ The stack files are the variables of the deployment.
    ```
 
 3. Authenticate to Databricks, with the secret of the service principal
-   (`export DATABRICKS_CLIENT_SECRET=...`).
+   (`export DATABRICKS_CLIENT_SECRET=...`), and optionally set the addresses receiving
+   the alerts (`export ALERT_EMAILS=you@example.com`).
 4. Deploy:
 
    ```bash
@@ -331,8 +377,8 @@ The stack files are the variables of the deployment.
    pulumi up        # applies them
    ```
 
-`pulumi destroy` removes the job, the dashboard, the files and the masking (policy,
-function, `governance` schema). It does not drop the tables. The governed tag
+`pulumi destroy` removes the job, the dashboard, the alerts and their notification
+destination, the files and the masking (policy, function, `governance` schema). It does not drop the tables. The governed tag
 `classification` created by the `nprod` stack is protected, because the `prod` masking
 uses it: `pulumi destroy` of `nprod` fails until you run `pulumi state unprotect` on it,
 or `pulumi state delete` to keep the tag and forget it. A catalog created by the

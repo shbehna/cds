@@ -265,6 +265,50 @@ def test_scd_can_deduplicate(make_project: MakeProject, spark: FakeSpark) -> Non
     assert merge.count("QUALIFY row_number() OVER (PARTITION BY `customer_id` ORDER BY `_row_hash`) = 1") == 2
 
 
+def test_scd_purges_the_versions_older_than_the_retention(make_project: MakeProject, spark: FakeSpark) -> None:
+    contract = CUSTOMER + "    slaProperties:\n      - {property: retention, value: 10, unit: y}\n"
+    root = make_project({"sales/orders/customer/customer.yaml": contract})
+    context = ServiceContext(spark=spark.as_session(), environment="dev", data_context=DataContext.discover(root))
+    spark.add_table(CUSTOMER_TABLE, ["customer_id", "name", "created_on"])
+    spark.on(r"duplicate_keys", [Row(duplicate_keys=0)])
+    spark.on(r"^DELETE FROM", [Row(num_affected_rows=3)])
+
+    [result] = run(scd_service(context), context).results
+
+    assert result.status is Status.SUCCESS
+    assert result.message.endswith(", 3 version(s) closed for more than 10 years purged")
+    # The current versions are kept; the closed ones are compared with the time of the run.
+    [delete] = spark.statements_matching(r"^DELETE FROM")
+    assert delete == (
+        "DELETE FROM `dev`.`sales_orders`.`customer_history` WHERE NOT `_is_current` AND "
+        "`_valid_to` < timestamp_micros(1767225600000000) - INTERVAL '10' YEAR"
+    )
+    assert spark.statements.index(delete) > spark.statements.index(spark.statements_matching(r"^MERGE INTO")[0])
+
+
+def test_scd_checks_the_retention_before_writing_the_history(make_project: MakeProject, spark: FakeSpark) -> None:
+    contract = CUSTOMER + "    slaProperties:\n      - {property: retention, value: 10, unit: years_}\n"
+    root = make_project({"sales/orders/customer/customer.yaml": contract})
+    context = ServiceContext(spark=spark.as_session(), environment="dev", data_context=DataContext.discover(root))
+    spark.add_table(CUSTOMER_TABLE, ["customer_id", "name", "created_on"])
+
+    [result] = run(scd_service(context), context).results
+
+    assert result.status is Status.ERROR
+    assert "sales.orders.customer: retention: the unit must be a duration" in result.message
+    assert not spark.statements_matching(r"^(CREATE|MERGE|DELETE)")
+
+
+def test_scd_keeps_every_version_without_retention(context: ServiceContext, spark: FakeSpark) -> None:
+    spark.add_table(CUSTOMER_TABLE, ["customer_id", "name", "created_on"])
+    spark.on(r"duplicate_keys", [Row(duplicate_keys=0)])
+
+    [result] = run(scd_service(context), context).results
+
+    assert result.status is Status.SUCCESS and "purged" not in result.message
+    assert not spark.statements_matching(r"^DELETE")
+
+
 def test_scd_skips_tables_without_primary_key(make_project: MakeProject, spark: FakeSpark) -> None:
     no_key = CUSTOMER.replace("            primaryKey: true\n", "")
     context = ServiceContext(
