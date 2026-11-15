@@ -9,7 +9,7 @@ running the services in order:
 
 The job runs on the schedule of the frequency SLA of the contracts, paused or not
 (pauseSchedule). SQL alerts check their latency and error rate SLA, and email the support
-channels of the contracts and the alertEmails: see alerts.
+channels of the contracts and the addresses of ALERT_EMAILS: see alerts.
 
 Depending on the stack, the deployment also creates the catalog of the environment
 (createCatalog), uploads the synthetic data set (cds-demo/csv/testdata) next to the
@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import posixpath
 import re
 from collections.abc import Iterable, Mapping, Sequence
@@ -72,6 +73,9 @@ TAG_POLICY_PROPAGATION_SECONDS = 120
 ENVIRONMENT_PLACEHOLDER = "${environment}"
 # Column of the alert queries of the manifest: 1 for a table breaking its SLA, 0 otherwise.
 EXCEEDED_COLUMN = "exceeded"
+# Environment variable holding the addresses receiving the alerts, set by the workflow
+# from the GitHub secret of the same name.
+ALERT_EMAILS_VARIABLE = "ALERT_EMAILS"
 
 
 @dataclass(frozen=True)
@@ -114,7 +118,7 @@ class Settings:
     # Whether the schedule of the job is paused: the job then runs on demand.
     pause_schedule: bool = False
     # Addresses receiving the alerts, besides the email support channels of the contracts:
-    # a secret of the stack, read as a secret output (None when not set).
+    # the ALERT_EMAILS environment variable, as a secret output (None when not set).
     alert_emails: pulumi.Input[Sequence[str]] | None = None
     manifest: Path = field(default=MANIFEST)
     wheel_directory: Path = field(default=REPOSITORY / "dist")
@@ -149,8 +153,9 @@ class Settings:
             create_tag_policies=config.get_bool("createTagPolicies") or False,
             timezone=config.get("timezone") or cls.timezone,
             pause_schedule=config.get_bool("pauseSchedule") or False,
-            # A secret: the addresses stay out of the repository and of the logs.
-            alert_emails=config.get_secret_object("alertEmails"),
+            # A GitHub secret, as the secret of the service principal: the addresses stay out
+            # of the repository and of the logs.
+            alert_emails=alert_emails_from_environment(),
         )
 
 
@@ -162,7 +167,7 @@ def string_list(key: str, value: object, default: tuple[str, ...] = ()) -> tuple
     """
     if value is None:
         return default
-    if not isinstance(value, (list, tuple)) or not all(isinstance(item, str) for item in value):
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError(f'cds-demo:{key} must be a list of strings, such as ["a", "b"], not {value!r}.')
     return tuple(value)
 
@@ -291,22 +296,43 @@ def job_schedule(settings: Settings, manifest: Mapping[str, Any]) -> databricks.
     )
 
 
+def alert_emails_from_environment(environ: Mapping[str, str] | None = None) -> pulumi.Output[list[str]] | None:
+    """Reads the addresses receiving the alerts from the ALERT_EMAILS environment variable.
+
+    The workflow sets it from the GitHub secret of the same name. The addresses are
+    separated by commas, semicolons or spaces.
+
+    Returns:
+        The addresses, as a secret output; ``None`` when the variable is not set or empty.
+
+    Raises:
+        ValueError: If a value is not an email address. The message does not show the addresses.
+    """
+    value = (os.environ if environ is None else environ).get(ALERT_EMAILS_VARIABLE, "")
+    addresses = [address for address in re.split(r"[\s,;]+", value) if address]
+    if not addresses:
+        return None
+    invalid = [str(position) for position, address in enumerate(addresses, 1) if "@" not in address]
+    if invalid:
+        raise ValueError(
+            f"{ALERT_EMAILS_VARIABLE}: the value number {', '.join(invalid)} is not an email address; "
+            "separate the addresses with commas."
+        )
+    return pulumi.Output.secret(addresses)
+
+
 def alert_addresses(
     recipients: Sequence[str], emails: pulumi.Input[Sequence[str]] | None
 ) -> pulumi.Input[Sequence[str]]:
-    """The addresses receiving the alerts: the recipients of the manifest, and the alertEmails.
+    """The addresses receiving the alerts: the recipients of the manifest, and the alert emails.
 
     Returns:
-        A list when the alertEmails are not set or a plain list; otherwise an output,
-        secret when the alertEmails are, as the secret of the stack.
+        The recipients without alert emails; otherwise an output, secret when the alert
+        emails are.
     """
-    if emails is None or isinstance(emails, (list, tuple)):
-        return list(dict.fromkeys([*recipients, *string_list("alertEmails", emails)]))
-
-    def with_recipients(value: Sequence[str]) -> list[str]:
-        return list(dict.fromkeys([*recipients, *string_list("alertEmails", value)]))
-
-    return pulumi.Output.from_input(emails).apply(with_recipients)
+    if emails is None:
+        return list(dict.fromkeys(recipients))
+    return pulumi.Output.from_input(emails).apply(lambda value: list(dict.fromkeys([*recipients, *value])))
 
 
 def alerts(
@@ -321,11 +347,11 @@ def alerts(
     Each alert runs its query on the SQL warehouse, as the deployment service principal,
     on the schedule of its SLA. The query returns a row per table: the alert triggers when
     a table breaks its SLA (the maximum of the exceeded column is above 0), and sends an
-    email to the support channels of the contracts and the alertEmails when it triggers
+    email to the support channels of the contracts and the alert emails when it triggers
     and when it is back to normal. Without address, the alerts send nothing.
 
-    The alertEmails are a secret of the stack: the addresses of the notification
-    destination are a secret output, kept encrypted in the state of the stack.
+    The alert emails come from a GitHub secret (ALERT_EMAILS): the addresses of the
+    notification destination are a secret output, kept encrypted in the state of the stack.
     """
     definitions = manifest.get("alerts") or []
     recipients = [str(address) for address in manifest.get("recipients") or []]

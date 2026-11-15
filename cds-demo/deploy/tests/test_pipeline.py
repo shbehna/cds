@@ -473,14 +473,24 @@ def test_the_stacks_pause_the_schedule_in_nprod_only() -> None:
     assert nprod["timezone"] == prod["timezone"] == "America/Toronto"
 
 
-def test_the_alert_emails_stay_secret() -> None:
-    addresses = pipeline.alert_addresses(["support@example.com"], pulumi.Output.secret(["me@example.org"]))
+def test_the_alert_emails_are_a_secret_of_the_environment() -> None:
+    """The workflow sets ALERT_EMAILS from the GitHub secret: the addresses stay secret in Pulumi."""
+    emails = pipeline.alert_emails_from_environment({"ALERT_EMAILS": " me@example.org, team@example.org ;"})
+    assert emails is not None
+    addresses = pipeline.alert_addresses(["support@example.com"], emails)
 
     assert isinstance(addresses, pulumi.Output)
     loop = asyncio.get_event_loop()
     assert loop.run_until_complete(addresses.is_secret())
-    assert loop.run_until_complete(addresses.future()) == ["support@example.com", "me@example.org"]
+    assert loop.run_until_complete(addresses.future()) == ["support@example.com", "me@example.org", "team@example.org"]
     # Without the secret, the recipients of the manifest, as a plain list.
+    assert pipeline.alert_emails_from_environment({}) is None
+    assert pipeline.alert_emails_from_environment({"ALERT_EMAILS": ""}) is None
     assert pipeline.alert_addresses(["support@example.com"], None) == ["support@example.com"]
-    with pytest.raises(ValueError, match="cds-demo:alertEmails must be a list of strings"):
-        pipeline.alert_addresses([], [1])  # type: ignore[list-item]
+
+
+def test_invalid_alert_emails_are_not_shown() -> None:
+    with pytest.raises(ValueError, match="the value number 2 is not an email address") as raised:
+        pipeline.alert_emails_from_environment({"ALERT_EMAILS": "me@example.org,secret-name"})
+
+    assert "secret-name" not in str(raised.value) and "me@example.org" not in str(raised.value)

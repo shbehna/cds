@@ -35,6 +35,8 @@ env:
   PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
   # OAuth secret of the service principal whose client id is in Pulumi.<stack>.yaml.
   DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+  # Optional: the addresses receiving the alerts of the service levels, separated by commas.
+  ALERT_EMAILS: ${{ secrets.ALERT_EMAILS }}
 
 jobs:
   build:

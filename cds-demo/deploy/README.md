@@ -75,7 +75,7 @@ Their queries run on the SQL warehouse of the dashboard, as the service principa
 return a row per table: the alert triggers when one of them breaks its service level. It
 then sends an email to a notification destination, **CDS demo alerts
 (&lt;environment&gt;)**, holding the address of the support channel of the contracts
-(fictitious) and those of `cds-demo:alertEmails`, and another one when it is back to
+(fictitious) and those of the GitHub secret `ALERT_EMAILS`, and another one when it is back to
 normal. Creating a notification destination requires a workspace administrator, which the
 service principal is.
 
@@ -83,19 +83,10 @@ In `nprod`, the error rate of the synthetic data set triggers the first alert af
 run. As the schedule of the job is paused, the latency alert triggers 18 days after the
 last run.
 
-To receive the alerts, add your address to the secret `cds-demo:alertEmails` of the
-stack, with the [Pulumi CLI](#deploy-from-your-computer-optional) logged in to Pulumi
-Cloud, from `cds-demo/deploy`:
-
-```bash
-pulumi config set --stack nprod --secret --path "cds-demo:alertEmails[0]" you@example.com
-pulumi config set --stack nprod --secret --path "cds-demo:alertEmails[1]" teammate@example.com
-```
-
-Pulumi Cloud encrypts each address in [Pulumi.nprod.yaml](Pulumi.nprod.yaml), which only
-holds their encrypted values (`secure: v1:...`): commit it, and the next deployment adds
-them to the notification destination. The deployment reads them as a secret, kept
-encrypted in the state of the stack and hidden in its logs.
+To receive the alerts, add your address to the GitHub secret `ALERT_EMAILS` (see
+[Add the secrets to GitHub](#3-add-the-secrets-to-github-once)): the next deployment adds
+it to the notification destination of both environments. The deployment reads it as a
+Pulumi secret, kept encrypted in the state of the stacks and hidden in their logs.
 
 The job runs as the deployment service principal. The tables are created in the
 `<environment>` catalog, in the `donnees_qc_req` schema.
@@ -255,8 +246,11 @@ never in the repository.
    | --- | --- |
    | `DATABRICKS_CLIENT_SECRET` | The secret of the service principal (step 1). |
    | `PULUMI_ACCESS_TOKEN` | The Pulumi access token (step 2). |
+   | `ALERT_EMAILS` | Optional. The addresses receiving the alerts of the service levels, separated by commas, such as `you@example.com, teammate@example.com`. |
 
-The workflow passes `DATABRICKS_CLIENT_SECRET` to Pulumi as an environment variable.
+The workflow passes `DATABRICKS_CLIENT_SECRET` and `ALERT_EMAILS` to Pulumi as
+environment variables. The deployments run without `ALERT_EMAILS`: the alerts are then
+only sent to the fictitious address of the contracts.
 The client id of the service principal is not secret: it is in the stack files.
 
 GitHub masks secrets in the logs. If you later want an approval before deploying `prod`,
@@ -350,7 +344,6 @@ The stack files are the variables of the deployment.
 | `cds-demo:createTagPolicies` | `true`: the deployment creates the governed tag `classification`. It belongs to the account: `true` in `nprod` only. |
 | `cds-demo:timezone` | Time zone of the schedules of the job and of the alerts: `America/Toronto`. |
 | `cds-demo:pauseSchedule` | `true`: the schedule of the job is paused, and the job runs on demand. `true` in `nprod`, `false` in `prod`. |
-| `cds-demo:alertEmails` | Optional secret. List of the addresses receiving the alerts, besides the support channel of the contracts (see [Alerts of the service levels](#alerts-of-the-service-levels)). |
 
 ## Deploy from your computer (optional)
 
@@ -363,7 +356,8 @@ The stack files are the variables of the deployment.
    ```
 
 3. Authenticate to Databricks, with the secret of the service principal
-   (`export DATABRICKS_CLIENT_SECRET=...`).
+   (`export DATABRICKS_CLIENT_SECRET=...`), and optionally set the addresses receiving
+   the alerts (`export ALERT_EMAILS=you@example.com`).
 4. Deploy:
 
    ```bash

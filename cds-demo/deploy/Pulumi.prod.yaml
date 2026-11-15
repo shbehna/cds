@@ -34,7 +34,4 @@ config:
   cds-demo:timezone: America/Toronto
   cds-demo:pauseSchedule: "false"
   # The alerts are sent to the email support channels of the contracts, whose address is
-  # fictitious, and to the addresses of the secret cds-demo:alertEmails. Add yours, from
-  # cds-demo/deploy, logged in to Pulumi Cloud (README.md), then commit this file:
-  #   pulumi config set --stack prod --secret --path "cds-demo:alertEmails[0]" you@example.com
-  # Pulumi Cloud encrypts the address: the file only holds its encrypted value.
+  # fictitious, and to the addresses of the ALERT_EMAILS secret of GitHub (README.md).

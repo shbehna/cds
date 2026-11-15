@@ -63,7 +63,7 @@ config = DataProductConfig(
             },
         ],
         # The alerts of the service levels are sent to the email channels. The address of
-        # the repository is fictitious: the deployment adds those of cds-demo:alertEmails.
+        # the repository is fictitious: the deployment adds those of the ALERT_EMAILS secret.
         "support": [
             {
                 "channel": "donnees-qc-req",
