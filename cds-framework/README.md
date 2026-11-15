@@ -147,7 +147,8 @@ Contracts are ODCS v3 documents (`apiVersion: v3.0.0` to `v3.2.0`). CDS reads:
 - `quality` rules (see the quality service);
 - `tags` of the contract, of its `schema` objects and of their properties, the
   `classification` of the properties, and the `status`, `domain` and `dataProduct` of
-  the contract (see the tags of the metadata service).
+  the contract (see the tags of the metadata service);
+- `slaProperties` and `support` (see [Service levels](#service-levels)).
 
 Everything else remains available in the `raw` attribute of the object model
 (`cds.odcs`).
@@ -186,7 +187,7 @@ per table: success, skipped, warning or error. A run fails if a table is in erro
 | `metadata` | Applies the descriptions of the contracts as table and column comments, synchronizes the Unity Catalog tags of the tables and columns with the contracts, and records the contract in the table properties. |
 | `transformation` | Calls the `transform` of the contract configuration, checks that its result has exactly the columns of the contract, casts them to their contract types and replaces the content of the table (`INSERT OVERWRITE ... BY NAME`). |
 | `quality` | Applies DQX checks and writes their results in the `_errors` and `_warnings` columns of each row. |
-| `scd` | Keeps the history (SCD type 2) of the tables with a primary key, in `<table>_history`, whose columns get the tags of those of the table. |
+| `scd` | Keeps the history (SCD type 2) of the tables with a primary key, in `<table>_history`, whose columns get the tags of those of the table. Purges the versions closed for longer than the `retention` of the contract. |
 | `snapshot` | Loads a table with the latest record of each key of a historical table. |
 
 ### Quality checks
@@ -286,6 +287,50 @@ of the tracked (non-key) columns, the start and end of validity of each version,
 whether it is the current version. Each run closes the current version of the changed
 and deleted keys, and inserts a version for the new and changed keys.
 
+### Service levels
+
+The `slaProperties` of a contract state the service levels of its tables
+([`cds.sla`](src/cds/sla.py)). The `scd` service applies the `retention`; the other
+properties are for the deployments, which can schedule the loads (`frequency`) and alert
+on stale data (`latency`) or error rates (`errorRate`), as the demo does.
+
+```yaml
+slaProperties:
+  - property: retention     # the history keeps the closed versions 10 years
+    value: 10
+    unit: y
+  - property: latency       # checked every day at 7 am
+    value: 18
+    unit: d
+    element: orders         # a table, or a column (orders.updated_at); every table without it
+    scheduler: cron
+    schedule: "0 7 * * *"
+support:
+  - channel: data-team
+    tool: email
+    url: mailto:data-team@example.com
+```
+
+A property applies to the tables of its `element`; without one, to the
+`slaDefaultElement` of the contract (ODCS v3.0), or else to every table. A property
+whose element designates a table takes precedence over the one without element; `cds
+validate` reports two properties of the same name for the same table. The `retention`
+applies to the versions of the history tables: its element designates tables, not
+columns. Durations are positive integers in `h`, `d`, `w`, `mo` or `y` (or
+`hours`, `days`...), the `errorRate` and the `availability` percentages (`percent`).
+The schedules are cron expressions of five fields, with `scheduler: cron`;
+`cds.sla.quartz_cron` converts them to the Quartz syntax of the Databricks jobs and
+alerts. The addresses of the `email` support channels are given by
+`cds.sla.support_emails`.
+
+`cds validate` checks the names of the properties, or their abbreviations (`ly` for
+`latency`...), their values and units, their elements and their cron schedules, and the
+`mailto:` url of the email channels.
+
+The `scd` service deletes from a history table the versions closed for longer than the
+`retention` of its table, and reports their number; the current versions are kept. A
+contract defining `slaProperties` or `support` replaces those of the contract defaults.
+
 ## Running the services
 
 The `notebooks` folder contains one Databricks notebook per service. A notebook only
@@ -311,14 +356,15 @@ Any other parameter is available to the configuration through the
 `RuntimeConfiguration`. Outside a notebook, the parameters can be set as `CDS_*`
 environment variables (`CDS_ENVIRONMENT=nprod`) or passed to `run_service`.
 
-A typical pipeline runs `schema`, then `metadata` and `transformation`, then `quality`,
-then `scd`.
+A typical pipeline runs `schema`, then `transformation`, then `metadata` and `quality`,
+then `scd`. Running `metadata` after the load keeps the time of the last change of the
+tables (`last_altered`) for the loads that succeeded.
 
 ## Command line
 
 `cds validate <root>` loads the data products of a root folder, validates their
-contracts and configurations, and validates the inferred checks with DQX, without
-Spark. `cds checks <root> --data-product <group>.<data_product>` prints the inferred
+contracts and configurations, including their tags and service levels, and validates the
+inferred checks with DQX, without Spark. `cds checks <root> --data-product <group>.<data_product>` prints the inferred
 checks.
 
 ## Development

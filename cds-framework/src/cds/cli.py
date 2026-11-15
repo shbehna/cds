@@ -19,6 +19,7 @@ from cds.data_context import DataContext, Table
 from cds.errors import CdsError
 from cds.services.checks import CheckSet, build_checks, configured_checks
 from cds.services.tags import tag_problems
+from cds.sla import sla_problems
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -90,6 +91,11 @@ def _validate(context: ServiceContext) -> int:
                 print(f"  x {table.name}: invalid tags: {'; '.join(tags)}")
             if not problems and not tags:
                 print(f"  + {table.name}: {details}")
+        for contract in data_product.contracts:
+            sla = sla_problems(contract.document) if contract.document else []
+            if sla:
+                failed = True
+                print(f"  x contract {contract.name}: invalid SLA: {'; '.join(sla)}")
     if validator is None:
         print("DQX is not installed: the checks were not validated (install cds-framework[dqx]).")
     return 1 if failed else 0
