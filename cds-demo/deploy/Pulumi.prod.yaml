@@ -30,3 +30,9 @@ config:
   # created by the nprod stack.
   cds-demo:masking: "true"
   cds-demo:createTagPolicies: "false"
+  # The job runs on the schedule of the frequency SLA of the contracts, in this time zone.
+  cds-demo:timezone: America/Toronto
+  cds-demo:pauseSchedule: "false"
+  # The alerts are sent to the email support channels of the contracts, whose address is
+  # fictitious, and to these addresses. Add yours to receive them, for example:
+  # cds-demo:alertEmails: ["you@example.com"]

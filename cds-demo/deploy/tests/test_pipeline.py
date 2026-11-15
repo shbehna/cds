@@ -362,3 +362,111 @@ def test_the_stacks_mask_the_classified_columns() -> None:
     assert nprod["masking"] == prod["masking"] == "true"
     # The tag policy belongs to the account: the nprod stack creates it, protected, for both.
     assert (nprod["createTagPolicies"], prod["createTagPolicies"]) == ("true", "false")
+
+
+@pulumi.runtime.test
+def test_the_job_runs_on_the_frequency_of_the_contracts(settings: pipeline.Settings) -> pulumi.Output[None]:
+    paused = pipeline.deploy(dataclasses.replace(settings, pause_schedule=True))
+    running = pipeline.deploy(dataclasses.replace(settings, timezone="UTC"))
+
+    def check(schedules: list[Any]) -> None:
+        paused_schedule, running_schedule = schedules
+        # The register is published twice a month: the 1st and the 15th, at 6 am.
+        assert value(paused_schedule, "quartz_cron_expression") == "0 0 6 1,15 * ?"
+        assert (value(paused_schedule, "timezone_id"), value(paused_schedule, "pause_status")) == (
+            "America/Toronto",
+            "PAUSED",
+        )
+        assert (value(running_schedule, "timezone_id"), value(running_schedule, "pause_status")) == ("UTC", "UNPAUSED")
+
+    return pulumi.Output.all(paused.schedule, running.schedule).apply(check)
+
+
+@pulumi.runtime.test
+def test_alerts(settings: pipeline.Settings) -> pulumi.Output[None]:
+    CREATED.clear()
+    job = pipeline.deploy(dataclasses.replace(settings, alert_emails=("data-team@example.org",)))
+
+    def check(_: str) -> None:
+        [destination] = created("databricks:index/notificationDestination:NotificationDestination")
+        assert destination.inputs["displayName"] == "CDS demo alerts (nprod)"
+        email = value(destination.inputs["config"], "email")
+        # The email support channel of the contracts, and those of the stack.
+        assert value(email, "addresses") == ["donnees-qc-req@example.com", "data-team@example.org"]
+
+        alerts = {args.name: args.inputs for args in created("databricks:index/alertV2:AlertV2")}
+        assert sorted(alerts) == ["alert:error-rate", "alert:latency"]
+        for name, inputs in alerts.items():
+            assert inputs["parentPath"] == "/Shared/cds-demo/nprod/alerts"
+            assert inputs["warehouseId"] == "warehouse-of-Serverless Starter Warehouse"
+            assert "${environment}" not in inputs["queryText"], name
+            assert value(inputs["runAs"], "service_principal_name") == "bf175dc4-c86b-4e88-83e9-9194c485a080"
+            evaluation = inputs["evaluation"]
+            source = value(evaluation, "source")
+            assert (value(source, "name"), value(source, "aggregation")) == ("exceeded", "MAX")
+            assert value(evaluation, "comparison_operator") == "GREATER_THAN"
+            assert value(value(value(evaluation, "threshold"), "value"), "double_value") == 0
+            [subscription] = value(value(evaluation, "notification"), "subscriptions")
+            assert value(subscription, "destination_id") == "alert-destination-id"
+            schedule = inputs["schedule"]
+            assert value(schedule, "quartz_cron_schedule") == "0 0 7 * * ?"
+            assert (value(schedule, "timezone_id"), value(schedule, "pause_status")) == ("America/Toronto", "UNPAUSED")
+        assert alerts["alert:error-rate"]["displayName"] == "REQ error rate SLA (nprod)"
+        assert "FROM `nprod`.`donnees_qc_req`.`entreprise`" in alerts["alert:error-rate"]["queryText"]
+        assert "FROM `nprod`.`information_schema`.`tables`" in alerts["alert:latency"]["queryText"]
+        directories = {args.inputs["path"] for args in CREATED if args.typ == "databricks:index/directory:Directory"}
+        assert "/Shared/cds-demo/nprod/alerts" in directories
+
+    return job.id.apply(check)
+
+
+@pulumi.runtime.test
+def test_alerts_without_recipients(settings: pipeline.Settings, tmp_path: Path) -> pulumi.Output[None]:
+    CREATED.clear()
+    manifest = json.loads(pipeline.MANIFEST.read_text(encoding="utf-8"))
+    (tmp_path / "manifest.json").write_text(json.dumps({**manifest, "recipients": []}), encoding="utf-8")
+    job = pipeline.deploy(dataclasses.replace(settings, manifest=tmp_path / "manifest.json"))
+
+    def check(_: str) -> None:
+        assert not created("databricks:index/notificationDestination:NotificationDestination")
+        alerts = created("databricks:index/alertV2:AlertV2")
+        assert len(alerts) == 2
+        assert all(value(args.inputs["evaluation"], "notification") is None for args in alerts)
+
+    return job.id.apply(check)
+
+
+@pulumi.runtime.test
+def test_no_schedule_nor_alerts_without_sla(settings: pipeline.Settings, tmp_path: Path) -> pulumi.Output[None]:
+    CREATED.clear()
+    manifest = json.loads(pipeline.MANIFEST.read_text(encoding="utf-8"))
+    (tmp_path / "manifest.json").write_text(json.dumps({**manifest, "schedule": None, "alerts": []}), encoding="utf-8")
+    job = pipeline.deploy(dataclasses.replace(settings, manifest=tmp_path / "manifest.json"))
+
+    def check(schedule: Any) -> None:
+        assert schedule is None
+        assert not created("databricks:index/alertV2:AlertV2")
+        assert not created("databricks:index/notificationDestination:NotificationDestination")
+        directories = {args.inputs["path"] for args in CREATED if args.typ == "databricks:index/directory:Directory"}
+        assert "/Shared/cds-demo/nprod/alerts" not in directories
+
+    return job.schedule.apply(check)
+
+
+def test_environment_query() -> None:
+    assert pipeline.environment_query("SELECT * FROM `${environment}`.`s`.`t`", "nprod") == (
+        "SELECT * FROM `nprod`.`s`.`t`"
+    )
+    with pytest.raises(ValueError, match="Invalid environment"):
+        pipeline.environment_query("SELECT 1", "n'prod")
+
+
+def test_the_stacks_pause_the_schedule_in_nprod_only() -> None:
+    def config(stack: str) -> dict[str, str]:
+        text = (pipeline.REPOSITORY / "cds-demo" / "deploy" / f"Pulumi.{stack}.yaml").read_text(encoding="utf-8")
+        values = re.findall(r"^  cds-demo:(\w+): *(.+)$", text, flags=re.MULTILINE)
+        return {key: raw.strip().strip('"') for key, raw in values}
+
+    nprod, prod = config("nprod"), config("prod")
+    assert (nprod["pauseSchedule"], prod["pauseSchedule"]) == ("true", "false")
+    assert nprod["timezone"] == prod["timezone"] == "America/Toronto"

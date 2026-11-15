@@ -2,7 +2,8 @@
 
 The model covers the parts of the standard the services rely on: schema objects
 (tables), their properties (columns), keys, partitioning, relationships, enumerations
-of allowed values, classifications, tags and data quality rules. Each element keeps its source mapping in
+of allowed values, classifications, tags, data quality rules, service level agreements
+(``slaProperties``) and support channels. Each element keeps its source mapping in
 ``raw``, so any other part of a contract remains readable.
 
 Reference: https://bitol-io.github.io/open-data-contract-standard/latest/
@@ -177,6 +178,51 @@ class SchemaObject:
 
 
 @dataclass(frozen=True)
+class SlaProperty:
+    """A service level agreement of a contract (``slaProperties``), see ``cds.sla``.
+
+    Attributes:
+        property: Name of the property, such as ``latency`` or ``errorRate``.
+        value: Its value, such as ``4``.
+        unit: Unit of the value, such as ``d`` (days).
+        element: The tables or columns it applies to (``table`` or ``table.column``,
+            several separated by commas); every table of the contract when not set.
+        scheduler: Tool running or checking the property, such as ``cron``.
+        schedule: Configuration of the scheduler, such as the cron expression ``0 20 * * *``.
+    """
+
+    property: str
+    value: Any = None
+    value_ext: Any = None
+    unit: str | None = None
+    element: str | None = None
+    driver: str | None = None
+    scheduler: str | None = None
+    schedule: str | None = None
+    description: str | None = None
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class SupportChannel:
+    """A support channel of a contract (``support``), such as an email address.
+
+    Attributes:
+        channel: Name of the channel.
+        url: Its address, such as ``mailto:team@example.com``.
+        tool: Its tool, such as ``email``, ``slack`` or ``teams``.
+        scope: Its use, such as ``interactive``, ``announcements``, ``issues`` or ``notifications``.
+    """
+
+    channel: str
+    url: str | None = None
+    tool: str | None = None
+    scope: str | None = None
+    description: str | None = None
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
 class DataContract:
     """An ODCS data contract document."""
 
@@ -191,6 +237,8 @@ class DataContract:
     description: Mapping[str, Any] = field(default_factory=dict)
     tags: tuple[str, ...] = ()
     schema: tuple[SchemaObject, ...] = ()
+    sla_properties: tuple[SlaProperty, ...] = ()
+    support: tuple[SupportChannel, ...] = ()
     custom_properties: Mapping[str, Any] = field(default_factory=dict)
     source: str | None = None
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
@@ -300,8 +348,42 @@ class _Parser:
             description=description if isinstance(description, Mapping) else {},
             tags=self._tags(data, ""),
             schema=schema,
+            sla_properties=tuple(
+                self.sla_property(item, f"slaProperties[{index}]")
+                for index, item in enumerate(self._list(data, "slaProperties", ""))
+            ),
+            support=tuple(
+                self.support_channel(item, f"support[{index}]")
+                for index, item in enumerate(self._list(data, "support", ""))
+            ),
             custom_properties=self._custom_properties(data, ""),
             source=self.source,
+            raw=data,
+        )
+
+    def sla_property(self, data: object, where: str) -> SlaProperty:
+        data = self._mapping(data, where)
+        return SlaProperty(
+            property=self._required_text(data, "property", where),
+            value=data.get("value"),
+            value_ext=data.get("valueExt"),
+            unit=self._text(data, "unit", where),
+            element=self._text(data, "element", where),
+            driver=self._text(data, "driver", where),
+            scheduler=self._text(data, "scheduler", where),
+            schedule=self._text(data, "schedule", where),
+            description=self._text(data, "description", where),
+            raw=data,
+        )
+
+    def support_channel(self, data: object, where: str) -> SupportChannel:
+        data = self._mapping(data, where)
+        return SupportChannel(
+            channel=self._required_text(data, "channel", where),
+            url=self._text(data, "url", where),
+            tool=self._text(data, "tool", where),
+            scope=self._text(data, "scope", where),
+            description=self._text(data, "description", where),
             raw=data,
         )
 

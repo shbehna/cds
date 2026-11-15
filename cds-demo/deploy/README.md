@@ -10,6 +10,7 @@ The Pulumi program ([pipeline.py](pipeline.py)) creates, in the workspace folder
 
 ```text
 /Shared/cds-demo/nprod/
+├── alerts/          the SQL alerts of the service levels (cds-demo/manifest)
 ├── dashboards/      the quality dashboard (cds-demo/dashboards), published
 ├── notebooks/       the service notebooks of the framework (cds-framework/notebooks)
 ├── products/        the data products of the demo (cds-demo/products)
@@ -21,7 +22,9 @@ the quality service. Its queries run on a SQL warehouse with the credentials of 
 service principal, which owns the tables; it reads the tables of its environment.
 
 It also creates the job `cds-demo-req-<environment>`, which runs the services of the
-framework on serverless compute. The job has no schedule: you run it on demand.
+framework on serverless compute. It runs on the schedule of the `frequency` of the
+contracts, the 1st and the 15th of each month at 6 am (`cds-demo:timezone`), unless
+`cds-demo:pauseSchedule` pauses it: in `nprod`, you run it on demand.
 
 ```text
 schema --> metadata
@@ -56,6 +59,29 @@ type `STRING`, which a test of the demo checks (`cds-demo/tests/test_manifest.py
 The deployment reads the classifications in the manifest
 [cds-demo/manifest/req_manifest.json](../manifest/req_manifest.json), generated from the
 contracts: regenerate it after changing them (`uv run python cds-demo/manifest/manifest.py`).
+
+### Alerts of the service levels
+
+The contracts state service levels (see
+[cds-demo/README.md](../README.md#service-levels)), which the manifest turns into two SQL
+alerts, in the `alerts` folder:
+
+| Alert | Triggers when | Checked |
+| --- | --- | --- |
+| **REQ error rate SLA (&lt;environment&gt;)** | more than 1 % of the rows of a table have a quality error | every day at 7 am |
+| **REQ latency SLA (&lt;environment&gt;)** | a table has not changed for 18 days | every day at 7 am |
+
+Their queries run on the SQL warehouse of the dashboard, as the service principal, and
+return a row per table: the alert triggers when one of them breaks its service level. It
+then sends an email to a notification destination, **CDS demo alerts
+(&lt;environment&gt;)**, holding the address of the support channel of the contracts
+(fictitious) and those of `cds-demo:alertEmails`, and another one when it is back to
+normal. Creating a notification destination requires a workspace administrator, which the
+service principal is.
+
+In `nprod`, the error rate of the synthetic data set triggers the first alert after a
+run. As the schedule of the job is paused, the latency alert triggers 18 days after the
+last run.
 
 The job runs as the deployment service principal. The tables are created in the
 `<environment>` catalog, in the `donnees_qc_req` schema.
@@ -247,7 +273,7 @@ first run creates the tables of `nprod.donnees_qc_req`. Each run then:
    (transformation): the synthetic files in `nprod`, those of the register in `prod`;
 4. checks them with DQX: each row gets its `_errors` and `_warnings` (quality);
 5. updates their history in the `<table>_historique` tables, created with the tags of
-   their columns (scd).
+   their columns, and deletes the versions replaced more than 10 years ago (scd).
 
 The columns of a new table, or of a new history table, are tagged before any data is
 written to it: its classified columns are masked from the first run. If they cannot be
@@ -308,6 +334,9 @@ The stack files are the variables of the deployment.
 | `cds-demo:maskedClassifications` | Optional. List of the classifications masked, among the values of the manifest: `["restricted"]` by default, `[]` for none. |
 | `cds-demo:maskingExemptPrincipals` | Optional. List of the users or groups reading the masked columns as they are, besides the service principal. |
 | `cds-demo:createTagPolicies` | `true`: the deployment creates the governed tag `classification`. It belongs to the account: `true` in `nprod` only. |
+| `cds-demo:timezone` | Time zone of the schedules of the job and of the alerts: `America/Toronto`. |
+| `cds-demo:pauseSchedule` | `true`: the schedule of the job is paused, and the job runs on demand. `true` in `nprod`, `false` in `prod`. |
+| `cds-demo:alertEmails` | Optional. List of the addresses receiving the alerts, besides the support channel of the contracts. |
 
 ## Deploy from your computer (optional)
 
@@ -331,8 +360,8 @@ The stack files are the variables of the deployment.
    pulumi up        # applies them
    ```
 
-`pulumi destroy` removes the job, the dashboard, the files and the masking (policy,
-function, `governance` schema). It does not drop the tables. The governed tag
+`pulumi destroy` removes the job, the dashboard, the alerts and their notification
+destination, the files and the masking (policy, function, `governance` schema). It does not drop the tables. The governed tag
 `classification` created by the `nprod` stack is protected, because the `prod` masking
 uses it: `pulumi destroy` of `nprod` fails until you run `pulumi state unprotect` on it,
 or `pulumi state delete` to keep the tag and forget it. A catalog created by the

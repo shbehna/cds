@@ -90,6 +90,23 @@ def test_cli_validate_reports_invalid_classifications(
     assert "classification 'public'" not in output
 
 
+def test_cli_validate_reports_invalid_sla(make_project: MakeProject, capsys: pytest.CaptureFixture[str]) -> None:
+    contract = TAGS_CONTRACT.replace(
+        "schema:",
+        "slaProperties:\n"
+        "      - {property: latency, value: 4, unit: d, element: t.b}\n"
+        "      - {property: errorRate, value: 1, unit: percent, scheduler: cron, schedule: '0 7 * *'}\n"
+        "    schema:",
+    )
+    root = make_project({"s/d/c/c.yaml": contract})
+
+    assert main(["validate", str(root)]) == 1
+    output = capsys.readouterr().out
+    assert "+ t: 2 column(s)" in output
+    assert "x contract c: invalid SLA: slaProperties[1]: the cron expression '0 7 * *' must have 5 fields" in output
+    assert "slaProperties[0]" not in output
+
+
 def test_cli_validate_reports_errors(make_project: MakeProject, capsys: pytest.CaptureFixture[str]) -> None:
     root = make_project({"s/d/c/c.yaml": "apiVersion: v3.2.0\nkind: DataContract\nversion: 1\n"})
 

@@ -7,7 +7,9 @@ running the services in order:
     schema --> metadata
            --> transformation --> quality --> scd
 
-The job has no schedule: it runs on demand.
+The job runs on the schedule of the frequency SLA of the contracts, paused or not
+(pauseSchedule). SQL alerts check their latency and error rate SLA, and email the support
+channels of the contracts and the alertEmails: see alerts.
 
 Depending on the stack, the deployment also creates the catalog of the environment
 (createCatalog), uploads the synthetic data set (cds-demo/csv/testdata) next to the
@@ -20,9 +22,11 @@ from __future__ import annotations
 import hashlib
 import json
 import posixpath
-from collections.abc import Iterable
+import re
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import pulumi
 import pulumi_databricks as databricks
@@ -64,6 +68,11 @@ MASKED_PRINCIPALS = ["account users"]
 # creation of the tag, and succeeded a few minutes later.
 TAG_POLICY_PROPAGATION_SECONDS = 120
 
+# Placeholder of the environment in the queries of the manifest.
+ENVIRONMENT_PLACEHOLDER = "${environment}"
+# Column of the alert queries of the manifest: 1 for a table breaking its SLA, 0 otherwise.
+EXCEEDED_COLUMN = "exceeded"
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -100,6 +109,12 @@ class Settings:
     masked_classifications: tuple[str, ...] = ("restricted",)
     masking_exempt_principals: tuple[str, ...] = ()
     create_tag_policies: bool = False
+    # Time zone of the schedules of the job and of the alerts.
+    timezone: str = "America/Toronto"
+    # Whether the schedule of the job is paused: the job then runs on demand.
+    pause_schedule: bool = False
+    # Addresses receiving the alerts, besides the email support channels of the contracts.
+    alert_emails: tuple[str, ...] = ()
     manifest: Path = field(default=MANIFEST)
     wheel_directory: Path = field(default=REPOSITORY / "dist")
     testdata_directory: Path = field(default=TESTDATA)
@@ -131,6 +146,9 @@ class Settings:
                 "maskingExemptPrincipals", config.get_object("maskingExemptPrincipals")
             ),
             create_tag_policies=config.get_bool("createTagPolicies") or False,
+            timezone=config.get("timezone") or cls.timezone,
+            pause_schedule=config.get_bool("pauseSchedule") or False,
+            alert_emails=string_list("alertEmails", config.get_object("alertEmails")),
         )
 
 
@@ -222,8 +240,8 @@ def catalog(settings: Settings) -> databricks.Catalog:
     return created
 
 
-def manifest_classification(path: Path) -> tuple[str, list[str]]:
-    """Returns the key and the allowed values of the classification tag, from the manifest.
+def load_manifest(path: Path) -> dict[str, Any]:
+    """Reads the manifest of the data product, generated from the contracts.
 
     Raises:
         FileNotFoundError: If the manifest was not generated.
@@ -233,8 +251,111 @@ def manifest_classification(path: Path) -> tuple[str, list[str]]:
             f"{path} does not exist. Generate it first, from the root of the repository: "
             "uv run python cds-demo/manifest/manifest.py"
         )
-    classification = json.loads(path.read_text(encoding="utf-8"))["classification"]
+    manifest: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    return manifest
+
+
+def manifest_classification(path: Path) -> tuple[str, list[str]]:
+    """Returns the key and the allowed values of the classification tag, from the manifest.
+
+    Raises:
+        FileNotFoundError: If the manifest was not generated.
+    """
+    classification = load_manifest(path)["classification"]
     return str(classification["tag"]), [str(value) for value in classification["values"]]
+
+
+def environment_query(query: str, environment: str) -> str:
+    """Returns a query of the manifest for an environment, replacing its placeholder.
+
+    Raises:
+        ValueError: If the environment is not a lowercase identifier, which the query can
+            hold as a name or a string.
+    """
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", environment):
+        raise ValueError(f"Invalid environment {environment!r}: expected a lowercase identifier such as nprod.")
+    return query.replace(ENVIRONMENT_PLACEHOLDER, environment)
+
+
+def job_schedule(settings: Settings, manifest: Mapping[str, Any]) -> databricks.JobScheduleArgs | None:
+    """The schedule of the job: the frequency SLA of the contracts, from the manifest."""
+    schedule = manifest.get("schedule")
+    if not schedule:
+        return None
+    return databricks.JobScheduleArgs(
+        quartz_cron_expression=schedule["quartz"],
+        timezone_id=settings.timezone,
+        pause_status="PAUSED" if settings.pause_schedule else "UNPAUSED",
+    )
+
+
+def alerts(
+    settings: Settings,
+    manifest: Mapping[str, Any],
+    folder: str,
+    directory: databricks.Directory,
+    warehouse_id: pulumi.Input[str],
+) -> list[databricks.AlertV2]:
+    """Creates the SQL alerts of the SLA of the contracts, from the manifest.
+
+    Each alert runs its query on the SQL warehouse, as the deployment service principal,
+    on the schedule of its SLA. The query returns a row per table: the alert triggers when
+    a table breaks its SLA (the maximum of the exceeded column is above 0), and sends an
+    email to the support channels of the contracts and the alertEmails when it triggers
+    and when it is back to normal. Without address, the alerts send nothing.
+    """
+    definitions = manifest.get("alerts") or []
+    addresses = list(dict.fromkeys([*manifest.get("recipients", []), *settings.alert_emails]))
+    destination = (
+        databricks.NotificationDestination(
+            "alert-destination",
+            display_name=f"CDS demo alerts ({settings.environment})",
+            config=databricks.NotificationDestinationConfigArgs(
+                email=databricks.NotificationDestinationConfigEmailArgs(addresses=addresses)
+            ),
+        )
+        if definitions and addresses
+        else None
+    )
+    notification = (
+        databricks.AlertV2EvaluationNotificationArgs(
+            subscriptions=[databricks.AlertV2EvaluationNotificationSubscriptionArgs(destination_id=destination.id)],
+            notify_on_ok=True,
+        )
+        if destination
+        else None
+    )
+    created = []
+    for definition in definitions:
+        created.append(
+            databricks.AlertV2(
+                f"alert:{definition['name']}",
+                display_name=f"REQ {definition['title']} SLA ({settings.environment})",
+                query_text=environment_query(definition["query"], settings.environment),
+                warehouse_id=warehouse_id,
+                parent_path=folder,
+                evaluation=databricks.AlertV2EvaluationArgs(
+                    source=databricks.AlertV2EvaluationSourceArgs(name=EXCEEDED_COLUMN, aggregation="MAX"),
+                    comparison_operator="GREATER_THAN",
+                    threshold=databricks.AlertV2EvaluationThresholdArgs(
+                        value=databricks.AlertV2EvaluationThresholdValueArgs(double_value=0)
+                    ),
+                    empty_result_state="OK",
+                    notification=notification,
+                ),
+                schedule=databricks.AlertV2ScheduleArgs(
+                    quartz_cron_schedule=definition["quartz"], timezone_id=settings.timezone, pause_status="UNPAUSED"
+                ),
+                run_as=(
+                    databricks.AlertV2RunAsArgs(service_principal_name=settings.service_principal)
+                    if settings.service_principal
+                    else None
+                ),
+                purge_on_delete=True,
+                opts=pulumi.ResourceOptions(depends_on=[directory]),
+            )
+        )
+    return created
 
 
 def governance(
@@ -370,6 +491,9 @@ def deploy(settings: Settings) -> databricks.Job:
     notebook_paths = {service: f"{root}/notebooks/{service}" for service in TASKS}
     product_paths = {path: f"{root}/products/{path.relative_to(PRODUCTS).as_posix()}" for path in product_files()}
     dashboard_folder = f"{root}/dashboards"
+    manifest = load_manifest(settings.manifest)
+    alerts_folder = f"{root}/alerts"
+    alert_paths = [f"{alerts_folder}/{definition['name']}" for definition in manifest.get("alerts") or []]
 
     # The folders are created first, each after its parent: the provider creates a missing
     # parent folder when it uploads a file, but not reliably when files are uploaded in
@@ -380,6 +504,7 @@ def deploy(settings: Settings) -> databricks.Job:
         *notebook_paths.values(),
         *product_paths.values(),
         f"{dashboard_folder}/{QUALITY_DASHBOARD.name}",
+        *alert_paths,
     ]
     for folder in folders(root, paths):
         parent = directories.get(posixpath.dirname(folder))
@@ -461,6 +586,7 @@ def deploy(settings: Settings) -> databricks.Job:
             for service, upstreams in TASKS.items()
         ],
         max_concurrent_runs=1,
+        schedule=job_schedule(settings, manifest),
         run_as=(
             databricks.JobRunAsArgs(service_principal_name=settings.service_principal)
             if settings.service_principal
@@ -470,6 +596,8 @@ def deploy(settings: Settings) -> databricks.Job:
         opts=pulumi.ResourceOptions(depends_on=[*products, *prerequisites]),
     )
     dashboard = quality_dashboard(settings, dashboard_folder, directories[dashboard_folder], warehouse.id)
+    if alert_paths:
+        alerts(settings, manifest, alerts_folder, directories[alerts_folder], warehouse.id)
     pulumi.export("job_id", job.id)
     pulumi.export("job_url", job.url)
     pulumi.export("workspace_root", root)

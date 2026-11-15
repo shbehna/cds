@@ -13,6 +13,7 @@ from cds.services.base import Service, TableResult
 from cds.services.schema import contract_properties
 from cds.services.tables import add_columns, column_definition, last_operation_metrics, list_tables
 from cds.services.tags import MANAGED_TAGS_PROPERTY, TableTags, creation_tags, managed_property, set_tags_statements
+from cds.sla import Duration, duration, table_sla
 from cds.sql import column_list, create_table_statement, normalize_type, quote_identifier, quote_name, string_literal
 
 if TYPE_CHECKING:
@@ -101,7 +102,7 @@ def merge_statement(
     current = quote_identifier(resolved(settings.current_column))
     valid_to = quote_identifier(resolved(settings.valid_to_column))
     match = quote_identifier(_MATCH_COLUMN)
-    at = f"timestamp_micros({int(timestamp.timestamp() * 1_000_000)})"
+    at = _timestamp(timestamp)
     names = [prop.column for prop in columns]
     # The values below follow the order of history_columns: hash, valid from, valid to, current.
     inserted = [*names, *(name for name, _ in history_columns(settings))]
@@ -121,6 +122,24 @@ WHEN NOT MATCHED THEN
   VALUES ({column_list(names, "s")}, s.{hash_column}, {at}, NULL, TRUE)
 WHEN NOT MATCHED BY SOURCE AND t.{current} THEN
   UPDATE SET t.{valid_to} = {at}, t.{current} = FALSE"""
+
+
+def _timestamp(timestamp: datetime) -> str:
+    """The SQL expression of a time, independent of the session time zone."""
+    return f"timestamp_micros({int(timestamp.timestamp() * 1_000_000)})"
+
+
+def retention_statement(target: str, settings: ScdSettings, timestamp: datetime, retention: Duration) -> str:
+    """Returns the statement deleting the versions of a history table closed for longer than its retention.
+
+    The current versions are kept, however old.
+    """
+    current = quote_identifier(resolved(settings.current_column))
+    valid_to = quote_identifier(resolved(settings.valid_to_column))
+    return (
+        f"DELETE FROM {quote_name(target)} WHERE NOT {current} AND {valid_to} < {_timestamp(timestamp)} - "
+        f"{retention.sql()}"
+    )
 
 
 def duplicate_keys_query(source: str, keys: Sequence[str]) -> str:
@@ -144,6 +163,10 @@ class ScdService(Service):
     classification, when they are created and before any version is written: the policies
     based on the tags also protect the history. A new history table whose columns cannot
     be tagged is dropped.
+
+    The ``retention`` SLA of a table (see ``cds.sla``) applies to its history: each run
+    deletes the versions closed for longer, and reports their number. Without retention,
+    the history keeps every version.
 
     Args:
         context: The service context.
@@ -199,6 +222,12 @@ class ScdService(Service):
             f"{metrics.get('numTargetRowsInserted', '?')} version(s) inserted and "
             f"{metrics.get('numTargetRowsUpdated', '?')} closed in {target}"
         )
+        retention = table_sla(table, "retention")
+        if retention is not None:
+            period = duration(retention[0])
+            rows = self.spark.sql(retention_statement(target, settings, self._run_timestamp, period)).collect()
+            purged = rows[0]["num_affected_rows"] if rows else 0
+            message += f", {purged} version(s) closed for more than {period} purged"
         if duplicates:
             return TableResult.warning(
                 table.qualified_name, f"{message}; kept one row for each of {duplicates} duplicate key(s)"
