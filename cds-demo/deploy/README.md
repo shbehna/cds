@@ -41,7 +41,7 @@ columns of the classifications `cds-demo:maskedClassifications` (`restricted`):
 
 | Resource | Name | Role |
 | --- | --- | --- |
-| Governed tag | `classification` | The allowed values of the classifications, from [cds-demo/manifest](../manifest). It belongs to the account: only the `nprod` stack creates it (`createTagPolicies`), protected (see [Deploy from your computer](#deploy-from-your-computer-optional)). |
+| Governed tag | `classification` | The allowed values of the classifications, from [cds-demo/manifest](../manifest). It belongs to the account: only the `nprod` stack creates it (`createTagPolicies`), protected (see [Deploy from your computer](#deploy-from-your-computer-optional)). Unity Catalog takes a while to know a new governed tag: the deployment waits 2 minutes after creating it, before creating the policy. |
 | Schema | `<environment>.governance` | Holds the masking function. |
 | SQL function | `<environment>.governance.mask` | Replaces a string by `****`. The provider has no resource for SQL functions: the deployment runs `CREATE OR REPLACE FUNCTION` on the SQL warehouse ([sql_statement.py](sql_statement.py)). |
 | ABAC policy | `mask_restricted`, on the catalog `<environment>` | Masks the columns tagged `classification = restricted` of every table of the catalog, history tables included, for every user of the account except the service principal and `cds-demo:maskingExemptPrincipals`. |
@@ -182,6 +182,9 @@ The `nprod` deployment creates the governed tag `classification`: the service pr
 a workspace administrator, can create governed tags unless an account administrator
 prevents it. It can then assign the tag, which the job does.
 
+If the first deployment still fails with `Unknown tag policy key` on `classification`, the
+governed tag has not propagated yet: run the deployment again a few minutes later.
+
 ### Let the service principal use a SQL warehouse
 
 The quality dashboard runs its queries on the SQL warehouse named by
@@ -259,11 +262,26 @@ FROM nprod.donnees_qc_req.etablissement
 WHERE size(_errors) > 0;
 ```
 
-The addresses are masked for the users, and not for the service principal: compare the result of this query run by a user and by the service principal
-(the quality dashboard, for instance, runs as the service principal).
+The addresses are masked for the users, and not for the service principal. As a user,
+this query finds a single address, `****`, in each table:
 
 ```sql
-SELECT numero_entreprise, adresse_ligne_1 FROM nprod.donnees_qc_req.etablissement LIMIT 5;
+SELECT count(DISTINCT adresse_ligne_1) AS distinct_addresses
+FROM nprod.donnees_qc_req.etablissement_historique;
+```
+
+Run as the service principal, it finds the actual addresses. The quality dashboard runs
+as the service principal, but shows no address: run the query with the
+[Databricks CLI](https://docs.databricks.com/aws/en/dev-tools/cli/), authenticated as the
+service principal, on the SQL warehouse of the dashboard (its id is on the **SQL
+Warehouses** page):
+
+```bash
+export DATABRICKS_HOST=https://<workspace>
+export DATABRICKS_CLIENT_ID=bf175dc4-c86b-4e88-83e9-9194c485a080
+export DATABRICKS_CLIENT_SECRET=...
+databricks api post /api/2.0/sql/statements --json '{"warehouse_id": "<id>", "wait_timeout": "30s",
+  "statement": "SELECT count(DISTINCT adresse_ligne_1) AS distinct_addresses FROM nprod.donnees_qc_req.etablissement_historique"}'
 ```
 
 ## Variables
