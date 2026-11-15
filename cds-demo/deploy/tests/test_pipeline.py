@@ -74,8 +74,9 @@ def test_job(settings: pipeline.Settings) -> pulumi.Output[None]:
         ]
         assert dependencies == [
             ("schema", []),
-            ("metadata", ["schema"]),
             ("transformation", ["schema"]),
+            # After the load: a failed load leaves the tables unchanged, which the latency alert detects.
+            ("metadata", ["transformation"]),
             ("quality", ["transformation"]),
             ("scd", ["quality"]),
         ]
@@ -233,6 +234,8 @@ def test_folders_are_listed_parents_first() -> None:
         "/r/c",
         "/r/a/b",
     ]
+    # Folders receiving objects that are not files, such as the alerts.
+    assert pipeline.folders("/r", ["/r/a/file"], ["/r/d/e", "/elsewhere"]) == ["/r", "/r/a", "/r/d", "/r/d/e"]
 
 
 def test_missing_wheel(tmp_path: Path) -> None:
@@ -328,8 +331,9 @@ def test_masking_nothing(settings: pipeline.Settings) -> pulumi.Output[None]:
 @pulumi.runtime.test
 def test_the_tag_policy_is_protected(settings: pipeline.Settings) -> None:
     """Destroying the stack creating the tag policy must not remove the masking of the other stacks."""
+    manifest = pipeline.load_manifest(settings.manifest)
     [tag_policy, _] = pipeline.governance(
-        dataclasses.replace(settings, masking=True, create_tag_policies=True), "w", None
+        dataclasses.replace(settings, masking=True, create_tag_policies=True), manifest, "w", None
     )
 
     assert isinstance(tag_policy, pulumi.CustomResource) and tag_policy._protect
@@ -346,11 +350,12 @@ def test_string_list() -> None:
 
 def test_masking_errors(settings: pipeline.Settings, tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="needs the service principal"):
-        pipeline.governance(dataclasses.replace(settings, masking=True, service_principal=None), "w", None)
+        pipeline.governance(dataclasses.replace(settings, masking=True, service_principal=None), {}, "w", None)
     with pytest.raises(ValueError, match="Unknown masked classification"):
-        pipeline.governance(dataclasses.replace(settings, masked_classifications=("secret",)), "w", None)
+        manifest = pipeline.load_manifest(settings.manifest)
+        pipeline.governance(dataclasses.replace(settings, masked_classifications=("secret",)), manifest, "w", None)
     with pytest.raises(FileNotFoundError, match=r"manifest\.py"):
-        pipeline.manifest_classification(tmp_path / "req_manifest.json")
+        pipeline.load_manifest(tmp_path / "req_manifest.json")
 
 
 def test_the_stacks_mask_the_classified_columns() -> None:
@@ -368,7 +373,7 @@ def test_the_stacks_mask_the_classified_columns() -> None:
 @pulumi.runtime.test
 def test_the_job_runs_on_the_frequency_of_the_contracts(settings: pipeline.Settings) -> pulumi.Output[None]:
     paused = pipeline.deploy(dataclasses.replace(settings, pause_schedule=True))
-    running = pipeline.deploy(dataclasses.replace(settings, timezone="UTC"))
+    running = pipeline.deploy(dataclasses.replace(settings, pause_schedule=False, timezone="UTC"))
 
     def check(schedules: list[Any]) -> None:
         paused_schedule, running_schedule = schedules
@@ -410,8 +415,14 @@ def test_alerts(settings: pipeline.Settings) -> pulumi.Output[None]:
             [subscription] = value(value(evaluation, "notification"), "subscriptions")
             assert value(subscription, "destination_id") == "alert-destination-id"
             schedule = inputs["schedule"]
-            assert value(schedule, "quartz_cron_schedule") == "0 0 7 * * ?"
             assert (value(schedule, "timezone_id"), value(schedule, "pause_status")) == ("America/Toronto", "UNPAUSED")
+        # The error rate after each load, the latency every day.
+        assert value(alerts["alert:error-rate"]["schedule"], "quartz_cron_schedule") == "0 0 12 1,15 * ?"
+        assert value(alerts["alert:latency"]["schedule"], "quartz_cron_schedule") == "0 0 7 * * ?"
+        # The failed runs of the job email the same addresses.
+        [job_args] = created("databricks:index/job:Job")
+        failures = value(job_args.inputs["emailNotifications"], "on_failures")
+        assert failures == ["donnees-qc-req@example.com", "data-team@example.org"]
         assert alerts["alert:error-rate"]["displayName"] == "REQ error rate SLA (nprod)"
         assert "FROM `nprod`.`donnees_qc_req`.`entreprise`" in alerts["alert:error-rate"]["queryText"]
         assert "FROM `nprod`.`information_schema`.`tables`" in alerts["alert:latency"]["queryText"]
@@ -433,6 +444,8 @@ def test_alerts_without_recipients(settings: pipeline.Settings, tmp_path: Path) 
         alerts = created("databricks:index/alertV2:AlertV2")
         assert len(alerts) == 2
         assert all(value(args.inputs["evaluation"], "notification") is None for args in alerts)
+        [job_args] = created("databricks:index/job:Job")
+        assert "emailNotifications" not in job_args.inputs
 
     return job.id.apply(check)
 
@@ -446,6 +459,9 @@ def test_no_schedule_nor_alerts_without_sla(settings: pipeline.Settings, tmp_pat
 
     def check(schedule: Any) -> None:
         assert schedule is None
+        # The failed runs of the job still email the support channel.
+        [job_args] = created("databricks:index/job:Job")
+        assert value(job_args.inputs["emailNotifications"], "on_failures") == ["donnees-qc-req@example.com"]
         assert not created("databricks:index/alertV2:AlertV2")
         assert not created("databricks:index/notificationDestination:NotificationDestination")
         directories = {args.inputs["path"] for args in CREATED if args.typ == "databricks:index/directory:Directory"}

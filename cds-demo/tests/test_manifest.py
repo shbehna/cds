@@ -124,8 +124,10 @@ def test_the_alerts_check_the_error_rate_and_the_latency(data_context: DataConte
     tables = sorted(table.name for table in data_context.get_data_product(manifest.DATA_PRODUCT).tables)
 
     assert sorted(alerts) == ["error-rate", "latency"]
+    # The error rate after each load, the latency every day.
+    assert (alerts["error-rate"]["cron"], alerts["error-rate"]["quartz"]) == ("0 12 1,15 * *", "0 0 12 1,15 * ?")
+    assert (alerts["latency"]["cron"], alerts["latency"]["quartz"]) == ("0 7 * * *", "0 0 7 * * ?")
     for alert in alerts.values():
-        assert (alert["cron"], alert["quartz"]) == ("0 7 * * *", "0 0 7 * * ?")
         assert all(f"'{table}' AS table_name" in alert["query"] for table in tables)
         assert "END AS exceeded" in alert["query"]
     error_rate = alerts["error-rate"]["query"]

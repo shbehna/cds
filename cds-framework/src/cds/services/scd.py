@@ -13,7 +13,7 @@ from cds.services.base import Service, TableResult
 from cds.services.schema import contract_properties
 from cds.services.tables import add_columns, column_definition, last_operation_metrics, list_tables
 from cds.services.tags import MANAGED_TAGS_PROPERTY, TableTags, creation_tags, managed_property, set_tags_statements
-from cds.sla import Duration, duration, table_sla
+from cds.sla import Duration, retention
 from cds.sql import column_list, create_table_statement, normalize_type, quote_identifier, quote_name, string_literal
 
 if TYPE_CHECKING:
@@ -195,6 +195,8 @@ class ScdService(Service):
         source = self.context.full_table_name(table)
         if table.name.lower() not in existing:
             return TableResult.skipped(table.qualified_name, f"{source} does not exist")
+        # Read before any write: an invalid retention leaves the history untouched.
+        period = retention(table)
         history = history_table_name(table)
         target = self.context.full_table_name(table, history)
         self._prepare_history(table, target, settings, exists=history.lower() in existing)
@@ -222,9 +224,7 @@ class ScdService(Service):
             f"{metrics.get('numTargetRowsInserted', '?')} version(s) inserted and "
             f"{metrics.get('numTargetRowsUpdated', '?')} closed in {target}"
         )
-        retention = table_sla(table, "retention")
-        if retention is not None:
-            period = duration(retention[0])
+        if period is not None:
             rows = self.spark.sql(retention_statement(target, settings, self._run_timestamp, period)).collect()
             purged = rows[0]["num_affected_rows"] if rows else 0
             message += f", {purged} version(s) closed for more than {period} purged"

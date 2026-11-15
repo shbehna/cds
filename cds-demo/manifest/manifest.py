@@ -32,7 +32,7 @@ from cds import DataContext, MetadataSettings, QualitySettings, ServiceContext, 
 from cds.config import resolved
 from cds.errors import ConfigurationError
 from cds.odcs import SlaProperty
-from cds.sla import duration, percentage, quartz_cron, support_emails, table_sla
+from cds.sla import cron_schedule, duration, percentage, quartz_cron, support_emails, table_sla
 from cds.sql import quote_identifier, quote_name, string_literal
 
 PRODUCTS = Path(__file__).resolve().parents[1] / "products"
@@ -82,9 +82,10 @@ def _scheduled(table: Table, name: str) -> tuple[SlaProperty, str | None, str] |
     if found is None:
         return None
     prop, column = found
-    if (prop.scheduler or "").lower() != "cron" or not prop.schedule:
+    schedule = cron_schedule(prop)
+    if schedule is None:
         raise ConfigurationError(f"{table.qualified_name}: the {name} SLA needs a cron schedule (scheduler: cron).")
-    return prop, column, prop.schedule
+    return prop, column, schedule
 
 
 def _common_schedule(name: str, schedules: Mapping[str, str]) -> dict[str, str]:
@@ -163,8 +164,9 @@ def latency_alert(data_context: DataContext) -> dict[str, Any] | None:
     """The alert on the ``latency`` SLA: the age of the last change of the tables.
 
     The last change of a table is the ``last_altered`` time of the information schema,
-    which its load and the metadata step of the job update. When the element of the SLA is
-    a column, it is the latest value of the column instead. ``None`` if no table has the SLA.
+    which the metadata step of the job updates: it runs after the load, and not when the
+    load fails. When the element of the SLA is a column, it is the latest value of the
+    column instead. ``None`` if no table has the SLA.
     """
     context = _context(data_context)
     selects = []
@@ -185,7 +187,9 @@ def latency_alert(data_context: DataContext) -> dict[str, Any] | None:
             tables = f"{quote_identifier(catalog)}.`information_schema`.`tables`"
             updated = (
                 f"SELECT max(last_altered) AS updated_at FROM {tables} "
-                f"WHERE table_schema = {string_literal(schema)} AND table_name = {string_literal(table.name.lower())}"
+                # Unity Catalog stores the names in lowercase.
+                f"WHERE table_schema = {string_literal(schema.lower())} "
+                f"AND table_name = {string_literal(table.name.lower())}"
             )
         selects.append(
             f"  SELECT {string_literal(table.name)} AS table_name, {string_literal(str(latency))} AS latency, "

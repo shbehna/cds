@@ -23,15 +23,20 @@ service principal, which owns the tables; it reads the tables of its environment
 
 It also creates the job `cds-demo-req-<environment>`, which runs the services of the
 framework on serverless compute. It runs on the schedule of the `frequency` of the
-contracts, the 1st and the 15th of each month at 6 am (`cds-demo:timezone`), unless
-`cds-demo:pauseSchedule` pauses it: in `nprod`, you run it on demand.
+contracts, the 1st and the 15th of each month at 6 am (`cds-demo:timezone`). The
+schedule is paused unless `cds-demo:pauseSchedule` is `false`, as in `prod`: in `nprod`,
+you run the job on demand.
 
 ```text
-schema --> metadata
-       --> transformation --> quality --> scd
+schema --> transformation --> metadata
+                          --> quality --> scd
 ```
 
-A failed step fails the run, and the steps after it do not run.
+A failed step fails the run, and the steps after it do not run. A failed run sends an
+email to the addresses of the alerts (see
+[Alerts of the service levels](#alerts-of-the-service-levels)). The metadata step runs
+after the load: as it changes the tables on each run, a failed load leaves them
+unchanged, which the latency alert detects.
 
 ### Masking of the classified columns
 
@@ -68,8 +73,8 @@ alerts, in the `alerts` folder:
 
 | Alert | Triggers when | Checked |
 | --- | --- | --- |
-| **REQ error rate SLA (&lt;environment&gt;)** | more than 1 % of the rows of a table have a quality error | every day at 7 am |
-| **REQ latency SLA (&lt;environment&gt;)** | a table has not changed for 18 days | every day at 7 am |
+| **REQ error rate SLA (&lt;environment&gt;)** | more than 1 % of the rows of a table have a quality error | after each load: the 1st and the 15th of each month at noon |
+| **REQ latency SLA (&lt;environment&gt;)** | a table has not changed for 18 days, as its load failed or the job did not run | every day at 7 am |
 
 Their queries run on the SQL warehouse of the dashboard, as the service principal, and
 return a row per table: the alert triggers when one of them breaks its service level. It
@@ -79,9 +84,13 @@ then sends an email to a notification destination, **CDS demo alerts
 normal. Creating a notification destination requires a workspace administrator, which the
 service principal is.
 
-In `nprod`, the error rate of the synthetic data set triggers the first alert after a
-run. As the schedule of the job is paused, the latency alert triggers 18 days after the
-last run.
+The error rate is checked once the job has loaded and checked the tables. If the quality
+step fails, the error rate of the tables cannot be measured: the failed run sends its own
+email.
+
+In `nprod`, run the error rate alert after a run of the job (**Run now** on the alert):
+the error rate of the synthetic data set triggers it. As the schedule of the job is
+paused, the latency alert triggers 18 days after the last run.
 
 To receive the alerts, add your address to the GitHub secret `ALERT_EMAILS` (see
 [Add the secrets to GitHub](#3-add-the-secrets-to-github-once)): the next deployment adds
@@ -276,9 +285,9 @@ first run creates the tables of `nprod.donnees_qc_req`. Each run then:
 
 1. creates or updates the tables from their contracts, with the tags of their columns
    (schema);
-2. documents and tags them, and their history tables (metadata);
-3. loads them from the CSV files, with the names and types of their contracts
+2. loads them from the CSV files, with the names and types of their contracts
    (transformation): the synthetic files in `nprod`, those of the register in `prod`;
+3. documents and tags them, and their history tables (metadata);
 4. checks them with DQX: each row gets its `_errors` and `_warnings` (quality);
 5. updates their history in the `<table>_historique` tables, created with the tags of
    their columns, and deletes the versions replaced more than 10 years ago (scd).
@@ -343,7 +352,7 @@ The stack files are the variables of the deployment.
 | `cds-demo:maskingExemptPrincipals` | Optional. List of the users or groups reading the masked columns as they are, besides the service principal. |
 | `cds-demo:createTagPolicies` | `true`: the deployment creates the governed tag `classification`. It belongs to the account: `true` in `nprod` only. |
 | `cds-demo:timezone` | Time zone of the schedules of the job and of the alerts: `America/Toronto`. |
-| `cds-demo:pauseSchedule` | `true`: the schedule of the job is paused, and the job runs on demand. `true` in `nprod`, `false` in `prod`. |
+| `cds-demo:pauseSchedule` | `true`, the default: the schedule of the job is paused, and the job runs on demand. `true` in `nprod`, `false` in `prod`. |
 
 ## Deploy from your computer (optional)
 

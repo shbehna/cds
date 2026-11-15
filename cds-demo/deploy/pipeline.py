@@ -4,12 +4,14 @@ The deployment uploads the framework wheel, the service notebooks and the data p
 of the demo to a workspace folder, publishes the quality dashboard, and creates the job
 running the services in order:
 
-    schema --> metadata
-           --> transformation --> quality --> scd
+    schema --> transformation --> metadata
+                              --> quality --> scd
 
-The job runs on the schedule of the frequency SLA of the contracts, paused or not
-(pauseSchedule). SQL alerts check their latency and error rate SLA, and email the support
-channels of the contracts and the addresses of ALERT_EMAILS: see alerts.
+The metadata step runs after the load: a failed load leaves the tables unchanged, which
+the latency alert detects. The job runs on the schedule of the frequency SLA of the
+contracts, paused unless pauseSchedule is false. SQL alerts check their latency and error
+rate SLA: they, and the failed runs of the job, email the support channels of the
+contracts and the addresses of ALERT_EMAILS (see alerts).
 
 Depending on the stack, the deployment also creates the catalog of the environment
 (createCatalog), uploads the synthetic data set (cds-demo/csv/testdata) next to the
@@ -47,11 +49,12 @@ MANIFEST = REPOSITORY / "cds-demo" / "manifest" / "req_manifest.json"
 # Privileges of the readers of a catalog created by the deployment.
 READER_PRIVILEGES = ["USE_CATALOG", "USE_SCHEMA", "SELECT"]
 
-# Services run by the job, with the services they wait for.
+# Services run by the job, with the services they wait for. The metadata step updates the
+# tables on each run: after the load, so that the latency alert sees the failed loads.
 TASKS: dict[str, list[str]] = {
     "schema": [],
-    "metadata": ["schema"],
     "transformation": ["schema"],
+    "metadata": ["transformation"],
     "quality": ["transformation"],
     "scd": ["quality"],
 }
@@ -115,8 +118,9 @@ class Settings:
     create_tag_policies: bool = False
     # Time zone of the schedules of the job and of the alerts.
     timezone: str = "America/Toronto"
-    # Whether the schedule of the job is paused: the job then runs on demand.
-    pause_schedule: bool = False
+    # Whether the schedule of the job is paused: the job then runs on demand. Paused unless
+    # a stack sets it to false, so that a new stack does not run the job on its own.
+    pause_schedule: bool = True
     # Addresses receiving the alerts, besides the email support channels of the contracts:
     # the ALERT_EMAILS environment variable, as a secret output (None when not set).
     alert_emails: pulumi.Input[Sequence[str]] | None = None
@@ -152,7 +156,7 @@ class Settings:
             ),
             create_tag_policies=config.get_bool("createTagPolicies") or False,
             timezone=config.get("timezone") or cls.timezone,
-            pause_schedule=config.get_bool("pauseSchedule") or False,
+            pause_schedule=config.get_bool("pauseSchedule") is not False,
             # A GitHub secret, as the secret of the service principal: the addresses stay out
             # of the repository and of the logs.
             alert_emails=alert_emails_from_environment(),
@@ -197,11 +201,16 @@ def product_files() -> list[Path]:
     ]
 
 
-def folders(root: str, paths: Iterable[str]) -> list[str]:
-    """Returns the root and the folders under it holding the paths, parents first."""
+def folders(root: str, paths: Iterable[str], directories: Iterable[str] = ()) -> list[str]:
+    """Returns the root and the folders under it holding the paths, parents first.
+
+    Args:
+        root: The root folder.
+        paths: Paths of files.
+        directories: Folders to include, such as a folder receiving objects that are not files.
+    """
     found = {root}
-    for path in paths:
-        folder = posixpath.dirname(path)
+    for folder in [*(posixpath.dirname(path) for path in paths), *directories]:
         while folder.startswith(f"{root}/"):
             found.add(folder)
             folder = posixpath.dirname(folder)
@@ -262,13 +271,9 @@ def load_manifest(path: Path) -> dict[str, Any]:
     return manifest
 
 
-def manifest_classification(path: Path) -> tuple[str, list[str]]:
-    """Returns the key and the allowed values of the classification tag, from the manifest.
-
-    Raises:
-        FileNotFoundError: If the manifest was not generated.
-    """
-    classification = load_manifest(path)["classification"]
+def manifest_classification(manifest: Mapping[str, Any]) -> tuple[str, list[str]]:
+    """Returns the key and the allowed values of the classification tag, from the manifest."""
+    classification = manifest["classification"]
     return str(classification["tag"]), [str(value) for value in classification["values"]]
 
 
@@ -341,6 +346,7 @@ def alerts(
     folder: str,
     directory: databricks.Directory,
     warehouse_id: pulumi.Input[str],
+    addresses: pulumi.Input[Sequence[str]],
 ) -> list[databricks.AlertV2]:
     """Creates the SQL alerts of the SLA of the contracts, from the manifest.
 
@@ -352,10 +358,16 @@ def alerts(
 
     The alert emails come from a GitHub secret (ALERT_EMAILS): the addresses of the
     notification destination are a secret output, kept encrypted in the state of the stack.
+
+    Args:
+        settings: The settings of the deployment.
+        manifest: The manifest of the data product.
+        folder: The workspace folder of the alerts.
+        directory: The resource of the folder.
+        warehouse_id: The SQL warehouse running the queries.
+        addresses: The addresses receiving the alerts (see alert_addresses).
     """
     definitions = manifest.get("alerts") or []
-    recipients = [str(address) for address in manifest.get("recipients") or []]
-    addresses = alert_addresses(recipients, settings.alert_emails)
     destination = (
         databricks.NotificationDestination(
             "alert-destination",
@@ -409,7 +421,10 @@ def alerts(
 
 
 def governance(
-    settings: Settings, warehouse_id: pulumi.Input[str], created_catalog: databricks.Catalog | None
+    settings: Settings,
+    manifest: Mapping[str, Any],
+    warehouse_id: pulumi.Input[str],
+    created_catalog: databricks.Catalog | None,
 ) -> list[pulumi.Resource]:
     """Masks the classified columns of the tables of the catalog of the environment.
 
@@ -437,7 +452,7 @@ def governance(
     """
     if not settings.service_principal:
         raise ValueError("The masking needs the service principal of the job (databricks:clientId), which it exempts.")
-    tag, values = manifest_classification(settings.manifest)
+    tag, values = manifest_classification(manifest)
     unknown = sorted(set(settings.masked_classifications) - set(values))
     if unknown:
         raise ValueError(f"Unknown masked classification(s) {', '.join(unknown)}: the values are {', '.join(values)}.")
@@ -523,6 +538,7 @@ def deploy(settings: Settings) -> databricks.Job:
     """Declares the resources of the demo and returns the job."""
     root = settings.workspace_root.rstrip("/")
     warehouse = databricks.get_sql_warehouse_output(name=settings.warehouse_name)
+    manifest = load_manifest(settings.manifest)
     # The job runs once the catalog, the files it reads and the governed tags it applies exist.
     prerequisites: list[pulumi.Resource] = []
     created_catalog = catalog(settings) if settings.create_catalog else None
@@ -531,7 +547,7 @@ def deploy(settings: Settings) -> databricks.Job:
     if settings.synthetic_data:
         prerequisites.extend(testdata_uploads(settings))
     if settings.masking:
-        prerequisites.extend(governance(settings, warehouse.id, created_catalog))
+        prerequisites.extend(governance(settings, manifest, warehouse.id, created_catalog))
 
     wheel = framework_wheel(settings.wheel_directory)
     # A folder named after the content of the wheel: serverless environments are cached by
@@ -541,9 +557,11 @@ def deploy(settings: Settings) -> databricks.Job:
     notebook_paths = {service: f"{root}/notebooks/{service}" for service in TASKS}
     product_paths = {path: f"{root}/products/{path.relative_to(PRODUCTS).as_posix()}" for path in product_files()}
     dashboard_folder = f"{root}/dashboards"
-    manifest = load_manifest(settings.manifest)
     alerts_folder = f"{root}/alerts"
-    alert_paths = [f"{alerts_folder}/{definition['name']}" for definition in manifest.get("alerts") or []]
+    has_alerts = bool(manifest.get("alerts"))
+    # The alerts, and the failed runs of the job, email the support channels and ALERT_EMAILS.
+    recipients = [str(address) for address in manifest.get("recipients") or []]
+    addresses = alert_addresses(recipients, settings.alert_emails)
 
     # The folders are created first, each after its parent: the provider creates a missing
     # parent folder when it uploads a file, but not reliably when files are uploaded in
@@ -554,9 +572,8 @@ def deploy(settings: Settings) -> databricks.Job:
         *notebook_paths.values(),
         *product_paths.values(),
         f"{dashboard_folder}/{QUALITY_DASHBOARD.name}",
-        *alert_paths,
     ]
-    for folder in folders(root, paths):
+    for folder in folders(root, paths, [alerts_folder] if has_alerts else []):
         parent = directories.get(posixpath.dirname(folder))
         directories[folder] = databricks.Directory(
             f"folder:{posixpath.relpath(folder, root)}",
@@ -637,6 +654,7 @@ def deploy(settings: Settings) -> databricks.Job:
         ],
         max_concurrent_runs=1,
         schedule=job_schedule(settings, manifest),
+        email_notifications=databricks.JobEmailNotificationsArgs(on_failures=addresses) if addresses else None,
         run_as=(
             databricks.JobRunAsArgs(service_principal_name=settings.service_principal)
             if settings.service_principal
@@ -646,8 +664,8 @@ def deploy(settings: Settings) -> databricks.Job:
         opts=pulumi.ResourceOptions(depends_on=[*products, *prerequisites]),
     )
     dashboard = quality_dashboard(settings, dashboard_folder, directories[dashboard_folder], warehouse.id)
-    if alert_paths:
-        alerts(settings, manifest, alerts_folder, directories[alerts_folder], warehouse.id)
+    if has_alerts:
+        alerts(settings, manifest, alerts_folder, directories[alerts_folder], warehouse.id, addresses)
     pulumi.export("job_id", job.id)
     pulumi.export("job_url", job.url)
     pulumi.export("workspace_root", root)

@@ -238,6 +238,8 @@ class DataContract:
     tags: tuple[str, ...] = ()
     schema: tuple[SchemaObject, ...] = ()
     sla_properties: tuple[SlaProperty, ...] = ()
+    # Element of the SLA properties without element (deprecated since ODCS v3.1).
+    sla_default_element: str | None = None
     support: tuple[SupportChannel, ...] = ()
     custom_properties: Mapping[str, Any] = field(default_factory=dict)
     source: str | None = None
@@ -352,6 +354,7 @@ class _Parser:
                 self.sla_property(item, f"slaProperties[{index}]")
                 for index, item in enumerate(self._list(data, "slaProperties", ""))
             ),
+            sla_default_element=self._text(data, "slaDefaultElement", ""),
             support=tuple(
                 self.support_channel(item, f"support[{index}]")
                 for index, item in enumerate(self._list(data, "support", ""))

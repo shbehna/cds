@@ -10,8 +10,10 @@ other properties are read by the deployments, for example to schedule the loads
 
 A property applies to the tables of its ``element``: a table, or a column of a table
 (``table.column``), several separated by commas; in a contract with a single table, a
-column may be named alone. Without element, it applies to every table of the contract. A
-property whose element designates a table takes precedence over the one without element.
+column may be named alone. Without element, it applies to the ``slaDefaultElement`` of the
+contract (ODCS v3.0), else to every table of the contract. A property whose element
+designates a table takes precedence over the one without element. The ``retention``
+applies to the versions of the history tables: its element designates tables.
 
 The durations (``latency``, ``retention``, ``frequency`` and the ``timeTo...``
 properties) are positive integers with a unit: ``h`` (hours), ``d`` (days), ``w``
@@ -26,6 +28,7 @@ expression of five fields (minute, hour, day of month, month, day of week).
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -71,6 +74,8 @@ _DURATION_UNITS: Mapping[str, tuple[str, int]] = {
     **dict.fromkeys(("y", "yr", "year", "years"), ("YEAR", 1)),
 }
 _PERCENT_UNITS = ("percent", "%")
+# Digits of the cron expressions: ASCII only, which int() reads.
+_NUMBER = re.compile(r"[0-9]+")
 
 _MONTHS = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
 _DAYS = ("SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT")
@@ -173,8 +178,12 @@ def cron_problem(expression: str) -> str | None:
 
 def _cron_item_problem(item: str, low: int, high: int, names: Sequence[str]) -> str | None:
     base, slash, step = item.partition("/")
-    if slash and (not step.isdigit() or int(step) == 0):
-        return f"invalid step {step!r}"
+    if slash:
+        if not _NUMBER.fullmatch(step) or int(step) == 0:
+            return f"invalid step {step!r}"
+        if int(step) > high:
+            # Quartz refuses a step larger than the values of the field.
+            return f"the step {step} is larger than {high}"
     if base == "*":
         return None
     bounds = base.split("-")
@@ -190,10 +199,28 @@ def _cron_item_problem(item: str, low: int, high: int, names: Sequence[str]) -> 
 
 
 def _cron_value(text: str, names: Sequence[str], first: int) -> int | None:
-    if text.isdigit():
+    if _NUMBER.fullmatch(text):
         return int(text)
     upper = text.upper()
     return names.index(upper) + first if upper in names else None
+
+
+def _cron_values(text: str, low: int, high: int, names: Sequence[str]) -> set[int]:
+    """Returns the values of a valid field of a cron expression."""
+    values: set[int] = set()
+    for item in text.split(","):
+        base, _, step = item.partition("/")
+        if base == "*":
+            start, end = low, high
+        else:
+            bounds = [
+                value for value in (_cron_value(bound, names, low) for bound in base.split("-")) if value is not None
+            ]
+            start = bounds[0]
+            # A single value with a step, such as 5/15, runs up to the highest value.
+            end = bounds[-1] if len(bounds) == 2 else high if step else start
+        values.update(range(start, end + 1, int(step) if step else 1))
+    return values
 
 
 def quartz_cron(expression: str) -> str:
@@ -201,58 +228,90 @@ def quartz_cron(expression: str) -> str:
 
     Quartz adds the seconds, and marks with ``?`` the day field left free; the days of the
     week are named, as cron counts them from 0 (Sunday) and Quartz from 1:
-    ``0 6 1,15 * *`` becomes ``0 0 6 1,15 * ?``.
+    ``0 6 1,15 * *`` becomes ``0 0 6 1,15 * ?``. As in cron, a day field starting with
+    ``*`` restricts the days with the other one; otherwise, a day matching either field
+    matches.
 
     Raises:
-        ContractError: If the expression is invalid, restricts both the day of month and
-            the day of week, which Quartz cannot express, or has a step in the day of week.
+        ContractError: If the expression is invalid, or restricts the days by both the day
+            of month and the day of week, which Quartz cannot express.
     """
     problem = cron_problem(expression)
     if problem:
         raise ContractError(problem)
     minute, hour, day, month, weekday = expression.split()
-    if weekday == "*":
-        weekday = "?"
-    elif day == "*":
-        day = "?"
-        weekday = _quartz_weekdays(expression, weekday)
+    every_day_of_month = _cron_values(day, 1, 31, ()) == set(range(1, 32))
+    days = {value % 7 for value in _cron_values(weekday, 0, 7, _DAYS)}
+    if day.startswith("*") or weekday.startswith("*"):
+        # The days match both fields.
+        if len(days) == len(_DAYS):
+            weekday = "?"
+        elif every_day_of_month:
+            day, weekday = "?", _day_names(days)
+        else:
+            raise _both_days(expression)
+    elif every_day_of_month or len(days) == len(_DAYS):
+        # The days match either field: every day.
+        day, weekday = "*", "?"
     else:
-        raise ContractError(
-            f"the cron expression {expression!r} restricts both the day of month and the day of week, "
-            "which the Quartz syntax of Databricks cannot express"
-        )
+        raise _both_days(expression)
     return " ".join(("0", minute, hour, day, month, weekday))
 
 
-def _quartz_weekdays(expression: str, text: str) -> str:
-    items = []
-    for item in text.split(","):
-        if "/" in item:
-            raise ContractError(f"the cron expression {expression!r}: a step in the day of week cannot be converted")
-        days = [_cron_value(bound, _DAYS, 0) for bound in item.split("-")]
-        items.append("-".join(_DAYS[day % 7] for day in days if day is not None))
-    return ",".join(items)
+def _both_days(expression: str) -> ContractError:
+    return ContractError(
+        f"the cron expression {expression!r} restricts both the day of month and the day of week, "
+        "which the Quartz syntax of Databricks cannot express"
+    )
+
+
+def _day_names(days: set[int]) -> str:
+    """Names days of the week, from 0 (Sunday): three days or more in a row become a range."""
+    runs: list[list[int]] = []
+    for day in sorted(days):
+        if runs and day == runs[-1][-1] + 1:
+            runs[-1].append(day)
+        else:
+            runs.append([day])
+    return ",".join(
+        f"{_DAYS[run[0]]}-{_DAYS[run[-1]]}" if len(run) > 2 else ",".join(_DAYS[day] for day in run) for run in runs
+    )
+
+
+def cron_schedule(prop: SlaProperty) -> str | None:
+    """Returns the cron expression of a property scheduled with ``scheduler: cron``, ``None`` otherwise."""
+    schedule = (prop.schedule or "").strip()
+    if (prop.scheduler or "").strip().lower() != "cron" or not schedule:
+        return None
+    return schedule
 
 
 def targets(prop: SlaProperty, document: DataContract) -> list[tuple[SchemaObject, SchemaProperty | None]]:
     """Returns the tables, and columns, that a property applies to.
 
+    A property without element applies to the ``slaDefaultElement`` of the contract (ODCS
+    v3.0), else to every table.
+
     Raises:
-        ContractError: If its element designates no table or column of the contract.
+        ContractError: If its element designates no table or column of the contract, or has
+            an empty part.
     """
-    if not prop.element:
+    element = prop.element or document.sla_default_element
+    if not element:
         return [(table, None) for table in document.schema]
     found: list[tuple[SchemaObject, SchemaProperty | None]] = []
-    for element in (part.strip() for part in prop.element.split(",")):
-        table_name, _, column_name = element.partition(".")
+    for part in (item.strip() for item in element.split(",")):
+        if not part:
+            raise ContractError(f"{prop.property}: the element {element!r} has an empty part")
+        table_name, _, column_name = part.partition(".")
         table = document.get_schema_object(table_name)
         if table is None and not column_name and len(document.schema) == 1:
             table, column_name = document.schema[0], table_name
         if table is None:
-            raise ContractError(f"{prop.property}: the element {element!r} designates no table of the contract")
+            raise ContractError(f"{prop.property}: the element {part!r} designates no table of the contract")
         column = table.get_property(column_name) if column_name else None
         if column_name and column is None:
-            raise ContractError(f"{prop.property}: the element {element!r} designates no column of {table.name}")
+            raise ContractError(f"{prop.property}: the element {part!r} designates no column of {table.name}")
         found.append((table, column))
     return found
 
@@ -266,7 +325,7 @@ def table_sla(table: Table, name: str) -> tuple[SlaProperty, str | None] | None:
 
     Returns:
         The property whose element designates the table or one of its columns, else the
-        property without element; ``None`` if the contract has neither.
+        property without element applying to it; ``None`` if the contract has neither.
 
     Raises:
         ContractError: If the element of a property of this name is invalid.
@@ -278,13 +337,39 @@ def table_sla(table: Table, name: str) -> tuple[SlaProperty, str | None] | None:
     for prop in document.sla_properties:
         if canonical_property(prop.property) != name:
             continue
-        if not prop.element:
-            general = general or (prop, None)
+        columns = [column for target, column in targets(prop, document) if target is table.schema_object]
+        if not columns:
             continue
-        for target, column in targets(prop, document):
-            if target is table.schema_object:
-                return prop, column.column if column else None
+        found = (prop, columns[0].column if columns[0] else None)
+        if prop.element:
+            return found
+        general = general or found
     return general
+
+
+def retention(table: Table) -> Duration | None:
+    """Returns how long the history of a table keeps its closed versions: its ``retention`` SLA.
+
+    Returns:
+        The retention, ``None`` if the table has none.
+
+    Raises:
+        ContractError: If the retention is invalid, or designates a column: it applies to the
+            versions of the history.
+    """
+    try:
+        found = table_sla(table, "retention")
+        if found is None:
+            return None
+        prop, column = found
+        if column:
+            raise ContractError(f"retention: {_RETENTION_COLUMN}, not the column {column}")
+        return duration(prop)
+    except ContractError as exc:
+        raise ContractError(f"{table.qualified_name}: {exc}") from None
+
+
+_RETENTION_COLUMN = "the retention applies to the versions of the history: its element must designate tables"
 
 
 def email_addresses(channel: SupportChannel) -> list[str]:
@@ -309,6 +394,8 @@ def support_emails(document: DataContract) -> list[str]:
 def sla_problems(document: DataContract) -> list[str]:
     """Returns the problems of the SLA properties and support channels of a contract, for ``cds validate``."""
     problems = []
+    # The first property of each name for a table: with an element of its own, or not.
+    seen: dict[tuple[str, str, bool], int] = {}
     for index, prop in enumerate(document.sla_properties):
         where = f"slaProperties[{index}]"
         name = canonical_property(prop.property)
@@ -319,7 +406,9 @@ def sla_problems(document: DataContract) -> list[str]:
             )
             continue
         try:
-            targets(prop, document)
+            found = targets(prop, document)
+            if name == "retention" and any(column for _, column in found):
+                raise ContractError(f"{prop.property}: {_RETENTION_COLUMN}")
             if name in DURATION_PROPERTIES:
                 duration(prop)
             if name in PERCENTAGE_PROPERTIES:
@@ -328,6 +417,14 @@ def sla_problems(document: DataContract) -> list[str]:
                 _check_schedule(prop, name)
         except ContractError as exc:
             problems.append(f"{where}: {exc}")
+            continue
+        for table in dict.fromkeys(table.name for table, _ in found):
+            key = (name, table.lower(), bool(prop.element))
+            if key in seen:
+                first = f"slaProperties[{seen[key]}]"
+                problems.append(f"{where}: {prop.property}: the table {table} already has this property ({first})")
+            else:
+                seen[key] = index
     for index, channel in enumerate(document.support):
         if (channel.tool or "").strip().lower() == "email" and not email_addresses(channel):
             problems.append(f"support[{index}]: the email channel {channel.channel!r} needs a mailto: url")
@@ -339,6 +436,7 @@ def _check_schedule(prop: SlaProperty, name: str) -> None:
         if name in SCHEDULED_PROPERTIES:
             raise ContractError(f"{prop.property}: CDS reads cron schedules, got the scheduler {prop.scheduler!r}")
         return
-    if not prop.schedule:
+    schedule = cron_schedule(prop)
+    if schedule is None:
         raise ContractError(f"{prop.property}: the cron scheduler needs a schedule")
-    quartz_cron(prop.schedule)
+    quartz_cron(schedule)

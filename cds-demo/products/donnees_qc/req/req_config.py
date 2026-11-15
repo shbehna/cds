@@ -50,9 +50,11 @@ config = DataProductConfig(
                 "value": 1,
                 "unit": "percent",
                 "scheduler": "cron",
-                "schedule": "0 7 * * *",
+                # After the load of 6 am: the error rate only changes when the tables are loaded.
+                "schedule": "0 12 1,15 * *",
                 "description": (
-                    "Au plus 1 % des lignes de chaque table ont une erreur de qualité. Vérifié chaque jour à 7 h."
+                    "Au plus 1 % des lignes de chaque table ont une erreur de qualité. Vérifié après chaque "
+                    "chargement, le 1er et le 15 de chaque mois à midi."
                 ),
             },
             {

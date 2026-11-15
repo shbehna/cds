@@ -131,7 +131,7 @@ The `req` configuration gives every contract the service levels of the data prod
 | --- | --- | --- | --- |
 | `frequency` | the 1st and the 15th of each month, at 6 am (`0 6 1,15 * *`): the register is published twice a month | | the schedule of the job |
 | `latency` | 18 days since the last change of each table: up to 17 days separate two loads | every day at 7 am | an alert |
-| `errorRate` | at most 1 % of the rows of each table with a quality error | every day at 7 am | an alert |
+| `errorRate` | at most 1 % of the rows of each table with a quality error | after each load, the 1st and the 15th at noon | an alert |
 | `retention` | the history keeps the replaced versions 10 years | | the scd service |
 
 The manifest converts them for the deployment: the schedule of the job, and the queries
@@ -143,10 +143,11 @@ address is fictitious, and to the addresses of the deployment. The 5 % of rows i
 of the synthetic data set trigger the error rate alert in `nprod`.
 
 The latency measures the last change of a table (`last_altered` of the information
-schema), which each run of the job updates, its load or its metadata step: the alert
-detects a job that no longer runs. A contract can measure the freshness of its data
-instead, with a date column as the `element` of its latency: the alert then checks the
-latest value of the column.
+schema), which the metadata step updates after each load. It does not run when the load
+fails: the alert detects the failed loads and a job that no longer runs. A contract can
+measure the freshness of its data instead, with a date column as the `element` of its
+latency: the alert then checks the latest value of the column. The failed runs of the job
+also send an email.
 
 ## Synthetic data set
 

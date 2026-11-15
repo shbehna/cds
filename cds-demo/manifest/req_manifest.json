@@ -18,8 +18,8 @@
       "name": "error-rate",
       "title": "error rate",
       "sla": "errorRate",
-      "cron": "0 7 * * *",
-      "quartz": "0 0 7 * * ?",
+      "cron": "0 12 1,15 * *",
+      "quartz": "0 0 12 1,15 * ?",
       "query": "SELECT table_name, round(error_rate, 2) AS error_rate, threshold,\n  CASE WHEN error_rate > threshold THEN 1 ELSE 0 END AS exceeded\nFROM (\n  SELECT 'continuation_transformation' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_req`.`continuation_transformation`\n  UNION ALL\n  SELECT 'domaine_valeur' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_req`.`domaine_valeur`\n  UNION ALL\n  SELECT 'entreprise' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_req`.`entreprise`\n  UNION ALL\n  SELECT 'etablissement' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_req`.`etablissement`\n  UNION ALL\n  SELECT 'fusion_scission' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_req`.`fusion_scission`\n  UNION ALL\n  SELECT 'nom_entreprise' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_req`.`nom_entreprise`\n) AS rates\nORDER BY table_name"
     },
     {

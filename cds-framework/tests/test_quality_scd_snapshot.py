@@ -286,6 +286,19 @@ def test_scd_purges_the_versions_older_than_the_retention(make_project: MakeProj
     assert spark.statements.index(delete) > spark.statements.index(spark.statements_matching(r"^MERGE INTO")[0])
 
 
+def test_scd_checks_the_retention_before_writing_the_history(make_project: MakeProject, spark: FakeSpark) -> None:
+    contract = CUSTOMER + "    slaProperties:\n      - {property: retention, value: 10, unit: years_}\n"
+    root = make_project({"sales/orders/customer/customer.yaml": contract})
+    context = ServiceContext(spark=spark.as_session(), environment="dev", data_context=DataContext.discover(root))
+    spark.add_table(CUSTOMER_TABLE, ["customer_id", "name", "created_on"])
+
+    [result] = run(scd_service(context), context).results
+
+    assert result.status is Status.ERROR
+    assert "sales.orders.customer: retention: the unit must be a duration" in result.message
+    assert not spark.statements_matching(r"^(CREATE|MERGE|DELETE)")
+
+
 def test_scd_keeps_every_version_without_retention(context: ServiceContext, spark: FakeSpark) -> None:
     spark.add_table(CUSTOMER_TABLE, ["customer_id", "name", "created_on"])
     spark.on(r"duplicate_keys", [Row(duplicate_keys=0)])

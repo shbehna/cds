@@ -311,9 +311,12 @@ support:
     url: mailto:data-team@example.com
 ```
 
-A property applies to the tables of its `element`, or to every table of the contract
-without one; a property whose element designates a table takes precedence over the one
-without element. Durations are positive integers in `h`, `d`, `w`, `mo` or `y` (or
+A property applies to the tables of its `element`; without one, to the
+`slaDefaultElement` of the contract (ODCS v3.0), or else to every table. A property
+whose element designates a table takes precedence over the one without element; `cds
+validate` reports two properties of the same name for the same table. The `retention`
+applies to the versions of the history tables: its element designates tables, not
+columns. Durations are positive integers in `h`, `d`, `w`, `mo` or `y` (or
 `hours`, `days`...), the `errorRate` and the `availability` percentages (`percent`).
 The schedules are cron expressions of five fields, with `scheduler: cron`;
 `cds.sla.quartz_cron` converts them to the Quartz syntax of the Databricks jobs and
@@ -353,8 +356,9 @@ Any other parameter is available to the configuration through the
 `RuntimeConfiguration`. Outside a notebook, the parameters can be set as `CDS_*`
 environment variables (`CDS_ENVIRONMENT=nprod`) or passed to `run_service`.
 
-A typical pipeline runs `schema`, then `metadata` and `transformation`, then `quality`,
-then `scd`.
+A typical pipeline runs `schema`, then `transformation`, then `metadata` and `quality`,
+then `scd`. Running `metadata` after the load keeps the time of the last change of the
+tables (`last_altered`) for the loads that succeeded.
 
 ## Command line
 
