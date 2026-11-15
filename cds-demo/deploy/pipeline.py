@@ -27,6 +27,7 @@ from pathlib import Path
 import pulumi
 import pulumi_databricks as databricks
 import tomllib
+from delay import Delay
 from sql_statement import SqlStatement
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -57,6 +58,11 @@ GOVERNANCE_SCHEMA = "governance"
 MASK_FUNCTION = "mask"
 # Principals whose queries are masked: every user of the account, except the exempted ones.
 MASKED_PRINCIPALS = ["account users"]
+# How long the deployment waits after creating a governed tag, before creating the policies
+# using it: Unity Catalog refuses them until the tag has propagated ("Unknown tag policy
+# key"). The delay is not documented; the first deployment of nprod failed right after the
+# creation of the tag, and succeeded a few minutes later.
+TAG_POLICY_PROPAGATION_SECONDS = 120
 
 
 @dataclass(frozen=True)
@@ -247,10 +253,12 @@ def governance(
     The classification tag is a governed tag: the policy needs it. Tag policies belong to
     the account, shared by the environments: only one stack creates it (createTagPolicies).
     It is protected, so that destroying that stack does not remove the masking of the
-    others: unprotect it first (see the README).
+    others: unprotect it first (see the README). When the deployment creates it, the
+    policies wait for it to propagate (TAG_POLICY_PROPAGATION_SECONDS).
 
     Returns:
-        The resources the job needs: the tag policy, when the deployment creates it.
+        The resources the job needs: the tag policy and its propagation, when the deployment
+        creates it.
 
     Raises:
         ValueError: If the service principal is unknown, or a masked classification is not
@@ -272,6 +280,16 @@ def governance(
             opts=pulumi.ResourceOptions(protect=True),
         )
         if settings.create_tag_policies
+        else None
+    )
+    propagated = (
+        Delay(
+            f"tag-policy-propagation:{tag}",
+            seconds=TAG_POLICY_PROPAGATION_SECONDS,
+            trigger=tag_policy.id,
+            opts=pulumi.ResourceOptions(depends_on=[tag_policy]),
+        )
+        if tag_policy
         else None
     )
     in_catalog = pulumi.ResourceOptions(depends_on=[created_catalog] if created_catalog else None)
@@ -315,10 +333,10 @@ def governance(
                 )
             ],
             column_mask=databricks.PolicyInfoColumnMaskArgs(function_name=function, on_column="masked_column"),
-            opts=pulumi.ResourceOptions(depends_on=[mask, *([tag_policy] if tag_policy else [])]),
+            opts=pulumi.ResourceOptions(depends_on=[mask, *([propagated] if propagated else [])]),
         )
     pulumi.export("mask_function", function)
-    return [tag_policy] if tag_policy else []
+    return [tag_policy, propagated] if tag_policy and propagated else []
 
 
 def testdata_uploads(settings: Settings) -> list[databricks.File]:

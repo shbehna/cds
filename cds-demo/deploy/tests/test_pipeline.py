@@ -253,6 +253,10 @@ def test_masking(settings: pipeline.Settings) -> pulumi.Output[None]:
     def check(_: str) -> None:
         [tag_policy] = created("databricks:index/tagPolicy:TagPolicy")
         assert tag_policy.inputs["tagKey"] == "classification"
+        # The policies wait for the new governed tag to propagate.
+        [delay] = created(DYNAMIC, "tag-policy-propagation:classification")
+        assert delay.inputs["seconds"] == pipeline.TAG_POLICY_PROPAGATION_SECONDS
+        assert delay.inputs["trigger"] == "tag-policy:classification-id"
         names = [value(item, "name") for item in tag_policy.inputs["values"]]
         assert names == ["public", "internal", "confidential", "restricted"]
         [schema] = created("databricks:index/schema:Schema")
@@ -289,6 +293,7 @@ def test_masking_without_creating_the_tag_policy(settings: pipeline.Settings) ->
 
     def check(_: str) -> None:
         assert not created("databricks:index/tagPolicy:TagPolicy")
+        assert not created(DYNAMIC, "tag-policy-propagation")
         assert len(created("databricks:index/policyInfo:PolicyInfo")) == 1
 
     return job.id.apply(check)
@@ -322,7 +327,9 @@ def test_masking_nothing(settings: pipeline.Settings) -> pulumi.Output[None]:
 @pulumi.runtime.test
 def test_the_tag_policy_is_protected(settings: pipeline.Settings) -> None:
     """Destroying the stack creating the tag policy must not remove the masking of the other stacks."""
-    [tag_policy] = pipeline.governance(dataclasses.replace(settings, masking=True, create_tag_policies=True), "w", None)
+    [tag_policy, _] = pipeline.governance(
+        dataclasses.replace(settings, masking=True, create_tag_policies=True), "w", None
+    )
 
     assert isinstance(tag_policy, pulumi.CustomResource) and tag_policy._protect
 
