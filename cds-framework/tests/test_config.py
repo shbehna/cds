@@ -73,6 +73,7 @@ def test_metadata_settings() -> None:
     assert defaults.tags is True
     assert defaults.field_tags == {"domain": "domain", "dataProduct": "data_product"}
     assert defaults.certification is None and defaults.classifications is None
+    assert defaults.discover_domain is False
     assert (defaults.certification_tag, defaults.classification_tag) == (
         "system.certification_status",
         "classification",

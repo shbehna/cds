@@ -110,6 +110,7 @@ group, then the framework default).
 | | `certification_tag` | `system.certification_status` |
 | | `classification_tag` | `classification` |
 | | `classifications` | none: any classification |
+| | `discover_domain` | `False`: the tables are not tagged with their Discover domain |
 
 ```python
 # donnees_qc/req/req_config.py
@@ -146,8 +147,8 @@ Contracts are ODCS v3 documents (`apiVersion: v3.0.0` to `v3.2.0`). CDS reads:
   the same contract;
 - `quality` rules (see the quality service);
 - `tags` of the contract, of its `schema` objects and of their properties, the
-  `classification` of the properties, and the `status`, `domain` and `dataProduct` of
-  the contract (see the tags of the metadata service);
+  `classification` of the properties, the `status`, `domain` and `dataProduct` of the
+  contract, and its `subdomain` custom property (see the tags of the metadata service);
 - `slaProperties` and `support` (see [Service levels](#service-levels)).
 
 Everything else remains available in the `raw` attribute of the object model
@@ -240,13 +241,15 @@ with their contracts:
 | --- | --- |
 | `tags` of the contract and of the `schema` object | tags of the table |
 | fields of `MetadataSettings.field_tags`, such as `domain` | tags of the table: `domain`, `data_product` |
+| `domain` and the `subdomain` custom property, with `MetadataSettings.discover_domain` | governed tag of the Discover domain of the table: `<domain>` or `<domain>/<subdomain>` |
 | `status`, through `MetadataSettings.certification` | certification of the table: `system.certification_status` |
 | `tags` of a property | tags of its column |
 | `classification` of a property | tag `classification` of its column |
 
 A tag `key:value` becomes the tag `key` with the value `value`; a tag without colon, a
 tag without value. Unity Catalog does not allow `.`, `,`, `-`, `=`, `/` and `:` in the
-keys: `cds validate` reports the invalid tags, and the classifications not listed in
+keys, except the `/` separating the levels of a Discover domain (see below): `cds
+validate` reports the invalid tags, and the classifications not listed in
 `MetadataSettings.classifications`.
 
 The certification shows a badge in Catalog Explorer: map the statuses of the contracts
@@ -262,9 +265,28 @@ config = GroupConfig(
 )
 ```
 
+The [Discover page](https://docs.databricks.com/aws/en/discover/discover-page) of
+Databricks organizes the assets in domains and subdomains, each built on a governed tag:
+the tables tagged with it belong to the domain. With `MetadataSettings.discover_domain`,
+the `domain` of a contract is the Discover domain of its tables, and its `subdomain`
+custom property places them in a subdomain, whose tag is its path under the domain:
+
+```yaml
+domain: Finance
+customProperties:
+  - property: subdomain
+    value: Tax          # governed tag Finance/Tax, in the subdomain Tax of Finance
+```
+
+The tables of a subdomain also appear on the page of its parent domain. The governed
+tags and the domains are not created by the framework: create them first, with the
+deployment or in the **Discover** page. A domain has up to five levels, each a valid tag
+key, which `cds validate` checks. The `customProperties` of a contract replace those of
+the contract defaults: a contract defining its own repeats the `subdomain`.
+
 The history table of a table gets the tags of its columns, but not those of the table
 nor its certification: a policy based on the classification of the columns also protects
-the history.
+the history. The history tables are not in the Discover domain of their table.
 
 The tags of the columns also protect the data from its first write: the `schema`
 service tags the columns of the tables it creates or replaces and the columns it adds,

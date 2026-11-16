@@ -1,9 +1,10 @@
 """Unity Catalog tags of the tables and their columns, derived from their contracts.
 
 The tags of a table come from the ``tags`` of its contract and schema object, from the
-top-level fields of ``MetadataSettings.field_tags`` (such as ``domain``) and from the
-certification of its contract ``status``. The tags of a column come from the ``tags``
-and the ``classification`` of its property.
+top-level fields of ``MetadataSettings.field_tags`` (such as ``domain``), from its
+Discover domain (``MetadataSettings.discover_domain``) and from the certification of its
+contract ``status``. The tags of a column come from the ``tags`` and the
+``classification`` of its property.
 
 An ODCS tag ``key:value`` becomes the Unity Catalog tag ``key`` with the value
 ``value``; a tag without colon becomes a tag without value.
@@ -27,13 +28,19 @@ from typing import TYPE_CHECKING, Any
 
 from cds.config import MetadataSettings, resolved
 from cds.errors import ContractError
-from cds.sql import set_tags_statement, tag_key_problem
+from cds.sql import TAG_KEY_MAX_LENGTH, set_tags_statement, tag_key_problem
 
 if TYPE_CHECKING:
     from cds.data_context import Table
 
 # Table property recording the keys of the tags applied by the metadata service.
 MANAGED_TAGS_PROPERTY = "cds.tags"
+# Custom property of a contract naming the Discover subdomain of its tables, in its domain.
+SUBDOMAIN_PROPERTY = "subdomain"
+# Separator of the levels of a Discover domain in its governed tag, such as Finance/Tax.
+DOMAIN_SEPARATOR = "/"
+# Levels of the Discover domains: a domain, and up to four levels of subdomains.
+DOMAIN_MAX_LEVELS = 5
 
 
 @dataclass(frozen=True)
@@ -95,6 +102,9 @@ def expected_tags(table: Table) -> TableTags:
         value = raw.get(name)
         if key and isinstance(value, (str, int, float)) and not isinstance(value, bool) and str(value).strip():
             tags[key] = str(value).strip()
+    domain = discover_domain(table)
+    if domain:
+        tags[domain] = ""
     for tag in (*(document.tags if document else ()), *table.schema_object.tags):
         key, value = parse_tag(tag, table.qualified_name)
         tags[key] = value
@@ -114,6 +124,50 @@ def expected_tags(table: Table) -> TableTags:
         if column_tags:
             columns[prop.column] = column_tags
     return TableTags(tags, columns)
+
+
+def discover_domain(table: Table) -> str | None:
+    """Returns the governed tag of the Databricks Discover domain of a table.
+
+    A Discover domain is a governed tag: the tables tagged with it belong to the domain.
+    The domain of a table is the ``domain`` of its contract. A ``subdomain`` custom
+    property of the contract places it in a subdomain, whose tag is the path of the
+    subdomain under its domain: ``Finance/Tax`` for the subdomain ``Tax`` of the domain
+    ``Finance``. The subdomain can itself be a path, such as ``Tax/Audit``.
+
+    Returns:
+        The tag, ``None`` if the tags of the table are not synchronized, if
+        ``MetadataSettings.discover_domain`` is not set, or if the contract has no domain.
+
+    Raises:
+        ContractError: If the contract has a subdomain without domain, or its tag is not
+            valid: too long, more than five levels, or a level that is not a valid tag key.
+    """
+    settings = table.settings(MetadataSettings)
+    document = table.contract.document
+    if not (settings.tags and settings.discover_domain) or document is None:
+        return None
+    where = table.qualified_name
+    subdomain = document.custom_properties.get(SUBDOMAIN_PROPERTY)
+    if subdomain is not None and not isinstance(subdomain, str):
+        raise ContractError(f"{where}: the {SUBDOMAIN_PROPERTY} custom property must be a string.")
+    domain = (document.domain or "").strip()
+    subdomain = (subdomain or "").strip()
+    if not domain:
+        if subdomain:
+            raise ContractError(f"{where}: the subdomain {subdomain!r} needs the domain of the contract.")
+        return None
+    tag = f"{domain}{DOMAIN_SEPARATOR}{subdomain}" if subdomain else domain
+    if len(tag) > TAG_KEY_MAX_LENGTH:
+        raise ContractError(f"{where}: the Discover domain {tag!r} is longer than {TAG_KEY_MAX_LENGTH} characters.")
+    levels = tag.split(DOMAIN_SEPARATOR)
+    if len(levels) > DOMAIN_MAX_LEVELS:
+        raise ContractError(f"{where}: the Discover domain {tag!r} has more than {DOMAIN_MAX_LEVELS} levels.")
+    for level in levels:
+        problem = tag_key_problem(level)
+        if problem:
+            raise ContractError(f"{where}: invalid Discover domain {tag!r}: {problem}.")
+    return tag
 
 
 def certification_value(table: Table) -> str | None:

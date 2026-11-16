@@ -15,8 +15,9 @@ contracts and the addresses of ALERT_EMAILS (see alerts).
 
 Depending on the stack, the deployment also creates the catalog of the environment
 (createCatalog), uploads the synthetic data set (cds-demo/csv/testdata) next to the
-files of the register, the job then loading it instead of them (syntheticData), and
-masks the classified columns (masking): see governance.
+files of the register, the job then loading it instead of them (syntheticData), masks
+the classified columns (masking): see governance, and creates the Discover domains of
+the contracts (createDomains): see discover_domains.
 """
 
 from __future__ import annotations
@@ -72,6 +73,35 @@ MASKED_PRINCIPALS = ["account users"]
 # creation of the tag, and succeeded a few minutes later.
 TAG_POLICY_PROPAGATION_SECONDS = 120
 
+
+@dataclass(frozen=True)
+class DomainPresentation:
+    """How the Discover page presents a domain: the subtitle of its card, the overview of its page."""
+
+    subtitle: str
+    description: str
+
+
+# Presentation of the Discover domains of the contracts (cds-demo/manifest), by governed tag.
+# In French, as the business domain of the demo.
+DOMAINS: dict[str, DomainPresentation] = {
+    "Économie": DomainPresentation(
+        subtitle="Entreprises et activité économique du Québec.",
+        description="Données sur les entreprises du Québec et sur leur activité économique.",
+    ),
+    "Économie/Registraire des entreprises du Québec": DomainPresentation(
+        subtitle=(
+            "Registre des entreprises du Québec : entreprises, noms, établissements, fusions, scissions, "
+            "continuations et transformations."
+        ),
+        description=(
+            "Tables du produit de données donnees_qc.req, construites à partir du jeu de données ouvertes du "
+            "Registraire des entreprises du Québec, publié deux fois par mois sur Données Québec sous la "
+            "licence CC BY-NC-SA 4.0."
+        ),
+    ),
+}
+
 # Placeholder of the environment in the queries of the manifest.
 ENVIRONMENT_PLACEHOLDER = "${environment}"
 # Column of the alert queries of the manifest: 1 for a table breaking its SLA, 0 otherwise.
@@ -116,6 +146,9 @@ class Settings:
     masked_classifications: tuple[str, ...] = ("restricted",)
     masking_exempt_principals: tuple[str, ...] = ()
     create_tag_policies: bool = False
+    # Whether the deployment creates the Discover domains of the contracts and their
+    # governed tags, which the job applies to the tables. They belong to the account.
+    create_domains: bool = False
     # Time zone of the schedules of the job and of the alerts.
     timezone: str = "America/Toronto"
     # Whether the schedule of the job is paused: the job then runs on demand. Paused unless
@@ -155,6 +188,7 @@ class Settings:
                 "maskingExemptPrincipals", config.get_object("maskingExemptPrincipals")
             ),
             create_tag_policies=config.get_bool("createTagPolicies") or False,
+            create_domains=config.get_bool("createDomains") or False,
             timezone=config.get("timezone") or cls.timezone,
             pause_schedule=config.get_bool("pauseSchedule") is not False,
             # A GitHub secret, as the secret of the service principal: the addresses stay out
@@ -525,6 +559,67 @@ def governance(
     return [tag_policy, propagated] if tag_policy and propagated else []
 
 
+def discover_domains(manifest: Mapping[str, Any]) -> list[pulumi.Resource]:
+    """Creates the Discover domains of the contracts, and their governed tags.
+
+    The metadata step of the job tags each table with the governed tag of its Discover
+    domain, from its contract (cds-demo/manifest): Économie/Registraire des entreprises du
+    Québec, the subdomain of the register in the Économie domain. A domain is built on its
+    governed tag, and a subdomain created under its parent: the manifest lists the domains
+    parents first. They are published, presented as DOMAINS describes them.
+
+    The governed tags and the domains belong to the account, shared by the environments:
+    only one stack creates them (createDomains), protected, so that destroying it does not
+    remove the domains of the others. The domains, and the job applying the tags, wait for
+    the new governed tags to propagate (TAG_POLICY_PROPAGATION_SECONDS).
+
+    Returns:
+        The governed tags, their propagation and the domains: the job waits for them.
+
+    Raises:
+        ValueError: If a domain is not described in DOMAINS, or does not come after its
+            parent in the manifest. Nothing is created then.
+    """
+    parents: dict[str, str | None] = {}
+    for domain in manifest.get("domains") or []:
+        tag, parent = str(domain["tag"]), domain.get("parent")
+        if parent is not None and parent not in parents:
+            raise ValueError(f"The Discover domain {tag!r} needs its parent {parent!r} before it in the manifest.")
+        parents[tag] = parent
+    missing = [tag for tag in parents if tag not in DOMAINS]
+    if missing:
+        raise ValueError(f"Describe the Discover domain(s) {', '.join(missing)} in DOMAINS (pipeline.py).")
+    if not parents:
+        return []
+    policies = [
+        databricks.TagPolicy(
+            f"tag-policy:{tag}",
+            tag_key=tag,
+            description=f"Discover domain {tag} of the CDS demo: the tables tagged with it belong to it.",
+            opts=pulumi.ResourceOptions(protect=True),
+        )
+        for tag in parents
+    ]
+    propagated = Delay(
+        "tag-policy-propagation:domains",
+        seconds=TAG_POLICY_PROPAGATION_SECONDS,
+        trigger=pulumi.Output.all(*(policy.id for policy in policies)).apply(lambda ids: ",".join(ids)),
+        opts=pulumi.ResourceOptions(depends_on=policies),
+    )
+    domains: dict[str, databricks.Domain] = {}
+    for tag, parent in parents.items():
+        domains[tag] = databricks.Domain(
+            f"domain:{tag}",
+            tag_key=tag,
+            subtitle=DOMAINS[tag].subtitle,
+            description=DOMAINS[tag].description,
+            parent_domain_id=domains[parent].domain_id if parent else None,
+            draft=False,
+            opts=pulumi.ResourceOptions(protect=True, depends_on=[propagated]),
+        )
+    return [*policies, propagated, *domains.values()]
+
+
 def testdata_uploads(settings: Settings) -> list[databricks.File]:
     """Uploads the synthetic data set to the folder of the files of the register."""
     folder = settings.source_path.rstrip("/")
@@ -548,6 +643,8 @@ def deploy(settings: Settings) -> databricks.Job:
         prerequisites.extend(testdata_uploads(settings))
     if settings.masking:
         prerequisites.extend(governance(settings, manifest, warehouse.id, created_catalog))
+    if settings.create_domains:
+        prerequisites.extend(discover_domains(manifest))
 
     wheel = framework_wheel(settings.wheel_directory)
     # A folder named after the content of the wheel: serverless environments are cached by

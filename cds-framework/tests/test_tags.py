@@ -5,6 +5,7 @@ from cds import ContractError, DataContext, Table
 from cds.services.tags import (
     MANAGED_TAGS_PROPERTY,
     TableTags,
+    discover_domain,
     expected_tags,
     managed_keys,
     managed_property,
@@ -92,6 +93,81 @@ def test_field_tags_can_be_disabled(make_project: MakeProject) -> None:
 
     assert "domain" not in tags and "tenant" not in tags
     assert tags["data_product"] == "sales.orders"
+
+
+DISCOVER_CONFIG = (
+    "from cds import GroupConfig, MetadataSettings\n"
+    "config = GroupConfig(name='sales', metadata=MetadataSettings(discover_domain=True))\n"
+)
+
+
+def with_subdomain(subdomain: str, domain: str | None = "sales") -> str:
+    """The customer contract with a domain, or none, and a subdomain custom property."""
+    lines = [f"    domain: {domain}\n"] if domain else []
+    lines += ["    customProperties:\n", f"      - {{property: subdomain, value: {subdomain}}}\n"]
+    return CUSTOMER.replace("    domain: sales\n", "".join(lines))
+
+
+def test_no_discover_domain_by_default(make_project: MakeProject) -> None:
+    table = customer(make_project, contract=with_subdomain("Orders"))
+
+    assert discover_domain(table) is None
+    assert "sales/Orders" not in expected_tags(table).table
+
+
+def test_discover_domain(make_project: MakeProject) -> None:
+    table = customer(make_project, DISCOVER_CONFIG)
+
+    # The governed tag of the domain, without value; the domain field tag stays.
+    assert discover_domain(table) == "sales"
+    assert expected_tags(table).table["sales"] == ""
+    assert expected_tags(table).table["domain"] == "sales"
+
+
+def test_discover_subdomain(make_project: MakeProject) -> None:
+    contract = with_subdomain('"Ventes au détail"', domain="Économie")
+    table = customer(make_project, DISCOVER_CONFIG, contract)
+
+    # The tag of a subdomain is its path under its domain.
+    assert discover_domain(table) == "Économie/Ventes au détail"
+    tags = expected_tags(table).table
+    assert tags["Économie/Ventes au détail"] == ""
+    assert "Économie" not in tags
+    # A subdomain can itself be a path.
+    nested = customer(make_project, DISCOVER_CONFIG, with_subdomain("Retail/Online"))
+    assert discover_domain(nested) == "sales/Retail/Online"
+
+
+def test_no_discover_domain_without_domain(make_project: MakeProject) -> None:
+    contract = CUSTOMER.replace("    domain: sales\n", "")
+
+    assert discover_domain(customer(make_project, DISCOVER_CONFIG, contract)) is None
+
+
+def test_no_discover_domain_without_tags(make_project: MakeProject) -> None:
+    config = DISCOVER_CONFIG.replace("discover_domain=True", "discover_domain=True, tags=False")
+
+    assert discover_domain(customer(make_project, config)) is None
+
+
+@pytest.mark.parametrize(
+    ("domain", "subdomain", "message"),
+    [
+        (None, "Orders", "the subdomain 'Orders' needs the domain of the contract"),
+        ("sales", "a/b/c/d/e", "has more than 5 levels"),
+        ("sales", "x" * 250, "is longer than 255 characters"),
+        ("sales", '"Orders/"', "invalid Discover domain 'sales/Orders/': a tag key cannot be empty"),
+        ("sales", "point-of-sale", "invalid Discover domain 'sales/point-of-sale': .* contains '-'"),
+        ("sales", "12", "the subdomain custom property must be a string"),
+    ],
+)
+def test_invalid_discover_domain(make_project: MakeProject, domain: str | None, subdomain: str, message: str) -> None:
+    table = customer(make_project, DISCOVER_CONFIG, with_subdomain(subdomain, domain=domain))
+
+    with pytest.raises(ContractError, match=message):
+        discover_domain(table)
+    # cds validate reports it.
+    assert len(tag_problems(table)) == 1
 
 
 def test_tag_problems(make_project: MakeProject) -> None:

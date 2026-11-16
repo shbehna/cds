@@ -67,7 +67,8 @@ The tables with a primary key have a history table, `<table>_historique`: the
 - **Schema**: the contracts define the tables, their column types and comments.
 - **Metadata**: the descriptions of the contracts become the comments of the tables and
   columns, and their tags Unity Catalog tags: `donnees_quebec` and `donnees_ouvertes`,
-  set by the `donnees_qc` group, `domain` and `data_product`. The `donnees_qc` group
+  set by the `donnees_qc` group, `domain` and `data_product`. The tables are tagged with
+  their Discover domain (see [Discover domains](#discover-domains)). The `donnees_qc` group
   certifies the tables by the status of their contract: Catalog Explorer shows the
   tables of the active contracts as certified, and `fusion_scission`, whose contract is
   deprecated for the demonstration, as deprecated. The classification of the columns
@@ -114,13 +115,33 @@ not the columns. The masking function only takes strings, which a test checks.
 
 The deployment cannot load the data products: it reads the classifications in the
 manifest [manifest/req_manifest.json](manifest/req_manifest.json), generated from the
-contracts by [manifest/manifest.py](manifest/manifest.py), with the schedule and the
-alerts of the service levels. Regenerate it after changing the contracts or their
+contracts by [manifest/manifest.py](manifest/manifest.py), with the Discover domains,
+and the schedule and the alerts of the service levels. Regenerate it after changing the contracts or their
 configurations, and commit it: a test checks that it is up to date.
 
 ```bash
 uv run python cds-demo/manifest/manifest.py
 ```
+
+## Discover domains
+
+The [Discover page](https://docs.databricks.com/aws/en/discover/discover-page) of
+Databricks presents the assets by business domain. The tables of the data product are
+in the subdomain **Registraire des entreprises du Québec** of the domain **Économie**:
+
+- the `req` configuration sets the `domain` of its contracts to `Économie`, and their
+  `subdomain` custom property to `Registraire des entreprises du Québec`;
+- the `donnees_qc` group makes them the Discover domain of the tables
+  (`MetadataSettings.discover_domain`): the metadata service tags each table with the
+  governed tag of the subdomain, `Économie/Registraire des entreprises du Québec`.
+
+The tables then appear on the page of the subdomain, and on that of the domain. They also
+keep the `domain` tag, `domain = Économie`. The history tables are not in the domain:
+their contract is that of their table.
+
+A Discover domain is built on its governed tag, and its name is the key of the tag. The
+deployment creates the governed tags and the domains, which the manifest lists, parents
+first (see [deploy/README.md](deploy/README.md#discover-domains)).
 
 ## Service levels
 
