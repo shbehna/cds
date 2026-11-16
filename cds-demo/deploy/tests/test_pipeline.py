@@ -28,6 +28,8 @@ class Mocks(pulumi.runtime.Mocks):
             outputs["url"] = "https://workspace/jobs/1"
         if args.typ == "databricks:index/dashboard:Dashboard":
             outputs["dashboardId"] = "dashboard-1"
+        if args.typ == "databricks:index/domain:Domain":
+            outputs["domainId"] = f"{args.name}-domain-id"
         return f"{args.name}-id", outputs
 
     def call(self, args: pulumi.runtime.MockCallArgs) -> tuple[dict[str, Any], list[tuple[str, str]] | None]:
@@ -39,6 +41,7 @@ class Mocks(pulumi.runtime.Mocks):
 pulumi.runtime.set_mocks(Mocks(), preview=False)
 
 import pipeline  # noqa: E402
+from delay import Delay  # noqa: E402
 
 
 def value(item: object, name: str) -> Any:
@@ -206,20 +209,19 @@ def test_catalog(settings: pipeline.Settings) -> pulumi.Output[None]:
     return job.id.apply(check)
 
 
-def test_the_stacks_load_synthetic_data_in_nprod_only() -> None:
-    def config(stack: str) -> dict[str, str]:
-        """Returns the values of the cds-demo namespace of a stack file (one per line, quotes removed)."""
-        text = (pipeline.REPOSITORY / "cds-demo" / "deploy" / f"Pulumi.{stack}.yaml").read_text(encoding="utf-8")
-        return {
-            f"cds-demo:{key}": raw.strip().strip('"')
-            for key, raw in re.findall(r"^  cds-demo:(\w+): *(.+)$", text, flags=re.MULTILINE)
-        }
+def stack_config(stack: str) -> dict[str, str]:
+    """Returns the values of the cds-demo namespace of a stack file (one per line, quotes removed)."""
+    text = (pipeline.REPOSITORY / "cds-demo" / "deploy" / f"Pulumi.{stack}.yaml").read_text(encoding="utf-8")
+    values = re.findall(r"^  cds-demo:(\w+): *(.+)$", text, flags=re.MULTILINE)
+    return {key: raw.strip().strip('"') for key, raw in values}
 
-    nprod, prod = config("nprod"), config("prod")
-    assert (nprod["cds-demo:syntheticData"], nprod["cds-demo:createCatalog"]) == ("true", "false")
+
+def test_the_stacks_load_synthetic_data_in_nprod_only() -> None:
+    nprod, prod = stack_config("nprod"), stack_config("prod")
+    assert (nprod["syntheticData"], nprod["createCatalog"]) == ("true", "false")
     # The account uses Default Storage: the catalogs are created in Catalog Explorer.
-    assert (prod["cds-demo:syntheticData"], prod["cds-demo:createCatalog"]) == ("false", "false")
-    assert nprod["cds-demo:sourcePath"] == prod["cds-demo:sourcePath"]
+    assert (prod["syntheticData"], prod["createCatalog"]) == ("false", "false")
+    assert nprod["sourcePath"] == prod["sourcePath"]
 
 
 def test_missing_testdata(tmp_path: Path) -> None:
@@ -359,15 +361,88 @@ def test_masking_errors(settings: pipeline.Settings, tmp_path: Path) -> None:
 
 
 def test_the_stacks_mask_the_classified_columns() -> None:
-    def config(stack: str) -> dict[str, str]:
-        text = (pipeline.REPOSITORY / "cds-demo" / "deploy" / f"Pulumi.{stack}.yaml").read_text(encoding="utf-8")
-        values = re.findall(r"^  cds-demo:(\w+): *(.+)$", text, flags=re.MULTILINE)
-        return {key: raw.strip().strip('"') for key, raw in values}
-
-    nprod, prod = config("nprod"), config("prod")
+    nprod, prod = stack_config("nprod"), stack_config("prod")
     assert nprod["masking"] == prod["masking"] == "true"
     # The tag policy belongs to the account: the nprod stack creates it, protected, for both.
     assert (nprod["createTagPolicies"], prod["createTagPolicies"]) == ("true", "false")
+
+
+SUBDOMAIN = "Économie/Registraire des entreprises du Québec"
+
+
+@pulumi.runtime.test
+def test_discover_domains(settings: pipeline.Settings) -> pulumi.Output[None]:
+    CREATED.clear()
+    job = pipeline.deploy(dataclasses.replace(settings, create_domains=True))
+
+    def check(_: str) -> None:
+        # The governed tags of the domain and of the subdomain of the register, without values.
+        policies = {args.inputs["tagKey"]: args.inputs for args in created("databricks:index/tagPolicy:TagPolicy")}
+        assert sorted(policies) == ["Économie", SUBDOMAIN]
+        assert all("values" not in inputs for inputs in policies.values())
+        [delay] = created(DYNAMIC, "tag-policy-propagation:domains")
+        assert delay.inputs["seconds"] == pipeline.TAG_POLICY_PROPAGATION_SECONDS
+        assert delay.inputs["trigger"] == f"tag-policy:Économie-id,tag-policy:{SUBDOMAIN}-id"
+        domains = {args.inputs["tagKey"]: args.inputs for args in created("databricks:index/domain:Domain")}
+        assert sorted(domains) == ["Économie", SUBDOMAIN]
+        # The subdomain is created under its parent; both are published.
+        assert "parentDomainId" not in domains["Économie"]
+        assert domains[SUBDOMAIN]["parentDomainId"] == "domain:Économie-domain-id"
+        assert all(inputs["draft"] is False for inputs in domains.values())
+        assert domains[SUBDOMAIN]["subtitle"] == pipeline.DOMAINS[SUBDOMAIN].subtitle
+        assert all(len(inputs["subtitle"]) <= 280 for inputs in domains.values())
+
+    return job.id.apply(check)
+
+
+@pulumi.runtime.test
+def test_no_discover_domains_by_default(settings: pipeline.Settings) -> pulumi.Output[None]:
+    CREATED.clear()
+    job = pipeline.deploy(settings)
+
+    def check(_: str) -> None:
+        assert not created("databricks:index/domain:Domain")
+        assert not created("databricks:index/tagPolicy:TagPolicy")
+
+    return job.id.apply(check)
+
+
+@pulumi.runtime.test
+def test_the_discover_domains_are_protected(settings: pipeline.Settings) -> None:
+    """Destroying the stack creating the domains must not remove those of the other stacks."""
+    CREATED.clear()
+    resources = pipeline.discover_domains(pipeline.load_manifest(settings.manifest))
+
+    # The job waits for the governed tags it applies, after their propagation.
+    names = [type(resource).__name__ for resource in resources]
+    assert names == ["TagPolicy", "TagPolicy", "Delay", "Domain", "Domain"]
+    account = [resource for resource in resources if not isinstance(resource, Delay)]
+    assert all(isinstance(resource, pulumi.CustomResource) and resource._protect for resource in account)
+
+
+def test_discover_domain_errors() -> None:
+    CREATED.clear()
+    with pytest.raises(ValueError, match="Describe the Discover domain"):
+        pipeline.discover_domains({"domains": [{"tag": "Santé", "parent": None}]})
+    with pytest.raises(ValueError, match="needs its parent 'Économie' before it"):
+        pipeline.discover_domains(
+            {"domains": [{"tag": SUBDOMAIN, "parent": "Économie"}, {"tag": "Économie", "parent": None}]}
+        )
+    assert pipeline.discover_domains({}) == []
+    # Nothing is created when the manifest is invalid.
+    assert not CREATED
+
+
+def test_the_manifest_domains_are_described() -> None:
+    manifest = pipeline.load_manifest(pipeline.MANIFEST)
+
+    assert manifest["domains"] == [{"tag": "Économie", "parent": None}, {"tag": SUBDOMAIN, "parent": "Économie"}]
+    assert {domain["tag"] for domain in manifest["domains"]} <= set(pipeline.DOMAINS)
+
+
+def test_the_stacks_create_the_discover_domains_in_nprod_only() -> None:
+    # The domains belong to the account: the nprod stack creates them, protected, for both.
+    assert (stack_config("nprod")["createDomains"], stack_config("prod")["createDomains"]) == ("true", "false")
 
 
 @pulumi.runtime.test
@@ -479,12 +554,7 @@ def test_environment_query() -> None:
 
 
 def test_the_stacks_pause_the_schedule_in_nprod_only() -> None:
-    def config(stack: str) -> dict[str, str]:
-        text = (pipeline.REPOSITORY / "cds-demo" / "deploy" / f"Pulumi.{stack}.yaml").read_text(encoding="utf-8")
-        values = re.findall(r"^  cds-demo:(\w+): *(.+)$", text, flags=re.MULTILINE)
-        return {key: raw.strip().strip('"') for key, raw in values}
-
-    nprod, prod = config("nprod"), config("prod")
+    nprod, prod = stack_config("nprod"), stack_config("prod")
     assert (nprod["pauseSchedule"], prod["pauseSchedule"]) == ("true", "false")
     assert nprod["timezone"] == prod["timezone"] == "America/Toronto"
 

@@ -30,6 +30,9 @@ config:
   # created by the nprod stack.
   cds-demo:masking: "true"
   cds-demo:createTagPolicies: "false"
+  # The job tags the tables with their Discover domain, created by the nprod stack with its
+  # governed tag.
+  cds-demo:createDomains: "false"
   # The job runs on the schedule of the frequency SLA of the contracts, in this time zone.
   cds-demo:timezone: America/Toronto
   cds-demo:pauseSchedule: "false"
