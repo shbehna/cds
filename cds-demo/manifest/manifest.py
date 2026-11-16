@@ -6,6 +6,9 @@ to know of the contracts:
 
 - ``classification``: the key and the allowed values of the classification tag of the
   columns, which the deployment declares as a governed tag and masks;
+- ``domains``: the Discover domains of the tables and their parent domains, parents
+  first: the governed tag of each domain, and that of its parent (``None`` for a
+  top-level domain), which the deployment creates with the domains;
 - ``schedule``: the schedule of the job, from the ``frequency`` SLA of the tables, as a
   cron expression and in the Quartz syntax of Databricks;
 - ``alerts``: the SQL alerts checking the ``errorRate`` and ``latency`` SLA of the tables,
@@ -32,6 +35,7 @@ from cds import DataContext, MetadataSettings, QualitySettings, ServiceContext, 
 from cds.config import resolved
 from cds.errors import ConfigurationError
 from cds.odcs import SlaProperty
+from cds.services.tags import DOMAIN_SEPARATOR, discover_domain
 from cds.sla import cron_schedule, duration, percentage, quartz_cron, support_emails, table_sla
 from cds.sql import quote_identifier, quote_name, string_literal
 
@@ -66,6 +70,23 @@ def classification(data_context: DataContext) -> dict[str, Any]:
                 f"{table.qualified_name}: the classification tag and values must be those of {DATA_PRODUCT}."
             )
     return {"tag": resolved(settings.classification_tag), "values": list(settings.classifications)}
+
+
+def domains(data_context: DataContext) -> list[dict[str, str | None]]:
+    """The Discover domains of the tables and their parents, parents first: their tag and that of their parent.
+
+    A subdomain is created under its parent: ``Économie/Registraire des entreprises du
+    Québec`` under ``Économie``.
+    """
+    found: set[str] = set()
+    for table in _tables(data_context):
+        tag = discover_domain(table)
+        levels = tag.split(DOMAIN_SEPARATOR) if tag else []
+        found.update(DOMAIN_SEPARATOR.join(levels[:depth]) for depth in range(1, len(levels) + 1))
+    return [
+        {"tag": tag, "parent": tag.rpartition(DOMAIN_SEPARATOR)[0] or None}
+        for tag in sorted(found, key=lambda tag: (tag.count(DOMAIN_SEPARATOR), tag))
+    ]
 
 
 def _tables(data_context: DataContext) -> list[Table]:
@@ -224,6 +245,7 @@ def build(data_context: DataContext) -> dict[str, Any]:
     return {
         "data_product": DATA_PRODUCT,
         "classification": classification(data_context),
+        "domains": domains(data_context),
         "schedule": schedule(data_context),
         "alerts": alerts,
         "recipients": recipients(data_context),

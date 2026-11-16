@@ -9,6 +9,7 @@ import manifest
 import pytest
 
 from cds import ConfigurationError, DataContext
+from cds.services.tags import discover_domain, expected_tags
 
 
 @pytest.fixture(scope="module")
@@ -32,6 +33,19 @@ def test_classification(data_context: DataContext) -> None:
         "tag": "classification",
         "values": ["public", "internal", "confidential", "restricted"],
     }
+
+
+def test_the_tables_are_in_the_subdomain_of_the_register(data_context: DataContext) -> None:
+    subdomain = "Économie/Registraire des entreprises du Québec"
+    tables = data_context.get_data_product(manifest.DATA_PRODUCT).tables
+
+    assert {discover_domain(table) for table in tables} == {subdomain}
+    assert all(expected_tags(table).table[subdomain] == "" for table in tables)
+    # The subdomain is created under its parent domain.
+    assert manifest.domains(data_context) == [
+        {"tag": "Économie", "parent": None},
+        {"tag": subdomain, "parent": "Économie"},
+    ]
 
 
 def test_the_classified_columns_use_the_declared_values(data_context: DataContext) -> None:

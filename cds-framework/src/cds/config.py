@@ -183,7 +183,8 @@ class MetadataSettings:
     Attributes:
         tags: Whether the Unity Catalog tags of the tables and columns are synchronized
             with their contracts: their ``tags``, the fields of ``field_tags``, the
-            certification and the classification of the columns. Default: ``True``.
+            Discover domain, the certification and the classification of the columns.
+            Default: ``True``.
         field_tags: Top-level fields of the contracts applied as table tags: ODCS field
             name to tag key, e.g. ``{"domain": "domain"}``. Levels are merged field by
             field; a field mapped to an empty key is not applied. Default: ``domain`` and
@@ -200,6 +201,11 @@ class MetadataSettings:
             Default: ``classification``.
         classifications: Allowed classifications of the columns, checked by ``cds
             validate``. Default: none, any classification is allowed.
+        discover_domain: Whether each table is tagged with the governed tag of its
+            Databricks Discover domain: the ``domain`` of its contract, or
+            ``<domain>/<subdomain>`` when the contract has a ``subdomain`` custom property
+            (see ``cds.services.tags.discover_domain``). The governed tags must exist.
+            Default: ``False``.
     """
 
     attribute: ClassVar[str] = "metadata"
@@ -210,6 +216,7 @@ class MetadataSettings:
     certification_tag: str | None = None
     classification_tag: str | None = None
     classifications: Sequence[str] | None = None
+    discover_domain: bool | None = None
 
     def __post_init__(self) -> None:
         keys = [key for key in (self.field_tags or {}).values() if key]
@@ -248,6 +255,7 @@ DEFAULTS: Mapping[type[Settings], Settings] = {
         field_tags={"domain": "domain", "dataProduct": "data_product"},
         certification_tag="system.certification_status",
         classification_tag="classification",
+        discover_domain=False,
     ),
 }
 

@@ -14,9 +14,14 @@ config = DataProductConfig(
     # reports. The history keeps one row per key instead of failing.
     scd=ScdSettings(on_duplicate_keys="deduplicate"),
     # Merged under every contract of the data product, over the defaults of the group. A
-    # contract defining slaProperties or support replaces the whole list.
+    # contract defining slaProperties, support or customProperties replaces the whole list:
+    # its customProperties must then repeat the subdomain.
     contract_defaults={
-        "domain": "registre_entreprises",
+        # The Discover domain of the tables, and their subdomain in it: the metadata service
+        # tags them with the governed tag "Économie/Registraire des entreprises du Québec",
+        # which the deployment creates with the domains (cds-demo/manifest).
+        "domain": "Économie",
+        "customProperties": [{"property": "subdomain", "value": "Registraire des entreprises du Québec"}],
         "dataProduct": "donnees_qc.req",
         "status": "active",
         # The service levels (cds.sla): the deployment schedules the job with the

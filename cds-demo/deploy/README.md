@@ -65,6 +65,27 @@ The deployment reads the classifications in the manifest
 [cds-demo/manifest/req_manifest.json](../manifest/req_manifest.json), generated from the
 contracts: regenerate it after changing them (`uv run python cds-demo/manifest/manifest.py`).
 
+### Discover domains
+
+The metadata step of the job tags each table with the governed tag of its Discover
+domain: the subdomain **Registraire des entreprises du Québec** of the domain
+**Économie** (see [cds-demo/README.md](../README.md#discover-domains)). With
+`cds-demo:createDomains`, the deployment creates them, from the manifest:
+
+| Resource | Name | Role |
+| --- | --- | --- |
+| Governed tags | `Économie`, `Économie/Registraire des entreprises du Québec` | Tags without values. The tag of a subdomain is its path under its domain. As for `classification`, the deployment waits 2 minutes after creating them, before creating the domains and the job that applies them. |
+| Discover domains | **Économie**, and its subdomain **Registraire des entreprises du Québec** | Built on the governed tags, and published. Their subtitles and descriptions, in French, are in `DOMAINS` ([pipeline.py](pipeline.py)): a domain of the contracts without a description fails the deployment. |
+
+The governed tags and the domains belong to the account: only the `nprod` stack creates
+them, protected, and the `prod` job applies them. The `nprod` and `prod` tables are both
+in the domains: the Discover page shows them side by side, each with its catalog.
+
+Renaming a domain or a subdomain in the contracts replaces its governed tag and its
+domain. As they are protected, the `nprod` deployment then fails to delete the old ones:
+once the `prod` job has tagged its tables with the new tag, run `pulumi state unprotect`
+on the old tag and domain of the `nprod` stack, and deploy again.
+
 ### Alerts of the service levels
 
 The contracts state service levels (see
@@ -225,6 +246,15 @@ prevents it. It can then assign the tag, which the job does.
 If the first deployment still fails with `Unknown tag policy key` on `classification`, the
 governed tag has not propagated yet: run the deployment again a few minutes later.
 
+### Let the service principal create the Discover domains
+
+The [Discover domains](#discover-domains) need the **Discover page** preview: if the
+workspace shows it as a preview, enable it in **Settings > Previews**. Creating domains
+requires the `MANAGE DISCOVER` permission, and creating governed tags the `CREATE`
+permission on governed tags: workspace administrators, such as the service principal,
+have both, unless an account administrator revokes them. The service principal can then
+assign the governed tags it creates, which the job does.
+
 ### Let the service principal use a SQL warehouse
 
 The quality dashboard runs its queries on the SQL warehouse named by
@@ -287,7 +317,8 @@ first run creates the tables of `nprod.donnees_qc_req`. Each run then:
    (schema);
 2. loads them from the CSV files, with the names and types of their contracts
    (transformation): the synthetic files in `nprod`, those of the register in `prod`;
-3. documents and tags them, and their history tables (metadata);
+3. documents and tags them, and their history tables, and places them in their Discover
+   domain (metadata);
 4. checks them with DQX: each row gets its `_errors` and `_warnings` (quality);
 5. updates their history in the `<table>_historique` tables, created with the tags of
    their columns, and deletes the versions replaced more than 10 years ago (scd).
@@ -351,6 +382,7 @@ The stack files are the variables of the deployment.
 | `cds-demo:maskedClassifications` | Optional. List of the classifications masked, among the values of the manifest: `["restricted"]` by default, `[]` for none. |
 | `cds-demo:maskingExemptPrincipals` | Optional. List of the users or groups reading the masked columns as they are, besides the service principal. |
 | `cds-demo:createTagPolicies` | `true`: the deployment creates the governed tag `classification`. It belongs to the account: `true` in `nprod` only. |
+| `cds-demo:createDomains` | `true`: the deployment creates the Discover domains of the contracts and their governed tags (see [Discover domains](#discover-domains)). They belong to the account: `true` in `nprod` only. |
 | `cds-demo:timezone` | Time zone of the schedules of the job and of the alerts: `America/Toronto`. |
 | `cds-demo:pauseSchedule` | `true`, the default: the schedule of the job is paused, and the job runs on demand. `true` in `nprod`, `false` in `prod`. |
 
@@ -381,7 +413,8 @@ The stack files are the variables of the deployment.
 destination, the files and the masking (policy, function, `governance` schema). It does not drop the tables. The governed tag
 `classification` created by the `nprod` stack is protected, because the `prod` masking
 uses it: `pulumi destroy` of `nprod` fails until you run `pulumi state unprotect` on it,
-or `pulumi state delete` to keep the tag and forget it. A catalog created by the
+or `pulumi state delete` to keep the tag and forget it. The same goes for the Discover
+domains and their governed tags, which the `prod` tables use. A catalog created by the
 deployment (`createCatalog`) is protected too, so that its data is not deleted by mistake.
 
 ## Tests

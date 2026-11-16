@@ -9,6 +9,16 @@
       "restricted"
     ]
   },
+  "domains": [
+    {
+      "tag": "Économie",
+      "parent": null
+    },
+    {
+      "tag": "Économie/Registraire des entreprises du Québec",
+      "parent": "Économie"
+    }
+  ],
   "schedule": {
     "cron": "0 6 1,15 * *",
     "quartz": "0 0 6 1,15 * ?"

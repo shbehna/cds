@@ -30,6 +30,10 @@ config:
   # on the nprod catalog to create the masking policy (README.md).
   cds-demo:masking: "true"
   cds-demo:createTagPolicies: "true"
+  # The job tags the tables with their Discover domain: the subdomain Registraire des
+  # entreprises du Québec of the domain Économie. The domains and their governed tags
+  # belong to the account, shared by the environments: this stack creates them.
+  cds-demo:createDomains: "true"
   # The job runs on the schedule of the frequency SLA of the contracts, in this time
   # zone. Paused in nprod: run it on demand. The alerts of the SLA are not paused: run the
   # error rate alert after a run, the error rate of the synthetic data set triggers it.
