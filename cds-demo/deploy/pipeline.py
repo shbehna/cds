@@ -429,7 +429,11 @@ def alerts(
                 display_name=f"REQ {definition['title']} SLA ({settings.environment})",
                 query_text=environment_query(definition["query"], settings.environment),
                 warehouse_id=warehouse_id,
-                parent_path=folder,
+                # The path the API returns, with its /Workspace prefix: the provider keeps it
+                # in the state, and sends the parent path with every update, which the API
+                # rejects unless it is the same string ("Updating parent path is not
+                # supported"). Without the prefix, every deployment updates the alerts, and fails.
+                parent_path=f"/Workspace{folder}",
                 evaluation=databricks.AlertV2EvaluationArgs(
                     source=databricks.AlertV2EvaluationSourceArgs(name=EXCEEDED_COLUMN, aggregation="MAX"),
                     comparison_operator="GREATER_THAN",

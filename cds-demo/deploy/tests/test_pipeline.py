@@ -478,7 +478,8 @@ def test_alerts(settings: pipeline.Settings) -> pulumi.Output[None]:
         alerts = {args.name: args.inputs for args in created("databricks:index/alertV2:AlertV2")}
         assert sorted(alerts) == ["alert:error-rate", "alert:latency"]
         for name, inputs in alerts.items():
-            assert inputs["parentPath"] == "/Shared/cds-demo/nprod/alerts"
+            # As the API returns it: the provider sends it again with every update.
+            assert inputs["parentPath"] == "/Workspace/Shared/cds-demo/nprod/alerts"
             assert inputs["warehouseId"] == "warehouse-of-Serverless Starter Warehouse"
             assert "${environment}" not in inputs["queryText"], name
             assert value(inputs["runAs"], "service_principal_name") == "bf175dc4-c86b-4e88-83e9-9194c485a080"
