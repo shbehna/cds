@@ -24,6 +24,9 @@ from cds.errors import ContractError
 KIND = "DataContract"
 FOREIGN_KEY = "foreignKey"
 
+# Top-level fields identifying a contract, which a partial document cannot set.
+CONTRACT_IDENTITY_FIELDS = ("apiVersion", "kind", "id", "name", "version", "schema")
+
 # Spark SQL type of a property that declares a logicalType but no physicalType.
 LOGICAL_TYPES: Mapping[str, str] = {
     "string": "STRING",
@@ -284,6 +287,49 @@ class DataContract:
             (item for item in self.schema if item.name.lower() == lowered or item.table_name.lower() == lowered),
             None,
         )
+
+
+def partial_document(document: object, where: str) -> dict[str, Any]:
+    """Checks a partial ODCS document and returns a copy of it.
+
+    A partial document holds the top-level fields shared by several contracts, such as
+    their ``slaProperties`` or ``support``, merged under each of them (see
+    ``merge_documents``). It cannot set the fields identifying a contract
+    (``CONTRACT_IDENTITY_FIELDS``).
+
+    Args:
+        document: The partial document; ``None`` is an empty document.
+        where: Where the document is defined, for the error messages.
+
+    Raises:
+        ContractError: If the document is not a mapping, or sets a field identifying a contract.
+    """
+    if document is None:
+        return {}
+    if not isinstance(document, Mapping):
+        raise ContractError(f"{where}: a partial data contract must be a mapping.")
+    identity = [name for name in CONTRACT_IDENTITY_FIELDS if name in document]
+    if identity:
+        raise ContractError(
+            f"{where}: a partial data contract cannot set {', '.join(identity)}: they identify each contract."
+        )
+    return copy.deepcopy(dict(document))
+
+
+def read_partial(path: str | Path) -> dict[str, Any]:
+    """Reads a partial ODCS document (see ``partial_document``) from a YAML file.
+
+    A file without content, such as one holding only comments, is an empty document.
+
+    Raises:
+        ContractError: If the file cannot be read, or its document is invalid.
+    """
+    path = Path(path)
+    try:
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise ContractError(f"Cannot read the partial data contract {path}: {exc}") from exc
+    return partial_document(document, str(path))
 
 
 def merge_documents(*documents: Mapping[str, Any] | None) -> dict[str, Any]:

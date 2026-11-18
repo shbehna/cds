@@ -358,7 +358,8 @@ class GroupConfig(_LevelConfig):
     Attributes:
         contract_defaults: Partial ODCS document merged under every contract of the
             group (see ``cds.odcs.merge_documents``). The data product defaults and the
-            contracts themselves take precedence.
+            contracts themselves take precedence. Alternatively, the group may define
+            them in its partial ODCS file ``<group>/<group>.odcs.yaml``, but not both.
     """
 
     contract_defaults: Mapping[str, Any] | None = None
@@ -384,7 +385,9 @@ class DataProductConfig(_LevelConfig):
 
     Attributes:
         contract_defaults: Partial ODCS document merged under every contract of the data
-            product, over the defaults of the group.
+            product, over the defaults of the group. Alternatively, the data product may
+            define them in its partial ODCS file
+            ``<group>/<data_product>/<data_product>.odcs.yaml``, but not both.
     """
 
     contract_defaults: Mapping[str, Any] | None = None
