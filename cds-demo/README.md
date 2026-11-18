@@ -15,8 +15,9 @@ products/                                   root folder of the data products
     ├── donnees_qc_config.py                naming conventions, history table names, metadata
     ├── donnees_qc.odcs.yaml                contract defaults of the group: tenant, tags
     └── req/                                data product
-        ├── req_config.py                   description, history settings
-        ├── req.odcs.yaml                   contract defaults: domain, status, service levels, support, usage
+        ├── req_config.py                   history settings
+        ├── req.odps.yaml                   ODPS document: description, domain, status, support, usage
+        ├── req.odcs.yaml                   contract defaults: service levels
         ├── sources.py                      reading of the CSV files, shared by the contracts
         ├── domains.py                      checks of the codes against the value domains
         ├── entreprise/
@@ -131,8 +132,9 @@ The [Discover page](https://docs.databricks.com/aws/en/discover/discover-page) o
 Databricks presents the assets by business domain. The tables of the data product are
 in the subdomain **Registraire des entreprises du Québec** of the domain **Économie**:
 
-- the partial data contract of `req` sets the `domain` of its contracts to `Économie`,
-  and their `subdomain` custom property to `Registraire des entreprises du Québec`;
+- the ODPS document of `req` (`req.odps.yaml`) sets the `domain` of its contracts to
+  `Économie`, and their `subdomain` custom property to
+  `Registraire des entreprises du Québec`;
 - the `donnees_qc` group makes them the Discover domain of the tables
   (`MetadataSettings.discover_domain`): the metadata service tags each table with the
   governed tag of the subdomain, `Économie/Registraire des entreprises du Québec`.
@@ -148,7 +150,8 @@ first (see [deploy/README.md](deploy/README.md#discover-domains)).
 ## Service levels
 
 The partial data contract of `req` (`req.odcs.yaml`) gives every contract the service
-levels of the data product (`slaProperties`), and a support channel:
+levels of the data product (`slaProperties`), and its ODPS document (`req.odps.yaml`) a
+support channel:
 
 | Property | Value | Checked | Applied by |
 | --- | --- | --- | --- |

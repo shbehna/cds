@@ -383,11 +383,16 @@ class GroupConfig(_LevelConfig):
 class DataProductConfig(_LevelConfig):
     """Configuration of a data product, in ``<group>/<data_product>/<data_product>_config.py``.
 
+    When the data product has an ODPS document (``<data_product>.odps.yaml``, see
+    ``cds.odps``), the ``purpose`` of the document is its description: the configuration
+    cannot also set ``description``.
+
     Attributes:
         contract_defaults: Partial ODCS document merged under every contract of the data
-            product, over the defaults of the group. Alternatively, the data product may
-            define them in its partial ODCS file
-            ``<group>/<data_product>/<data_product>.odcs.yaml``, but not both.
+            product, over the defaults of the group and the fields of its ODPS document,
+            which it cannot set again. Alternatively, the data product may define them in
+            its partial ODCS file ``<group>/<data_product>/<data_product>.odcs.yaml``, but
+            not both.
     """
 
     contract_defaults: Mapping[str, Any] | None = None

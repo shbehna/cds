@@ -3,7 +3,9 @@
 CDS (Contract Driven Services) builds data products on Databricks from data contracts
 written with the [Open Data Contract Standard (ODCS)](https://bitol-io.github.io/open-data-contract-standard/latest/).
 You describe each table in an ODCS contract and, when needed, in a small Python
-configuration file. The services then create and document the tables, load them,
+configuration file. A data product may also be described by an
+[Open Data Product Standard (ODPS)](https://bitol-io.github.io/open-data-product-standard/latest/)
+document. The services then create and document the tables, load them,
 check their quality with [DQX](https://databrickslabs.github.io/dqx/) and keep their
 history.
 
@@ -32,6 +34,7 @@ project has one or more root folders:
     ├── <group>.odcs.yaml                   optional partial ODCS document: contract defaults
     └── <data_product>/
         ├── <data_product>_config.py        optional
+        ├── <data_product>.odps.yaml        optional ODPS document describing the data product
         ├── <data_product>.odcs.yaml        optional partial ODCS document: contract defaults
         └── <contract>/
             ├── <contract>.yaml             ODCS data contract
@@ -132,22 +135,26 @@ Naming patterns use the placeholders `{environment}`, `{group}`, `{data_product}
 
 A group or data product may define contract defaults: a partial ODCS document merged
 under each of its contracts. Mappings are merged key by key and the most specific level
-wins: the group, then the data product, then the contract itself. Any other value,
-lists included, replaces that of the previous levels. This avoids repeating the
-`domain`, `tenant`, `tags`, `team`, `support`, `slaProperties` or usage terms of every
-contract.
+wins. Any other value, lists included, replaces that of the previous levels. This avoids
+repeating the `domain`, `tenant`, `tags`, `team`, `support`, `slaProperties` or usage
+terms of every contract. Each contract is the merge of, from the lowest precedence to the
+highest:
+
+1. the contract defaults of its group;
+2. the fields of the [ODPS document](#data-product-documents-odps) of its data product
+   that contracts also have;
+3. the contract defaults of its data product, which cannot set those fields again;
+4. the contract itself.
 
 The defaults of a level are written in its partial ODCS file, `<group>.odcs.yaml` or
 `<data_product>.odcs.yaml` (or `.odcs.yml`), next to its configuration file:
 
 ```yaml
 # donnees_qc/req/req.odcs.yaml
-domain: Économie
-status: active
-support:
-  - channel: donnees-qc-req
-    tool: email
-    url: "mailto:donnees-qc-req@example.com"
+slaProperties:
+  - property: latency
+    value: 18
+    unit: d
 ```
 
 A partial document holds top-level ODCS fields, but not those identifying a contract:
@@ -155,6 +162,50 @@ A partial document holds top-level ODCS fields, but not those identifying a cont
 defines no defaults. Instead of the file, the configuration of a level may define its
 contract defaults in Python, as its `contract_defaults` mapping, with the same rules; a
 level cannot use both.
+
+## Data product documents (ODPS)
+
+A data product may be described by an
+[Open Data Product Standard (ODPS)](https://bitol-io.github.io/open-data-product-standard/latest/)
+document (`apiVersion: v1.0.0` or `v1.1.0`), `<data_product>.odps.yaml` (or
+`.odps.yml`). Its `id` must be `<group>.<data_product>`.
+
+```yaml
+# donnees_qc/req/req.odps.yaml
+apiVersion: v1.1.0
+kind: DataProduct
+id: donnees_qc.req
+status: active
+domain: Économie
+description:
+  purpose: Registre des entreprises du Québec ...
+  usage: Analyse des entreprises immatriculées au Québec.
+support:
+  - channel: donnees-qc-req
+    url: "mailto:donnees-qc-req@example.com"
+```
+
+The `purpose` of its `description` is the description of the data product, the comment
+of its schema: the configuration cannot also set a `description`. The fields that
+contracts also have are written once in the document, and copied into each contract of
+the data product (`cds.odps.contract_fields`):
+
+| ODPS field | Copied into each contract as |
+| --- | --- |
+| `id` | `dataProduct` |
+| `domain`, `tenant`, `status` | the same field |
+| `customProperties` | the same list |
+| `support` | the same list, without the fields that ODCS channels do not have (`tags`, `authoritativeDefinitions`) |
+| `description.usage`, `description.limitations` | the same fields of the `description` |
+
+The `purpose` is not copied, since each contract has its own. Neither are the `tags`:
+a list replaces that of the previous levels, so they would replace the tags of the
+group. The contract defaults of the data product cannot set a copied field again, and
+fields that ODPS does not describe, such as the `slaProperties`, stay in them. A contract
+may still set any field itself.
+
+The document is available as `DataProduct.document` (`cds.odps`), and everything CDS
+does not read, such as its ports, remains available in its `raw` attribute.
 
 ## Data contracts
 

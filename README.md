@@ -5,7 +5,9 @@ contracts written with the
 [Open Data Contract Standard (ODCS)](https://bitol-io.github.io/open-data-contract-standard/latest/).
 
 You describe the tables of your data products in ODCS contracts and small Python
-configuration files. The services of the framework then create and document the
+configuration files, and the data products themselves, optionally, in
+[Open Data Product Standard (ODPS)](https://bitol-io.github.io/open-data-product-standard/latest/)
+documents. The services of the framework then create and document the
 tables, load them, check their quality with [DQX](https://databrickslabs.github.io/dqx/)
 and keep their history. Conventions apply by default, and can be overridden for a
 group of data products, a data product or a single contract.

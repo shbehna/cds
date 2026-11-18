@@ -105,6 +105,121 @@ def test_invalid_partial_contracts(
         DataContext.discover(root)
 
 
+PRODUCT = """
+    apiVersion: v1.1.0
+    kind: DataProduct
+    id: sales.orders
+    status: active
+    domain: Sales
+    description:
+      purpose: Orders of the shop.
+      usage: Analysis of the sales.
+    support:
+      - channel: orders
+        url: mailto:orders@example.com
+"""
+
+
+def test_the_odps_document_describes_the_data_product(make_project: MakeProject) -> None:
+    root = make_project(
+        {
+            "sales/sales.odcs.yaml": "tenant: shop\ntags: [demo]\ndomain: Group\n",
+            "sales/orders/orders.odps.yaml": PRODUCT,
+            "sales/orders/orders.odcs.yaml": "slaProperties:\n  - property: latency\n    value: 4\n    unit: d\n",
+            "sales/orders/customer/customer.yaml": CUSTOMER.replace(
+                "    version: 1.0.0\n",
+                "    version: 1.0.0\n    status: deprecated\n    description:\n      purpose: Customers.\n",
+            ),
+        }
+    )
+
+    data_product = DataContext.discover(root).get_data_product("sales.orders")
+
+    assert data_product.document is not None and data_product.document.domain == "Sales"
+    assert data_product.description == "Orders of the shop."
+    document = data_product.contracts[0].document
+    assert document is not None
+    assert (document.data_product, document.domain, document.tenant, document.tags) == (
+        "sales.orders",
+        "Sales",
+        "shop",
+        ("demo",),
+    )
+    assert document.status == "deprecated"
+    assert document.description == {"purpose": "Customers.", "usage": "Analysis of the sales."}
+    assert [channel.channel for channel in document.support] == ["orders"]
+    assert [prop.property for prop in document.sla_properties] == ["latency"]
+
+
+def test_a_data_product_with_only_an_odps_document_is_discovered(make_project: MakeProject) -> None:
+    context = DataContext.discover(make_project({"sales/orders/orders.odps.yml": PRODUCT}))
+
+    data_product = context.get_data_product("sales.orders")
+    assert (data_product.contracts, data_product.description) == ([], "Orders of the shop.")
+
+
+def test_the_contract_defaults_may_set_other_fields_of_the_description(make_project: MakeProject) -> None:
+    root = make_project(
+        {
+            "sales/orders/orders.odps.yaml": PRODUCT,
+            "sales/orders/orders.odcs.yaml": "description:\n  limitations: Updated daily.\n",
+            "sales/orders/customer/customer.yaml": CUSTOMER,
+        }
+    )
+
+    document = DataContext.discover(root).get_table("customer").contract.document
+
+    assert document is not None
+    assert document.description == {"usage": "Analysis of the sales.", "limitations": "Updated daily."}
+
+
+@pytest.mark.parametrize(
+    ("files", "message"),
+    [
+        (
+            {"sales/orders/orders.odps.yaml": PRODUCT.replace("id: sales.orders", "id: orders")},
+            "must be 'sales.orders'",
+        ),
+        (
+            {"sales/orders/orders.odcs.yaml": "domain: Other\ndescription:\n  usage: Other.\n"},
+            "set domain, description.usage, which its ODPS document",
+        ),
+        (
+            {
+                "sales/orders/orders_config.py": (
+                    "from cds import DataProductConfig\n"
+                    "config = DataProductConfig(name='orders', contract_defaults={'status': 'draft'})\n"
+                )
+            },
+            "orders_config.py: the contract defaults of sales.orders set status",
+        ),
+        (
+            {
+                "sales/orders/orders_config.py": (
+                    "from cds import DataProductConfig\n"
+                    "config = DataProductConfig(name='orders', description='Orders.')\n"
+                )
+            },
+            "is already the purpose of its ODPS document",
+        ),
+        ({"sales/bad-name/bad-name.odps.yaml": PRODUCT}, "Invalid name"),
+        ({"sales/sales.odps.yaml": PRODUCT}, "'sales' is a group: move it"),
+        ({"sales/orders/customer/customer.odps.yml": PRODUCT}, "'customer' is a contract: move it"),
+    ],
+)
+def test_invalid_odps_layouts(make_project: MakeProject, files: dict[str, str], message: str) -> None:
+    root = make_project(
+        {
+            "sales/orders/orders.odps.yaml": PRODUCT,
+            "sales/orders/customer/customer.yaml": CUSTOMER,
+            **files,
+        }
+    )
+
+    with pytest.raises(ConfigurationError, match=message):
+        DataContext.discover(root)
+
+
 def test_configuration_files_can_use_relative_imports(project: Path) -> None:
     config = DataContext.discover(project).get_table("order").contract.config
 
