@@ -227,7 +227,7 @@ def framework_wheel(directory: Path) -> Path:
 
 
 def product_files() -> list[Path]:
-    """Returns the files of the data products: contracts and configuration modules."""
+    """Returns the files of the data products: contracts, partial contracts and configuration modules."""
     return [
         path
         for path in sorted(PRODUCTS.rglob("*"))

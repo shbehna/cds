@@ -29,8 +29,10 @@ project has one or more root folders:
 <root>/
 └── <group>/
     ├── <group>_config.py                   optional
+    ├── <group>.odcs.yaml                   optional partial ODCS document: contract defaults
     └── <data_product>/
         ├── <data_product>_config.py        optional
+        ├── <data_product>.odcs.yaml        optional partial ODCS document: contract defaults
         └── <contract>/
             ├── <contract>.yaml             ODCS data contract
             └── <contract>_config.py        optional
@@ -128,10 +130,31 @@ Naming patterns use the placeholders `{environment}`, `{group}`, `{data_product}
 
 ### Contract defaults
 
-Group and data product configurations may define `contract_defaults`, a partial ODCS
-document merged under each of their contracts: mappings are merged key by key and the
-most specific level wins. This avoids repeating the `domain`, `tenant`, `tags`,
-`team`, `support` or usage terms of every contract.
+A group or data product may define contract defaults: a partial ODCS document merged
+under each of its contracts. Mappings are merged key by key and the most specific level
+wins: the group, then the data product, then the contract itself. Any other value,
+lists included, replaces that of the previous levels. This avoids repeating the
+`domain`, `tenant`, `tags`, `team`, `support`, `slaProperties` or usage terms of every
+contract.
+
+The defaults of a level are written in its partial ODCS file, `<group>.odcs.yaml` or
+`<data_product>.odcs.yaml` (or `.odcs.yml`), next to its configuration file:
+
+```yaml
+# donnees_qc/req/req.odcs.yaml
+domain: Économie
+status: active
+support:
+  - channel: donnees-qc-req
+    tool: email
+    url: "mailto:donnees-qc-req@example.com"
+```
+
+A partial document holds top-level ODCS fields, but not those identifying a contract:
+`apiVersion`, `kind`, `id`, `name`, `version` and `schema`. A file holding only comments
+defines no defaults. Instead of the file, the configuration of a level may define its
+contract defaults in Python, as its `contract_defaults` mapping, with the same rules; a
+level cannot use both.
 
 ## Data contracts
 

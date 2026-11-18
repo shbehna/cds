@@ -28,6 +28,83 @@ def test_contract_defaults_are_merged(project: Path) -> None:
     assert document.tags == ("demo",)
 
 
+def test_partial_contracts_are_merged_under_the_contracts(make_project: MakeProject) -> None:
+    root = make_project(
+        {
+            "sales/sales.odcs.yaml": "tenant: shop\ntags: [group]\ndomain: group\n",
+            "sales/orders/orders.odcs.yaml": (
+                "tags: [data_product]\nslaProperties:\n  - property: latency\n    value: 4\n    unit: d\n"
+            ),
+            "sales/orders/customer/customer.yaml": CUSTOMER.replace(
+                "    version: 1.0.0\n", "    version: 1.0.0\n    domain: contract\n"
+            ),
+        }
+    )
+
+    data_product = DataContext.discover(root).get_data_product("sales.orders")
+
+    document = data_product.contracts[0].document
+    assert document is not None
+    assert (document.tenant, document.tags, document.domain) == ("shop", ("data_product",), "contract")
+    assert [prop.property for prop in document.sla_properties] == ["latency"]
+    assert data_product.contract_defaults["tenant"] == "shop"
+    assert data_product.group.contract_defaults == {"tenant": "shop", "tags": ["group"], "domain": "group"}
+
+
+@pytest.mark.parametrize("suffix", [".odcs.yaml", ".odcs.yml"])
+def test_a_partial_contract_alone_defines_a_group(make_project: MakeProject, suffix: str) -> None:
+    context = DataContext.discover(make_project({f"sales/sales{suffix}": "tenant: shop\n"}))
+
+    [group] = context.groups
+    assert (group.name, group.contract_defaults, group.data_products) == ("sales", {"tenant": "shop"}, [])
+
+
+def test_a_partial_contract_without_content_defines_no_defaults(make_project: MakeProject) -> None:
+    root = make_project(
+        {"sales/sales.odcs.yaml": "# No defaults yet.\n", "sales/orders/customer/customer.yaml": CUSTOMER}
+    )
+
+    assert DataContext.discover(root).get_data_product("sales.orders").contract_defaults == {}
+
+
+@pytest.mark.parametrize(
+    ("files", "error", "message"),
+    [
+        (
+            {
+                "sales/sales.odcs.yaml": "tenant: shop\n",
+                "sales/sales_config.py": (
+                    "from cds import GroupConfig\n"
+                    "config = GroupConfig(name='sales', contract_defaults={'tags': ['a']})\n"
+                ),
+            },
+            ConfigurationError,
+            "both define the contract defaults",
+        ),
+        ({"sales/orders/orders.odcs.yaml": "id: x\nversion: 1.0.0\n"}, ContractError, "cannot set id, version"),
+        (
+            {
+                "sales/sales_config.py": (
+                    "from cds import GroupConfig\n"
+                    "config = GroupConfig(name='sales', contract_defaults={'version': '9.9.9'})\n"
+                )
+            },
+            ContractError,
+            "contract_defaults: a partial data contract cannot set version",
+        ),
+        ({"sales/orders/orders.odcs.yaml": "- tenant\n"}, ContractError, "must be a mapping"),
+        ({"sales/orders/orders.odcs.yaml": "tenant: [\n"}, ContractError, "Cannot read the partial data contract"),
+    ],
+)
+def test_invalid_partial_contracts(
+    make_project: MakeProject, files: dict[str, str], error: type[Exception], message: str
+) -> None:
+    root = make_project({**files, "sales/orders/customer/customer.yaml": CUSTOMER})
+
+    with pytest.raises(error, match=message):
+        DataContext.discover(root)
+
+
 def test_configuration_files_can_use_relative_imports(project: Path) -> None:
     config = DataContext.discover(project).get_table("order").contract.config
 
@@ -78,6 +155,7 @@ def test_folders_without_contract_are_ignored(make_project: MakeProject) -> None
             "does not exist",
         ),
         ({"bad-name/bad-name_config.py": ""}, "Invalid name"),
+        ({"bad-name/bad-name.odcs.yaml": ""}, "Invalid name"),
     ],
 )
 def test_invalid_layouts(make_project: MakeProject, files: dict[str, str], message: str) -> None:
