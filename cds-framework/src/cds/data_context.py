@@ -5,13 +5,19 @@ A project is made of one or more root folders following this layout::
     <root>/
         <group>/
             <group>_config.py                   (optional)
+            <group>.odcs.yaml                   (optional partial ODCS document)
             <data_product>/
                 <data_product>_config.py        (optional)
+                <data_product>.odcs.yaml        (optional partial ODCS document)
                 <contract>/
                     <contract>.yaml             (ODCS data contract)
                     <contract>_config.py        (optional)
 
 Other files and folders are ignored, so configuration files can share helper modules.
+
+The contract defaults of a group or data product, merged under each of its contracts,
+are its partial ODCS document (``cds.odcs.read_partial``), or else the
+``contract_defaults`` of its configuration.
 """
 
 from __future__ import annotations
@@ -25,12 +31,14 @@ from typing import Any, TypeVar
 from cds.config import ContractConfig, DataProductConfig, GroupConfig, SettingsT, resolve_settings
 from cds.errors import ConfigurationError, ContractError
 from cds.loader import CONFIG_SUFFIX, ModuleLoader, load_config
-from cds.odcs import DataContract, SchemaObject, SchemaProperty, merge_documents
+from cds.odcs import DataContract, SchemaObject, SchemaProperty, merge_documents, partial_document, read_partial
 
 logger = logging.getLogger(__name__)
 
 NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 CONTRACT_SUFFIXES = (".yaml", ".yml")
+# Suffixes of the partial ODCS document of a group or data product: its contract defaults.
+DEFAULTS_SUFFIXES = (".odcs.yaml", ".odcs.yml")
 
 # Fully qualified ODCS reference to a property of the same contract, by ids.
 _ID_REFERENCE = re.compile(
@@ -41,13 +49,20 @@ T = TypeVar("T")
 
 
 class Group:
-    """A group of data products, the first level of the project layout."""
+    """A group of data products, the first level of the project layout.
 
-    def __init__(self, name: str, path: Path, config_path: Path | None) -> None:
+    Attributes:
+        contract_defaults: Partial ODCS document merged under every contract of the group,
+            loaded with the group.
+    """
+
+    def __init__(self, name: str, path: Path, config_path: Path | None, defaults_path: Path | None) -> None:
         self.name = name
         self.path = path
         self.config_path = config_path
+        self.defaults_path = defaults_path
         self.config: object | None = None
+        self.contract_defaults: dict[str, Any] = {}
         self.data_products: list[DataProduct] = []
 
     def get_data_product(self, name: str) -> DataProduct:
@@ -67,6 +82,7 @@ class Group:
     def _load(self, loader: ModuleLoader) -> None:
         if self.config_path:
             self.config = load_config(loader, self.config_path, self.name, GroupConfig)
+        self.contract_defaults = _contract_defaults(self.config, self.config_path, self.defaults_path)
         for data_product in self.data_products:
             data_product._load(loader)
 
@@ -75,14 +91,23 @@ class Group:
 
 
 class DataProduct:
-    """A data product: a set of contracts, published in the same schema by default."""
+    """A data product: a set of contracts, published in the same schema by default.
 
-    def __init__(self, name: str, path: Path, group: Group, config_path: Path | None) -> None:
+    Attributes:
+        contract_defaults: Partial ODCS document merged under every contract of the data
+            product: the defaults of its group, then its own. Loaded with the data product.
+    """
+
+    def __init__(
+        self, name: str, path: Path, group: Group, config_path: Path | None, defaults_path: Path | None
+    ) -> None:
         self.name = name
         self.path = path
         self.group = group
         self.config_path = config_path
+        self.defaults_path = defaults_path
         self.config: object | None = None
+        self.contract_defaults: dict[str, Any] = {}
         self.contracts: list[Contract] = []
         self._settings: dict[type, object] = {}
 
@@ -124,18 +149,14 @@ class DataProduct:
         self._settings[kind] = settings
         return settings
 
-    def _contract_defaults(self) -> dict[str, Any]:
-        return merge_documents(
-            getattr(self.group.config, "contract_defaults", None),
-            getattr(self.config, "contract_defaults", None),
-        )
-
     def _load(self, loader: ModuleLoader) -> None:
         if self.config_path:
             self.config = load_config(loader, self.config_path, self.name, DataProductConfig)
-        defaults = self._contract_defaults()
+        self.contract_defaults = merge_documents(
+            self.group.contract_defaults, _contract_defaults(self.config, self.config_path, self.defaults_path)
+        )
         for contract in self.contracts:
-            contract._load(loader, defaults)
+            contract._load(loader, self.contract_defaults)
         seen: dict[str, Contract] = {}
         for table in self.tables:
             other = seen.setdefault(table.name.lower(), table.contract)
@@ -416,8 +437,9 @@ def _subdirectories(path: Path) -> list[Path]:
         if not child.is_dir() or child.name.startswith((".", "_")):
             continue
         if not NAME_PATTERN.match(child.name):
-            if (child / f"{child.name}{CONFIG_SUFFIX}").exists() or any(
-                (child / f"{child.name}{suffix}").exists() for suffix in CONTRACT_SUFFIXES
+            if any(
+                (child / f"{child.name}{suffix}").exists()
+                for suffix in (CONFIG_SUFFIX, *DEFAULTS_SUFFIXES, *CONTRACT_SUFFIXES)
             ):
                 raise ConfigurationError(
                     f"Invalid name {child.name!r} ({child}): names must start with a letter and "
@@ -428,43 +450,59 @@ def _subdirectories(path: Path) -> list[Path]:
     return folders
 
 
-def _config_path(directory: Path) -> Path | None:
-    path = directory / f"{directory.name}{CONFIG_SUFFIX}"
-    return path if path.is_file() else None
+def _own_file(directory: Path, *suffixes: str) -> Path | None:
+    """Returns the first existing file named after a folder with one of the suffixes, such as its configuration file."""
+    paths = (directory / f"{directory.name}{suffix}" for suffix in suffixes)
+    return next((path for path in paths if path.is_file()), None)
+
+
+def _contract_defaults(config: object | None, config_path: Path | None, defaults_path: Path | None) -> dict[str, Any]:
+    """The contract defaults of a group or data product: its partial ODCS document, or those of its configuration.
+
+    Raises:
+        ConfigurationError: If both define contract defaults.
+        ContractError: If the contract defaults are not a valid partial ODCS document.
+    """
+    configured = getattr(config, "contract_defaults", None)
+    if defaults_path is None:
+        return partial_document(configured, f"{config_path}: contract_defaults")
+    if configured:
+        raise ConfigurationError(
+            f"{defaults_path} and the contract_defaults of the configuration both define the contract defaults: "
+            "keep one of them."
+        )
+    return read_partial(defaults_path)
 
 
 def _scan_group(directory: Path) -> Group | None:
-    group = Group(directory.name, directory, _config_path(directory))
+    group = Group(
+        directory.name, directory, _own_file(directory, CONFIG_SUFFIX), _own_file(directory, *DEFAULTS_SUFFIXES)
+    )
     for child in _subdirectories(directory):
         data_product = _scan_data_product(child, group)
         if data_product is not None:
             group.data_products.append(data_product)
-    if not group.data_products and group.config_path is None:
+    if not group.data_products and group.config_path is None and group.defaults_path is None:
         return None
     return group
 
 
 def _scan_data_product(directory: Path, group: Group) -> DataProduct | None:
-    data_product = DataProduct(directory.name, directory, group, _config_path(directory))
+    data_product = DataProduct(
+        directory.name, directory, group, _own_file(directory, CONFIG_SUFFIX), _own_file(directory, *DEFAULTS_SUFFIXES)
+    )
     for child in _subdirectories(directory):
         contract = _scan_contract(child, data_product)
         if contract is not None:
             data_product.contracts.append(contract)
-    if not data_product.contracts and data_product.config_path is None:
+    if not data_product.contracts and data_product.config_path is None and data_product.defaults_path is None:
         return None
     return data_product
 
 
 def _scan_contract(directory: Path, data_product: DataProduct) -> Contract | None:
-    config_path = _config_path(directory)
-    document_path = next(
-        (
-            directory / f"{directory.name}{suffix}"
-            for suffix in CONTRACT_SUFFIXES
-            if (directory / f"{directory.name}{suffix}").is_file()
-        ),
-        None,
-    )
+    config_path = _own_file(directory, CONFIG_SUFFIX)
+    document_path = _own_file(directory, *CONTRACT_SUFFIXES)
     if document_path is None:
         if config_path is not None:
             raise ConfigurationError(

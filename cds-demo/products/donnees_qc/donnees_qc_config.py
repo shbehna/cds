@@ -1,4 +1,8 @@
-"""Group of the data products built from the open data of Données Québec."""
+"""Group of the data products built from the open data of Données Québec.
+
+The defaults of the contracts of the group (tenant, tags) are in its partial data
+contract, donnees_qc.odcs.yaml.
+"""
 
 from cds import GroupConfig, MetadataSettings, NamingSettings, ScdSettings
 
@@ -23,10 +27,4 @@ config = GroupConfig(
         classifications=["public", "internal", "confidential", "restricted"],
         discover_domain=True,
     ),
-    # Merged under every contract of the group. The tags become Unity Catalog tags, whose
-    # keys cannot contain hyphens.
-    contract_defaults={
-        "tenant": "cds-demo",
-        "tags": ["donnees_quebec", "donnees_ouvertes"],
-    },
 )

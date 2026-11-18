@@ -12,9 +12,11 @@ tables, with names and types defined by data contracts, quality checks and histo
 ```text
 products/                                   root folder of the data products
 └── donnees_qc/                             group
-    ├── donnees_qc_config.py                naming conventions, contract defaults
+    ├── donnees_qc_config.py                naming conventions, history table names, metadata
+    ├── donnees_qc.odcs.yaml                contract defaults of the group: tenant, tags
     └── req/                                data product
-        ├── req_config.py                   description, history settings, contract defaults
+        ├── req_config.py                   description, history settings
+        ├── req.odcs.yaml                   contract defaults: domain, status, service levels, support, usage
         ├── sources.py                      reading of the CSV files, shared by the contracts
         ├── domains.py                      checks of the codes against the value domains
         ├── entreprise/
@@ -129,8 +131,8 @@ The [Discover page](https://docs.databricks.com/aws/en/discover/discover-page) o
 Databricks presents the assets by business domain. The tables of the data product are
 in the subdomain **Registraire des entreprises du Québec** of the domain **Économie**:
 
-- the `req` configuration sets the `domain` of its contracts to `Économie`, and their
-  `subdomain` custom property to `Registraire des entreprises du Québec`;
+- the partial data contract of `req` sets the `domain` of its contracts to `Économie`,
+  and their `subdomain` custom property to `Registraire des entreprises du Québec`;
 - the `donnees_qc` group makes them the Discover domain of the tables
   (`MetadataSettings.discover_domain`): the metadata service tags each table with the
   governed tag of the subdomain, `Économie/Registraire des entreprises du Québec`.
@@ -145,8 +147,8 @@ first (see [deploy/README.md](deploy/README.md#discover-domains)).
 
 ## Service levels
 
-The `req` configuration gives every contract the service levels of the data product
-(`slaProperties` of its `contract_defaults`), and a support channel:
+The partial data contract of `req` (`req.odcs.yaml`) gives every contract the service
+levels of the data product (`slaProperties`), and a support channel:
 
 | Property | Value | Checked | Applied by |
 | --- | --- | --- | --- |

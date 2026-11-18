@@ -1,0 +1,7 @@
+# Partial data contract of the group, merged under every contract of its data products
+# (each data product's own partial data contract takes precedence).
+tenant: cds-demo
+# The tags become Unity Catalog tags, whose keys cannot contain hyphens.
+tags:
+  - donnees_quebec
+  - donnees_ouvertes

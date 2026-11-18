@@ -117,6 +117,8 @@ def test_files(settings: pipeline.Settings) -> pulumi.Output[None]:
         paths = {args.inputs["path"] for args in CREATED if args.typ == "databricks:index/workspaceFile:WorkspaceFile"}
         root = "/Shared/cds-demo/nprod/products/donnees_qc"
         assert f"{root}/donnees_qc_config.py" in paths
+        assert f"{root}/donnees_qc.odcs.yaml" in paths
+        assert f"{root}/req/req.odcs.yaml" in paths
         assert f"{root}/req/sources.py" in paths
         assert f"{root}/req/entreprise/entreprise.yaml" in paths
         assert f"{root}/req/entreprise/entreprise_config.py" in paths
