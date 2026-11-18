@@ -20,6 +20,8 @@ from cds.services.scd import history_table_name
 from cds.services.transformation import conform_to_contract, find_transformation
 
 PRODUCTS = Path(__file__).resolve().parents[1] / "products"
+# JSON schema of ODPS v1.1.0, which no Python package publishes (see schemas/README.md).
+ODPS_SCHEMA = Path(__file__).parent / "schemas" / "odps-json-schema-v1.1.0.json"
 
 # Header of each file of the REQ data set, as published (the files start with a byte order mark).
 SOURCE_HEADERS = {
@@ -232,6 +234,32 @@ def test_contracts_follow_the_odcs_schema(data_context: DataContext, table_name:
     errors = sorted(jsonschema.Draft201909Validator(schema).iter_errors(document.raw), key=str)
 
     assert not errors, [f"{list(error.absolute_path)}: {error.message}" for error in errors]
+
+
+def test_the_data_product_follows_the_odps_schema(data_context: DataContext) -> None:
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads(ODPS_SCHEMA.read_text(encoding="utf-8"))
+    document = data_context.get_data_product("donnees_qc.req").document
+    assert document is not None
+
+    errors = sorted(jsonschema.Draft201909Validator(schema).iter_errors(document.raw), key=str)
+
+    assert not errors, [f"{list(error.absolute_path)}: {error.message}" for error in errors]
+
+
+def test_the_odps_document_describes_the_data_product(data_context: DataContext) -> None:
+    data_product = data_context.get_data_product("donnees_qc.req")
+    document = data_context.get_table("entreprise").contract.document
+    assert document is not None
+
+    assert (data_product.description or "").startswith("Registre des entreprises du Québec : ")
+    assert (document.domain, document.status, document.custom_properties["subdomain"]) == (
+        "Économie",
+        "active",
+        "Registraire des entreprises du Québec",
+    )
+    assert [channel.channel for channel in document.support] == ["donnees-qc-req"]
+    assert [prop.property for prop in document.sla_properties] == ["frequency", "latency", "errorRate", "retention"]
 
 
 def test_contract_defaults_are_applied(data_context: DataContext) -> None:

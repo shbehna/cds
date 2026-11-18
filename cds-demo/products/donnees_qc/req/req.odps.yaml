@@ -1,0 +1,38 @@
+# Data product document (ODPS) of req. The framework copies its id (as dataProduct), its
+# domain, status, customProperties and support, and the usage and limitations of its
+# description into every contract of the data product. A contract defining
+# customProperties or support replaces the whole list: its customProperties must then
+# repeat the subdomain. The purpose of the description is the comment of the schema of the
+# data product.
+apiVersion: v1.1.0
+kind: DataProduct
+id: donnees_qc.req
+name: Registre des entreprises du Québec
+version: 1.0.0
+status: active
+type: sourceAligned
+# The Discover domain of the tables, and their subdomain in it: the metadata service tags
+# them with the governed tag "Économie/Registraire des entreprises du Québec", which the
+# deployment creates with the domains (cds-demo/manifest).
+domain: Économie
+customProperties:
+  - property: subdomain
+    value: Registraire des entreprises du Québec
+description:
+  purpose: >-
+    Registre des entreprises du Québec : les entreprises, leurs noms, leurs établissements,
+    leurs fusions, scissions, continuations et transformations, tirés du jeu de données
+    ouvertes du Registraire des entreprises.
+  usage: Analyse des entreprises immatriculées au Québec.
+  limitations: >-
+    Source : Registraire des entreprises du Québec, jeu de données ouvertes publié sur
+    Données Québec sous la licence CC BY-NC-SA 4.0. Les données sont mises à jour deux fois
+    par mois et peuvent accuser un retard sur le registre.
+# The alerts of the service levels are sent to the email channels. The address of the
+# repository is fictitious: the deployment adds those of the ALERT_EMAILS secret.
+support:
+  - channel: donnees-qc-req
+    tool: email
+    scope: notifications
+    url: "mailto:donnees-qc-req@example.com"
+    description: Alertes des niveaux de service du produit de données.
