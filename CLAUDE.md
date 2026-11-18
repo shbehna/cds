@@ -4,7 +4,7 @@ The goal of this project is to provide a data engineering framework, based on th
 
 ## Language
 
-Code and technical documentation (comments, docstrings, READMEs) are in English. The business domain of the REQ demo is in French: the names of its tables and columns, and the documentation of its data contracts (descriptions, labels, usage).
+Code and technical documentation (comments, docstrings, READMEs) are in English. The business domain of the REQ demo is in French: the names of its tables and columns, and the documentation of its data contracts and data product document (descriptions, labels, usage).
 
 ## Typing
 

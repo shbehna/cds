@@ -8,6 +8,7 @@ A project is made of one or more root folders following this layout::
             <group>.odcs.yaml                   (optional partial ODCS document)
             <data_product>/
                 <data_product>_config.py        (optional)
+                <data_product>.odps.yaml        (optional ODPS data product document)
                 <data_product>.odcs.yaml        (optional partial ODCS document)
                 <contract>/
                     <contract>.yaml             (ODCS data contract)
@@ -17,14 +18,21 @@ Other files and folders are ignored, so configuration files can share helper mod
 
 The contract defaults of a group or data product, merged under each of its contracts,
 are its partial ODCS document (``cds.odcs.read_partial``), or else the
-``contract_defaults`` of its configuration.
+``contract_defaults`` of its configuration. Each contract is the merge of, from the
+lowest precedence to the highest:
+
+1. the contract defaults of its group;
+2. the fields of the ODPS document of its data product that contracts also have
+   (``cds.odps.contract_fields``);
+3. the contract defaults of its data product, which cannot set those fields again;
+4. its own document.
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -32,6 +40,7 @@ from cds.config import ContractConfig, DataProductConfig, GroupConfig, SettingsT
 from cds.errors import ConfigurationError, ContractError
 from cds.loader import CONFIG_SUFFIX, ModuleLoader, load_config
 from cds.odcs import DataContract, SchemaObject, SchemaProperty, merge_documents, partial_document, read_partial
+from cds.odps import DataProductDocument, contract_fields
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +48,8 @@ NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 CONTRACT_SUFFIXES = (".yaml", ".yml")
 # Suffixes of the partial ODCS document of a group or data product: its contract defaults.
 DEFAULTS_SUFFIXES = (".odcs.yaml", ".odcs.yml")
+# Suffixes of the ODPS document of a data product.
+PRODUCT_SUFFIXES = (".odps.yaml", ".odps.yml")
 
 # Fully qualified ODCS reference to a property of the same contract, by ids.
 _ID_REFERENCE = re.compile(
@@ -94,19 +105,30 @@ class DataProduct:
     """A data product: a set of contracts, published in the same schema by default.
 
     Attributes:
+        document: The ODPS document of the data product, if it has one. Loaded with the
+            data product.
         contract_defaults: Partial ODCS document merged under every contract of the data
-            product: the defaults of its group, then its own. Loaded with the data product.
+            product: the defaults of its group, the fields of its ODPS document that
+            contracts also have, then its own defaults. Loaded with the data product.
     """
 
     def __init__(
-        self, name: str, path: Path, group: Group, config_path: Path | None, defaults_path: Path | None
+        self,
+        name: str,
+        path: Path,
+        group: Group,
+        config_path: Path | None,
+        defaults_path: Path | None,
+        document_path: Path | None,
     ) -> None:
         self.name = name
         self.path = path
         self.group = group
         self.config_path = config_path
         self.defaults_path = defaults_path
+        self.document_path = document_path
         self.config: object | None = None
+        self.document: DataProductDocument | None = None
         self.contract_defaults: dict[str, Any] = {}
         self.contracts: list[Contract] = []
         self._settings: dict[type, object] = {}
@@ -123,7 +145,11 @@ class DataProduct:
 
     @property
     def description(self) -> str | None:
-        return getattr(self.config, "description", None)
+        """The description of the data product: the purpose of its ODPS document, else that of its configuration."""
+        if self.document is not None and self.document.purpose:
+            return self.document.purpose
+        description: str | None = getattr(self.config, "description", None)
+        return description
 
     def get_table(self, name: str) -> Table:
         """Returns a table of the data product.
@@ -152,9 +178,18 @@ class DataProduct:
     def _load(self, loader: ModuleLoader) -> None:
         if self.config_path:
             self.config = load_config(loader, self.config_path, self.name, DataProductConfig)
-        self.contract_defaults = merge_documents(
-            self.group.contract_defaults, _contract_defaults(self.config, self.config_path, self.defaults_path)
-        )
+        own_defaults = _contract_defaults(self.config, self.config_path, self.defaults_path)
+        product_fields: dict[str, Any] = {}
+        if self.document_path:
+            self.document = self._load_document(self.document_path)
+            product_fields = contract_fields(self.document)
+            shared = _shared_fields(product_fields, own_defaults)
+            if shared:
+                raise ConfigurationError(
+                    f"{self.defaults_path or self.config_path}: the contract defaults of {self.qualified_name} set "
+                    f"{', '.join(shared)}, which its ODPS document {self.document_path} already sets: keep one."
+                )
+        self.contract_defaults = merge_documents(self.group.contract_defaults, product_fields, own_defaults)
         for contract in self.contracts:
             contract._load(loader, self.contract_defaults)
         seen: dict[str, Contract] = {}
@@ -165,6 +200,27 @@ class DataProduct:
                     f"The table {table.name!r} is declared by the contracts {other.name!r} and "
                     f"{table.contract.name!r} of the data product {self.qualified_name!r}."
                 )
+
+    def _load_document(self, path: Path) -> DataProductDocument:
+        """Reads the ODPS document of the data product.
+
+        Raises:
+            ConfigurationError: If its id is not the qualified name of the data product, or
+                both it and the configuration describe the data product.
+            ContractError: If it is not a valid ODPS document.
+        """
+        document = DataProductDocument.from_file(path)
+        if document.id != self.qualified_name:
+            raise ConfigurationError(
+                f"{path}: the id of the data product is {document.id!r}, but it must be {self.qualified_name!r}, "
+                "<group>.<data_product> after its folders."
+            )
+        if document.purpose and getattr(self.config, "description", None):
+            raise ConfigurationError(
+                f"{self.config_path}: the description of {self.qualified_name} is already the purpose of its ODPS "
+                f"document {path}: keep one."
+            )
+        return document
 
     def __repr__(self) -> str:
         return f"DataProduct({self.qualified_name!r})"
@@ -439,7 +495,7 @@ def _subdirectories(path: Path) -> list[Path]:
         if not NAME_PATTERN.match(child.name):
             if any(
                 (child / f"{child.name}{suffix}").exists()
-                for suffix in (CONFIG_SUFFIX, *DEFAULTS_SUFFIXES, *CONTRACT_SUFFIXES)
+                for suffix in (CONFIG_SUFFIX, *DEFAULTS_SUFFIXES, *PRODUCT_SUFFIXES, *CONTRACT_SUFFIXES)
             ):
                 raise ConfigurationError(
                     f"Invalid name {child.name!r} ({child}): names must start with a letter and "
@@ -474,7 +530,35 @@ def _contract_defaults(config: object | None, config_path: Path | None, defaults
     return read_partial(defaults_path)
 
 
+def _shared_fields(first: Mapping[str, Any], second: Mapping[str, Any], prefix: str = "") -> list[str]:
+    """The fields that two partial documents both set, such as ``domain`` or ``description.usage``.
+
+    Mappings are compared key by key, as ``merge_documents`` merges them.
+    """
+    shared = []
+    for key, value in second.items():
+        if key not in first:
+            continue
+        other = first[key]
+        if isinstance(value, Mapping) and isinstance(other, Mapping):
+            shared.extend(_shared_fields(other, value, f"{prefix}{key}."))
+        else:
+            shared.append(f"{prefix}{key}")
+    return shared
+
+
+def _check_no_product_document(directory: Path, level: str) -> None:
+    """Rejects an ODPS document in the folder of a group or contract, where it would be ignored."""
+    path = _own_file(directory, *PRODUCT_SUFFIXES)
+    if path is not None:
+        raise ConfigurationError(
+            f"{path}: an ODPS document describes a data product, but {directory.name!r} is a {level}: "
+            "move it to the folder of its data product."
+        )
+
+
 def _scan_group(directory: Path) -> Group | None:
+    _check_no_product_document(directory, "group")
     group = Group(
         directory.name, directory, _own_file(directory, CONFIG_SUFFIX), _own_file(directory, *DEFAULTS_SUFFIXES)
     )
@@ -489,18 +573,25 @@ def _scan_group(directory: Path) -> Group | None:
 
 def _scan_data_product(directory: Path, group: Group) -> DataProduct | None:
     data_product = DataProduct(
-        directory.name, directory, group, _own_file(directory, CONFIG_SUFFIX), _own_file(directory, *DEFAULTS_SUFFIXES)
+        directory.name,
+        directory,
+        group,
+        _own_file(directory, CONFIG_SUFFIX),
+        _own_file(directory, *DEFAULTS_SUFFIXES),
+        _own_file(directory, *PRODUCT_SUFFIXES),
     )
     for child in _subdirectories(directory):
         contract = _scan_contract(child, data_product)
         if contract is not None:
             data_product.contracts.append(contract)
-    if not data_product.contracts and data_product.config_path is None and data_product.defaults_path is None:
+    files = (data_product.config_path, data_product.defaults_path, data_product.document_path)
+    if not data_product.contracts and all(path is None for path in files):
         return None
     return data_product
 
 
 def _scan_contract(directory: Path, data_product: DataProduct) -> Contract | None:
+    _check_no_product_document(directory, "contract")
     config_path = _own_file(directory, CONFIG_SUFFIX)
     document_path = _own_file(directory, *CONTRACT_SUFFIXES)
     if document_path is None:
