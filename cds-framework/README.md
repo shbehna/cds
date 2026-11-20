@@ -444,18 +444,20 @@ do not say:
 | Tables | the tables of the data product, in the environment of the service context |
 | Joins | the `foreignKey` relationships to the tables of the data product: `MANY_TO_ONE` to a primary key or unique column, `ONE_TO_ONE` when the source columns are also the key of their table, `MANY_TO_MANY` otherwise. A second join to the same table gets an alias with the suffix of its columns: `customer_billed` for `customer_id_billed` |
 | Descriptions of the coded columns | the `enum` of their properties: each value and its label |
-| Instructions | the purpose, `usage` and `limitations` of the ODPS document, the primary keys, the deprecated and retired contracts, the quality result columns, the `errorRate` service level when every checked table has the same, the columns of `masked_classifications`, and the description of the `frequency` service level |
+| Instructions | the purpose, `usage` and `limitations` of the ODPS document, the primary keys, the deprecated and retired contracts, the quality result columns of the tables that have checks, the `errorRate` service level when every checked table has the same, the `STRING` columns of `masked_classifications` (a column mask on strings masks them), and the description of the `frequency` service level |
+
+The tables are sorted by their full name, as the Genie API requires.
 
 The `GenieSettings` of a data product, or of its group, enable its space and add what the
 contracts cannot say: instructions, sample questions and examples, in the language of the
 users of the space.
 
 ```python
-from cds import DataProductConfig, GenieExample, GenieSettings
+from cds import DataProduct, DataProductConfig, GenieExample, GenieSettings, ServiceContext
 from cds.genie import error_rate_sql
 
 
-def open_orders(service_context, data_product):
+def open_orders(service_context: ServiceContext, data_product: DataProduct) -> str:
     table = service_context.full_table_name(data_product.get_table("order"))
     return f"SELECT count(*) FROM {table} WHERE status = 'open'"
 
@@ -477,10 +479,14 @@ config = DataProductConfig(
 
 The SQL of an example is a string, or a function called with injected parameters, such
 as `service_context` and `data_product`, to name the tables of the environment.
-`cds.genie.error_rate_sql` returns the share of the rows of each table in error. The
-`serialized_space` of the result is the configuration of the Genie API (version 2), which
-takes it as a JSON string. `cds validate` builds the space of the data products that have
-one, and `cds genie` prints it.
+`cds.genie.error_rate_sql` returns the share of the rows of each table in error, among
+the tables that have checks. The `serialized_space` of the result is the configuration of
+the Genie API (version 2), which takes it as a JSON string.
+
+`cds validate` builds the space of the data products that have one, and `cds genie`
+prints it. Without Spark, they leave out the examples whose function needs the `spark`
+session, and report them as computed at run time; an example whose function fails is an
+error of the space.
 
 ## Running the services
 

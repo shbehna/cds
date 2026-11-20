@@ -10,7 +10,7 @@ from the contracts. The space of a data product adds what the comments do not sa
   description of their columns (``column_configs``);
 - instructions: the purpose, usage and limitations of the data product, the keys of the
   tables, the deprecated contracts, the quality results of each row and the error rate
-  of the service levels, the masked columns, and the frequency of the loads, followed by
+  of the service levels, the masked STRING columns, and the frequency of the loads, followed by
   the ``instructions`` of ``GenieSettings`` (``text_instructions``);
 - the ``sample_questions`` and ``examples`` of ``GenieSettings``.
 
@@ -25,12 +25,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from cds.config import GenieSettings, QualitySettings, resolved
+from cds.config import GenieExample, GenieSettings, QualitySettings, resolved
 from cds.context import ServiceContext
 from cds.data_context import DataProduct, Table
-from cds.errors import ConfigurationError, ContractError
+from cds.errors import CdsError, ConfigurationError, ContractError
 from cds.injection import ContractInjection
 from cds.odcs import Relationship, SchemaProperty
+from cds.services.checks import build_checks, configured_checks
 from cds.sla import percentage, table_sla
 from cds.sql import quote_identifier, quote_name, string_literal
 
@@ -39,6 +40,8 @@ VERSION = 2
 FOREIGN_KEY = "foreignKey"
 # Statuses of the contracts whose tables should not be used.
 DEPRECATED = ("deprecated", "retired")
+# Type of the columns a column mask on strings can mask.
+MASKABLE_TYPE = "STRING"
 
 # Category of each kind of item, the first byte of its id: the ids of the instructions,
 # examples and joins must be unique together, and those of the questions too.
@@ -81,8 +84,26 @@ def lines(text: str) -> list[str]:
     return [line + "\n" for line in split[:-1]] + split[-1:]
 
 
-def _tables(data_product: DataProduct) -> list[Table]:
-    return sorted(data_product.tables, key=lambda table: table.name)
+def _tables(data_product: DataProduct, context: ServiceContext) -> list[Table]:
+    """The tables of a data product, sorted by their full name, as the Genie API requires."""
+    return sorted(data_product.tables, key=context.full_table_name)
+
+
+def checked_tables(data_product: DataProduct, context: ServiceContext) -> list[Table]:
+    """The tables of a data product to which the quality service adds its result columns.
+
+    The service skips a table without checks, inferred or configured: it has no result
+    columns. Checks computed at run time count as checks.
+    """
+    checked = []
+    for table in _tables(data_product, context):
+        if not table.settings(QualitySettings).enabled:
+            continue
+        dynamic = callable(getattr(table.contract.config, "quality_checks", None))
+        inferred = build_checks(table, context, include_configured=False).checks
+        if dynamic or inferred or configured_checks(table, context):
+            checked.append(table)
+    return checked
 
 
 def column_description(prop: SchemaProperty) -> str | None:
@@ -163,7 +184,7 @@ def joins(data_product: DataProduct, context: ServiceContext) -> list[Join]:
         ConfigurationError: If two joins of a table get the same alias.
     """
     found: list[Join] = []
-    for table in _tables(data_product):
+    for table in _tables(data_product, context):
         relationships: list[tuple[tuple[str, ...], Relationship]] = [
             ((prop.column,), rel) for prop in table.columns for rel in prop.relationships
         ]
@@ -225,8 +246,7 @@ def _keys(tables: Sequence[Table]) -> str:
     return f"Keys of the tables: {'; '.join(keys)}."
 
 
-def _quality(tables: Sequence[Table]) -> list[str]:
-    checked = [table for table in tables if table.settings(QualitySettings).enabled]
+def _quality(checked: Sequence[Table]) -> list[str]:
     if not checked:
         return []
     columns = {
@@ -253,7 +273,9 @@ def _masked(tables: Sequence[Table], classifications: Sequence[str]) -> str | No
         f"{table.name}.{prop.column}"
         for table in tables
         for prop in table.columns
-        if prop.classification is not None and prop.classification in classifications
+        if prop.classification is not None
+        and prop.classification in classifications
+        and prop.data_type.upper() == MASKABLE_TYPE
     ]
     if not masked:
         return None
@@ -266,10 +288,10 @@ def _frequency(tables: Sequence[Table]) -> str | None:
     return f"Frequency of the loads: {' '.join(descriptions)}" if descriptions else None
 
 
-def instructions(data_product: DataProduct) -> str:
+def instructions(data_product: DataProduct, context: ServiceContext) -> str:
     """The instructions of the space: generated from the contracts, then those of the settings."""
     settings = data_product.settings(GenieSettings)
-    tables = _tables(data_product)
+    tables = _tables(data_product, context)
     description = data_product.document.description if data_product.document else {}
     deprecated = [
         table.name
@@ -282,7 +304,7 @@ def instructions(data_product: DataProduct) -> str:
         f"Limitations: {description['limitations']}" if description.get("limitations") else None,
         _keys(tables),
         f"Deprecated tables, to use only when a question names them: {', '.join(deprecated)}." if deprecated else None,
-        *_quality(tables),
+        *_quality(checked_tables(data_product, context)),
         _masked(tables, resolved(settings.masked_classifications)),
         _frequency(tables),
         *resolved(settings.instructions),
@@ -294,17 +316,14 @@ def error_rate_sql(data_product: DataProduct, context: ServiceContext) -> str:
     """SQL of the share of the rows of each table with a quality error, in percent.
 
     A helper for the ``examples`` of ``GenieSettings``: the tables checked by the quality
-    service, named in the environment of the context.
+    service (see ``checked_tables``), named in the environment of the context.
 
     Raises:
         ConfigurationError: If no table of the data product is checked.
     """
     selects = []
-    for table in _tables(data_product):
-        settings = table.settings(QualitySettings)
-        if not settings.enabled:
-            continue
-        errors = quote_identifier(resolved(settings.errors_column))
+    for table in checked_tables(data_product, context):
+        errors = quote_identifier(resolved(table.settings(QualitySettings).errors_column))
         selects.append(
             f"SELECT {string_literal(table.name)} AS table_name, "
             f"round(try_divide(100 * count_if(coalesce(size({errors}), 0) > 0), count(*)), 2) AS error_rate\n"
@@ -315,22 +334,57 @@ def error_rate_sql(data_product: DataProduct, context: ServiceContext) -> str:
     return "\nUNION ALL\n".join(selects) + "\nORDER BY table_name"
 
 
+def run_time_examples(data_product: DataProduct, context: ServiceContext) -> list[str]:
+    """The questions of the examples whose SQL needs a Spark session, which the context lacks.
+
+    ``build_space`` leaves them out: without Spark, as in ``cds validate``, their SQL is
+    only computed at run time.
+    """
+    if context.has_spark:
+        return []
+    return [example.question for example in _examples(data_product) if _needs_spark(example, context)]
+
+
+def _examples(data_product: DataProduct) -> Sequence[GenieExample]:
+    return resolved(data_product.settings(GenieSettings).examples)
+
+
+def _needs_spark(example: GenieExample, context: ServiceContext) -> bool:
+    return callable(example.sql) and ContractInjection(context).needs_spark(example.sql)
+
+
 def examples(data_product: DataProduct, context: ServiceContext) -> list[dict[str, Any]]:
     """The example questions of the space, with their SQL.
 
+    Without a Spark session, the examples whose SQL needs one are left out (see
+    ``run_time_examples``).
+
     Raises:
-        ConfigurationError: If the SQL of an example is not a string.
+        ConfigurationError: If the SQL of an example is not a string, or its function fails.
     """
     injection = ContractInjection(context, data_product=data_product)
-    found = []
-    for index, example in enumerate(resolved(data_product.settings(GenieSettings).examples)):
-        sql = injection.call(example.sql) if callable(example.sql) else example.sql
+    found: list[tuple[str, str]] = []
+    for example in _examples(data_product):
+        if not context.has_spark and _needs_spark(example, context):
+            continue
+        try:
+            sql = injection.call(example.sql) if callable(example.sql) else example.sql
+        except CdsError:
+            raise
+        except Exception as exc:
+            raise ConfigurationError(
+                f"{data_product.qualified_name}: the SQL of the example {example.question!r} failed: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
         if not isinstance(sql, str) or not sql.strip():
             raise ConfigurationError(
                 f"{data_product.qualified_name}: the SQL of the example {example.question!r} must be a string."
             )
-        found.append({"id": item_id(_EXAMPLE_SQL, index), "question": [example.question], "sql": lines(sql.strip())})
-    return found
+        found.append((example.question, sql.strip()))
+    return [
+        {"id": item_id(_EXAMPLE_SQL, index), "question": [question], "sql": lines(sql)}
+        for index, (question, sql) in enumerate(found)
+    ]
 
 
 def sample_questions(data_product: DataProduct) -> list[dict[str, Any]]:
@@ -361,9 +415,11 @@ def build_space(data_product: DataProduct, context: ServiceContext) -> dict[str,
     space = {
         "version": VERSION,
         "config": {"sample_questions": sample_questions(data_product)},
-        "data_sources": {"tables": [table_source(table, context) for table in _tables(data_product)]},
+        "data_sources": {"tables": [table_source(table, context) for table in _tables(data_product, context)]},
         "instructions": {
-            "text_instructions": [{"id": item_id(_TEXT_INSTRUCTION, 0), "content": lines(instructions(data_product))}],
+            "text_instructions": [
+                {"id": item_id(_TEXT_INSTRUCTION, 0), "content": lines(instructions(data_product, context))}
+            ],
             "example_question_sqls": examples(data_product, context),
             "join_specs": join_specs(data_product, context),
         },

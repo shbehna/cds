@@ -14,7 +14,10 @@ INSTRUCTIONS = (
     "Les codes dont la description de la colonne ne liste pas les valeurs sont décrits dans la table "
     "domaine_valeur. La description de chaque colonne de code nomme son domaine de valeur, par exemple "
     "« domaine de valeur REGIM_JURI » : joignez domaine_valeur sur upper(trim(domaine)) = ce domaine et "
-    "trim(code) = la colonne, puis montrez la description du code plutôt que le code.",
+    "trim(code) = la colonne, puis montrez la description du code plutôt que le code. Quelques codes y sont "
+    "écrits plusieurs fois, avec un domaine en minuscules ou des espaces : ne gardez qu'une ligne par domaine "
+    "et code normalisés (QUALIFY row_number() OVER (PARTITION BY upper(trim(domaine)), trim(code) ORDER BY "
+    "domaine, code) = 1), pour ne pas compter deux fois les lignes jointes.",
     "Répondez en français.",
 )
 
@@ -26,16 +29,25 @@ SAMPLE_QUESTIONS = (
 
 
 def top_activities_sql(service_context: ServiceContext, data_product: DataProduct) -> str:
-    """The most frequent economic activities of the enterprises, described by their value domain."""
+    """The most frequent economic activities of the enterprises, described by their value domain.
+
+    The key of domaine_valeur is its raw domain and code: a code written twice, with its
+    domain in lowercase or with spaces, which a quality check reports, is kept once, so
+    that the enterprises are not counted twice.
+    """
     enterprise = quote_name(service_context.full_table_name(data_product.get_table("entreprise")))
     domains = quote_name(service_context.full_table_name(data_product.get_table("domaine_valeur")))
     return (
-        "SELECT d.`description` AS activite, count(*) AS entreprises\n"
+        "WITH activites AS (\n"
+        "  SELECT trim(`code`) AS code, `description`\n"
+        f"  FROM {domains}\n"
+        f"  WHERE upper(trim(`domaine`)) = {string_literal(ACTIVITY_DOMAIN)}\n"
+        "  QUALIFY row_number() OVER (PARTITION BY trim(`code`) ORDER BY `domaine`, `code`) = 1\n"
+        ")\n"
+        "SELECT a.`description` AS activite, count(*) AS entreprises\n"
         f"FROM {enterprise} AS e\n"
-        f"JOIN {domains} AS d\n"
-        f"  ON upper(trim(d.`domaine`)) = {string_literal(ACTIVITY_DOMAIN)} "
-        "AND trim(d.`code`) = e.`code_premiere_activite`\n"
-        "GROUP BY d.`description`\n"
+        "JOIN activites AS a ON a.`code` = e.`code_premiere_activite`\n"
+        "GROUP BY a.`description`\n"
         "ORDER BY entreprises DESC\n"
         "LIMIT 10"
     )

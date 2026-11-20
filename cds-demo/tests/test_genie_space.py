@@ -104,8 +104,11 @@ def test_the_examples(space: dict[str, Any]) -> None:
 
     activities = examples["Quelles sont les 10 activités économiques les plus fréquentes des entreprises ?"]
     assert "FROM `nprod`.`donnees_qc_req`.`entreprise` AS e" in activities
-    # The value domain of a few codes is not in capitals, which a quality check reports.
-    assert "ON upper(trim(d.`domaine`)) = 'ACT_ECON' AND trim(d.`code`) = e.`code_premiere_activite`" in activities
+    # The value domain of a few codes is not in capitals, or their code has spaces, which a
+    # quality check reports: each normalized code is kept once, not to count an enterprise twice.
+    assert "WHERE upper(trim(`domaine`)) = 'ACT_ECON'" in activities
+    assert "QUALIFY row_number() OVER (PARTITION BY trim(`code`) ORDER BY `domaine`, `code`) = 1" in activities
+    assert "JOIN activites AS a ON a.`code` = e.`code_premiere_activite`" in activities
     error_rate = examples["Quelle part des lignes de chaque table a une erreur de qualité ?"]
     assert error_rate.count("UNION ALL") == len(TABLES) - 1
     questions = [text(question["question"]) for question in space["config"]["sample_questions"]]

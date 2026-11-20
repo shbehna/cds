@@ -328,18 +328,135 @@ def test_the_error_rate_needs_a_checked_table(make_project: MakeProject) -> None
     assert "quality" not in content
 
 
-def test_the_settings_are_validated() -> None:
-    with pytest.raises(ConfigurationError, match=r"GenieSettings.sample_questions must be a list of strings"):
-        GenieSettings(sample_questions="How many?")
-    with pytest.raises(ConfigurationError, match=r"GenieSettings.examples must be GenieExample objects"):
-        GenieSettings(examples=[("How many?", "SELECT 1")])  # type: ignore[list-item]
-    assert GenieExample("How many?", "SELECT 1").sql == "SELECT 1"
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        ({"sample_questions": "How many?"}, r"GenieSettings\.sample_questions must be a list of non-empty strings"),
+        (
+            {"instructions": ["Amounts in euros.", 3]},
+            r"GenieSettings\.instructions must be a list of non-empty strings",
+        ),
+        ({"masked_classifications": [""]}, r"GenieSettings\.masked_classifications must be a list of non-empty"),
+        ({"enabled": "yes"}, r"GenieSettings\.enabled must be a boolean"),
+        ({"title": " "}, r"GenieSettings\.title must be a non-empty string"),
+        ({"examples": [("How many?", "SELECT 1")]}, r"GenieSettings\.examples must be GenieExample objects"),
+        ({"examples": [GenieExample("", "SELECT 1")]}, r"The question of a GenieExample must be a non-empty string"),
+        ({"examples": [GenieExample("How many?", 1)]}, r"The SQL of a GenieExample must be a string or a function"),  # type: ignore[arg-type]
+    ],
+)
+def test_the_settings_are_validated(values: dict[str, Any], message: str) -> None:
+    with pytest.raises(ConfigurationError, match=message):
+        GenieSettings(**values)
 
 
 def test_a_data_product_has_no_genie_space_by_default(project: Path) -> None:
     data_product = DataContext.discover(project).get_data_product("sales.orders")
 
     assert data_product.settings(GenieSettings).enabled is False
+
+
+def test_a_table_without_checks_has_no_quality_columns(make_project: MakeProject) -> None:
+    """The quality service skips a table without checks: it has no _errors column."""
+    note = """
+        apiVersion: v3.2.0
+        kind: DataContract
+        id: sales.orders.note
+        version: 1.0.0
+        schema:
+          - name: note
+            properties:
+              - name: text
+                physicalType: STRING
+    """
+    data_context = genie_project(make_project, **{"sales/orders/note/note.yaml": note})
+    context = ServiceContext(spark=None, environment="dev", data_context=data_context)
+
+    sql = error_rate_sql(data_context.get_data_product("sales.orders"), context)
+
+    assert re.findall(r"FROM `dev`\.`sales_orders`\.`(\w+)`", sql) == ["customer", "order"]
+
+
+def test_the_tables_are_sorted_by_their_full_name(make_project: MakeProject) -> None:
+    """With a schema per contract, the order of the names is not that of the full names."""
+    config = GENIE_CONFIG.replace(
+        "from cds import DataProductConfig,", "from cds import NamingSettings, DataProductConfig,"
+    ).replace('    name="orders",\n', '    name="orders",\n    naming=NamingSettings(schema="{contract}"),\n')
+    data_context = genie_project(make_project, **{"sales/orders/orders_config.py": config})
+    tables = space_of(data_context)["serialized_space"]["data_sources"]["tables"]
+
+    # The customer contract is in the schema customer, the order contract in the schema order.
+    assert [table["identifier"] for table in tables] == ["dev.customer.customer", "dev.order.order"]
+    customer = PROJECT["sales/orders/customer/customer.yaml"]
+    zeta = customer.replace("id: sales.orders.customer", "id: sales.orders.zeta").replace(
+        "- name: customer\n", "- name: alpha\n"
+    )
+    data_context = genie_project(
+        make_project, **{"sales/orders/orders_config.py": config, "sales/orders/zeta/zeta.yaml": zeta}
+    )
+    identifiers = [
+        table["identifier"] for table in space_of(data_context)["serialized_space"]["data_sources"]["tables"]
+    ]
+    assert identifiers == ["dev.customer.customer", "dev.order.order", "dev.zeta.alpha"]
+
+
+def test_only_the_masked_string_columns_are_named(make_project: MakeProject) -> None:
+    customer = CUSTOMER_CLASSIFIED.replace(
+        "          - name: segment\n",
+        "          - name: birth_date\n            physicalType: DATE\n            classification: restricted\n"
+        "          - name: segment\n",
+    )
+    data_context = genie_project(make_project, **{"sales/orders/customer/customer.yaml": customer})
+    content = text(space_of(data_context)["serialized_space"]["instructions"]["text_instructions"][0]["content"])
+
+    # The column mask takes strings: the date is not masked.
+    assert "do not filter nor group on them. customer.email." in content
+    assert "birth_date" not in content
+
+
+SPARK_EXAMPLE = """
+    from cds import DataProductConfig, GenieExample, GenieSettings
+
+
+    def columns(spark, data_product):
+        return "SELECT " + ", ".join(spark.table("t").columns)
+
+
+    def broken(data_product):
+        return data_product.missing
+
+
+    config = DataProductConfig(
+        name="orders",
+        genie=GenieSettings(enabled=True, examples=[GenieExample("Which columns?", columns)]),
+    )
+"""
+
+
+def test_the_examples_needing_spark_are_computed_at_run_time(
+    make_project: MakeProject, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = make_project({**PROJECT, "sales/orders/orders_config.py": SPARK_EXAMPLE})
+
+    assert space_of(DataContext.discover(root))["serialized_space"]["instructions"]["example_question_sqls"] == []
+    assert main(["validate", str(root)]) == 0
+    assert "+ Genie space: 2 table(s), 1 join(s), 0 example(s) + 1 example(s) computed at run time" in (
+        capsys.readouterr().out
+    )
+    assert main(["genie", str(root), "--data-product", "sales.orders"]) == 0
+    assert "not included, computed at run time: example 'Which columns?'" in capsys.readouterr().err
+
+
+def test_a_failing_example_is_a_configuration_error(
+    make_project: MakeProject, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = SPARK_EXAMPLE.replace('"Which columns?", columns', '"Which columns?", broken')
+    root = make_project({**PROJECT, "sales/orders/orders_config.py": config})
+
+    assert main(["validate", str(root)]) == 1
+    assert (
+        "x Genie space: sales.orders: the SQL of the example 'Which columns?' failed: AttributeError:"
+        in capsys.readouterr().out
+    )
 
 
 def test_cli_genie(make_project: MakeProject, capsys: pytest.CaptureFixture[str]) -> None:
@@ -350,4 +467,9 @@ def test_cli_genie(make_project: MakeProject, capsys: pytest.CaptureFixture[str]
     assert space["serialized_space"]["data_sources"]["tables"][0]["identifier"] == "nprod.sales_orders.customer"
 
     assert main(["validate", str(root)]) == 0
-    assert "+ Genie space: 2 table(s), 1 join(s), 3 example(s)" in capsys.readouterr().out
+    assert "+ Genie space: 2 table(s), 1 join(s), 3 example(s)\n" in capsys.readouterr().out
+
+
+def test_cli_genie_needs_an_enabled_space(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["genie", str(project), "--data-product", "sales.orders"]) == 1
+    assert "sales.orders has no Genie space: enable it with GenieSettings(enabled=True)" in capsys.readouterr().err

@@ -19,7 +19,7 @@ from cds.config import GenieSettings
 from cds.context import ServiceContext
 from cds.data_context import DataContext, DataProduct, Table
 from cds.errors import CdsError
-from cds.genie import build_space
+from cds.genie import build_space, run_time_examples
 from cds.services.checks import CheckSet, build_checks, configured_checks
 from cds.services.tags import tag_problems
 from cds.sla import sla_problems
@@ -53,9 +53,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "validate":
             return _validate(context)
         if args.command == "genie":
-            space = build_space(context.get_data_product(args.data_product), context)
-            print(json.dumps(space, indent=2))
-            return 0
+            return _print_genie(context, args.data_product)
         return _print_checks(context, args.data_product)
     except CdsError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -121,15 +119,33 @@ def _validate_genie(data_product: DataProduct, context: ServiceContext) -> bool:
         return True
     try:
         space = build_space(data_product, context)["serialized_space"]
+        run_time = run_time_examples(data_product, context)
     except CdsError as exc:
         print(f"  x Genie space: {exc}")
         return False
     instructions = space["instructions"]
-    print(
-        f"  + Genie space: {len(space['data_sources']['tables'])} table(s), "
-        f"{len(instructions['join_specs'])} join(s), {len(instructions['example_question_sqls'])} example(s)"
+    details = (
+        f"{len(space['data_sources']['tables'])} table(s), {len(instructions['join_specs'])} join(s), "
+        f"{len(instructions['example_question_sqls'])} example(s)"
     )
+    if run_time:
+        details += f" + {len(run_time)} example(s) computed at run time"
+    print(f"  + Genie space: {details}")
     return True
+
+
+def _print_genie(context: ServiceContext, reference: str) -> int:
+    data_product = context.get_data_product(reference)
+    if not data_product.settings(GenieSettings).enabled:
+        print(
+            f"error: {data_product.qualified_name} has no Genie space: enable it with GenieSettings(enabled=True).",
+            file=sys.stderr,
+        )
+        return 1
+    print(json.dumps(build_space(data_product, context), indent=2))
+    for question in run_time_examples(data_product, context):
+        print(f"not included, computed at run time: example {question!r}", file=sys.stderr)
+    return 0
 
 
 def _print_checks(context: ServiceContext, reference: str) -> int:

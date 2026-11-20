@@ -263,8 +263,9 @@ class GenieSettings:
             the examples.
         examples: Example questions with their SQL, also suggested to the users.
         masked_classifications: Classifications of the columns masked for most users,
-            such as ``restricted``: the instructions name these columns, so that Genie
-            does not filter nor group on them. Default: none.
+            such as ``restricted``: the instructions name their ``STRING`` columns, which
+            a column mask on strings masks, so that Genie does not filter nor group on
+            them. Default: none.
     """
 
     attribute: ClassVar[str] = "genie"
@@ -277,12 +278,23 @@ class GenieSettings:
     masked_classifications: Sequence[str] | None = None
 
     def __post_init__(self) -> None:
+        if self.enabled is not None and not isinstance(self.enabled, bool):
+            raise ConfigurationError(f"GenieSettings.enabled must be a boolean, got {self.enabled!r}.")
+        if self.title is not None and (not isinstance(self.title, str) or not self.title.strip()):
+            raise ConfigurationError(f"GenieSettings.title must be a non-empty string, got {self.title!r}.")
         for name in ("instructions", "sample_questions", "masked_classifications"):
-            if isinstance(getattr(self, name), str):
-                raise ConfigurationError(f"GenieSettings.{name} must be a list of strings.")
+            value = getattr(self, name)
+            if value is None:
+                continue
+            if isinstance(value, str) or not all(isinstance(item, str) and item.strip() for item in value):
+                raise ConfigurationError(f"GenieSettings.{name} must be a list of non-empty strings, got {value!r}.")
         for example in self.examples or ():
             if not isinstance(example, GenieExample):
                 raise ConfigurationError(f"GenieSettings.examples must be GenieExample objects, got {example!r}.")
+            if not isinstance(example.question, str) or not example.question.strip():
+                raise ConfigurationError(f"The question of a GenieExample must be a non-empty string: {example!r}.")
+            if not (callable(example.sql) or isinstance(example.sql, str)):
+                raise ConfigurationError(f"The SQL of a GenieExample must be a string or a function: {example!r}.")
 
 
 DEFAULTS: Mapping[type[Settings], Settings] = {
