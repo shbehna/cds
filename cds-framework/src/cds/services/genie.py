@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from cds.config import GenieSettings
 from cds.genie import build_space
 from cds.services.base import TableResult
+from cds.services.tags import discover_domains
 from cds.services.workspace import DataProductService, folder
 
 if TYPE_CHECKING:
@@ -19,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 # Schema property holding the id of the Genie space of the data product of the schema.
 SPACE_PROPERTY = "cds.genie_space_id"
+# Schema property recording the Discover domains the service tagged the space with.
+DOMAINS_PROPERTY = "cds.genie_space_domains"
 # Runtime parameters of the service.
 WAREHOUSE_PARAMETER = "genie_warehouse_id"
 PARENT_PATH_PARAMETER = "genie_parent_path"
@@ -48,6 +51,10 @@ class GenieService(DataProductService):
     The space runs its queries with the permissions of each user, on its warehouse: they
     need ``CAN USE`` on the warehouse and ``SELECT`` on the tables, and column masks and row
     filters apply.
+
+    With ``MetadataSettings.discover_domain``, the space joins the Discover domains of its
+    tables: it gets their governed tags, which the user running the service needs
+    ``ASSIGN`` on. A space that cannot be tagged is reported as a warning.
     """
 
     name = "genie"
@@ -71,8 +78,10 @@ class GenieService(DataProductService):
         if parent_path:
             body["parent_path"] = parent_path
 
+        domains = discover_domains(data_product.tables)
         schema = self.context.full_schema_name(data_product)
-        space_id = self.recorded_id(schema, SPACE_PROPERTY)
+        properties = self.schema_properties(schema)
+        space_id = properties.get(SPACE_PROPERTY)
         # A deleted space is in the trash: the API answers NOT_FOUND for it.
         existing = (
             self.get_or_none(f"{SPACES_PATH}/{space_id}", {"include_serialized_space": "true"}) if space_id else None
@@ -96,7 +105,13 @@ class GenieService(DataProductService):
             f"{len(serialized['instructions']['join_specs'])} join(s), "
             f"{len(serialized['instructions']['example_question_sqls'])} example(s)"
         )
-        return TableResult.success(name, f"{action} the Genie space {space_id} ({body['title']}): {details}")
+        message = f"{action} the Genie space {space_id} ({body['title']}): {details}"
+        problem = self.tag_domains("geniespaces", str(space_id), domains, schema, properties, DOMAINS_PROPERTY)
+        if problem:
+            return TableResult.warning(name, f"{message}; {problem}")
+        if domains:
+            message += f"; in the Discover domain(s) {', '.join(domains)}"
+        return TableResult.success(name, message)
 
 
 def _matches(existing: Mapping[str, Any], body: Mapping[str, Any]) -> bool:

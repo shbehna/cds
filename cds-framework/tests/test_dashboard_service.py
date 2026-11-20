@@ -10,13 +10,13 @@ from unittest.mock import MagicMock
 
 import pytest
 from conftest import PROJECT, MakeProject
-from databricks.sdk.errors import NotFound
-from fakes import FakeSpark
+from databricks.sdk.errors import NotFound, PermissionDenied
+from fakes import TAG_ASSIGNMENTS, FakeSpark, FakeTagAssignments
 from test_dashboard import DASHBOARD_CONFIG
 
 from cds import DashboardService, DataContext, RuntimeConfiguration, ServiceContext, Status
 from cds.dashboard import build_dashboard
-from cds.services.dashboard import DASHBOARD_PROPERTY
+from cds.services.dashboard import DASHBOARD_PROPERTY, DOMAINS_PROPERTY
 
 SCHEMA_PATH = "/api/2.1/unity-catalog/schemas/dev.sales_orders"
 DASHBOARDS = "/api/2.0/lakeview/dashboards"
@@ -30,6 +30,7 @@ class FakeLakeview:
         self.dashboards: dict[str, dict[str, Any]] = {}
         self.published: dict[str, dict[str, Any]] = {}
         self.calls: list[tuple[str, str]] = []
+        self.tag_api = FakeTagAssignments()
 
     def do(
         self,
@@ -39,6 +40,8 @@ class FakeLakeview:
         body: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         self.calls.append((method, path))
+        if self.tag_api.handles(path):
+            return self.tag_api.do(method, path, body)
         if path == SCHEMA_PATH and method == "GET":
             return {"full_name": "dev.sales_orders", "properties": dict(self.properties)}
         if path == DASHBOARDS and method == "POST":
@@ -228,3 +231,93 @@ def test_the_warehouse_is_required(root: Path, spark: FakeSpark) -> None:
 
     assert status is Status.ERROR
     assert "dashboard_warehouse_id" in message
+
+
+DOMAIN_GROUP = """
+    from cds import GroupConfig, MetadataSettings
+
+    config = GroupConfig(
+        name="sales",
+        contract_defaults={"domain": "Ventes"},
+        metadata=MetadataSettings(discover_domain=True),
+    )
+"""
+
+
+def with_domain(make_project: MakeProject, domain: str = "Ventes", name: str = "domain") -> Path:
+    return make_project(
+        {
+            **PROJECT,
+            "sales/sales_config.py": DOMAIN_GROUP.replace('"Ventes"', f'"{domain}"'),
+            "sales/orders/orders_config.py": DASHBOARD_CONFIG,
+        },
+        name=name,
+    )
+
+
+def test_the_dashboard_joins_the_discover_domain_of_its_tables(make_project: MakeProject, spark: FakeSpark) -> None:
+    api = FakeLakeview()
+
+    status, message = run(service_for(with_domain(make_project), spark, api))
+
+    [dashboard_id] = api.dashboards
+    assert status is Status.SUCCESS
+    assert message.endswith("), published, in the Discover domain(s) Ventes")
+    assert api.tag_api.of("dashboards", dashboard_id) == {"Ventes"}
+    assert spark.statements_matching(rf"'{DOMAINS_PROPERTY}' = '\[\"Ventes\"\]'")
+
+
+def test_a_tagged_dashboard_is_not_tagged_again(make_project: MakeProject, spark: FakeSpark) -> None:
+    api = FakeLakeview()
+    root = with_domain(make_project)
+    created_once(root, spark, api)
+    api.properties[DOMAINS_PROPERTY] = '["Ventes"]'
+
+    assert run(service_for(root, spark, api))[0] is Status.SUCCESS
+    assert ("POST", TAG_ASSIGNMENTS) not in api.calls
+    assert spark.statements == []
+
+
+def test_a_changed_domain_replaces_the_tag_it_applied(make_project: MakeProject, spark: FakeSpark) -> None:
+    api = FakeLakeview()
+    dashboard_id = created_once(with_domain(make_project), spark, api)
+    api.properties[DOMAINS_PROPERTY] = '["Ventes"]'
+    # Added in the Discover page: not a tag of the service.
+    api.tag_api.tags[("dashboards", dashboard_id)].add("Autre/Domaine")
+
+    status, message = run(service_for(with_domain(make_project, "Achats", name="achats"), spark, api))
+
+    assert status is Status.SUCCESS
+    assert message.endswith("in the Discover domain(s) Achats")
+    assert api.tag_api.of("dashboards", dashboard_id) == {"Achats", "Autre/Domaine"}
+    assert spark.statements_matching(rf"'{DOMAINS_PROPERTY}' = '\[\"Achats\"\]'")
+
+
+def test_the_tags_are_removed_without_a_domain(root: Path, spark: FakeSpark) -> None:
+    api = FakeLakeview()
+    dashboard_id = created_once(root, spark, api)
+    api.tag_api.tags[("dashboards", dashboard_id)] = {"Ventes"}
+    api.properties[DOMAINS_PROPERTY] = '["Ventes"]'
+
+    status, message = run(service_for(root, spark, api))
+
+    assert (status, message.rsplit(", ", 1)[1]) == (Status.SUCCESS, "already published")
+    assert api.tag_api.of("dashboards", dashboard_id) == set()
+    assert spark.statements_matching(rf"'{DOMAINS_PROPERTY}' = '\[\]'")
+
+
+def test_a_dashboard_that_cannot_be_tagged_is_reported(make_project: MakeProject, spark: FakeSpark) -> None:
+    api = FakeLakeview()
+    api.tag_api.error = PermissionDenied("User does not have ASSIGN on the tag Ventes")
+
+    status, message = run(service_for(with_domain(make_project), spark, api))
+
+    [dashboard_id] = api.dashboards
+    assert status is Status.WARNING
+    assert message.endswith(
+        "), published; cannot tag it with its Discover domain(s): "
+        "PermissionDenied: User does not have ASSIGN on the tag Ventes"
+    )
+    # The dashboard is recorded, and the next run tags it.
+    assert spark.statements_matching(f"'{DASHBOARD_PROPERTY}' = '{dashboard_id}'")
+    assert not spark.statements_matching(DOMAINS_PROPERTY)

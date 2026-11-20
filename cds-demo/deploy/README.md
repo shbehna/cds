@@ -67,7 +67,9 @@ contracts: regenerate it after changing them (`uv run python cds-demo/manifest/m
 
 The metadata step of the job tags each table with the governed tag of its Discover
 domain: the subdomain **Registraire des entreprises du Québec** of the domain
-**Économie** (see [cds-demo/README.md](../README.md#discover-domains)). With
+**Économie** (see [cds-demo/README.md](../README.md#discover-domains)). The `genie` and
+`dashboard` steps tag the Genie space and the quality dashboard with it: the subdomain
+lists them with the tables. With
 `cds-demo:createDomains`, the deployment creates them, from the manifest:
 
 | Resource | Name | Role |
@@ -293,7 +295,8 @@ workspace shows it as a preview, enable it in **Settings > Previews**. Creating 
 requires the `MANAGE DISCOVER` permission, and creating governed tags the `CREATE`
 permission on governed tags: workspace administrators, such as the service principal,
 have both, unless an account administrator revokes them. The service principal can then
-assign the governed tags it creates, which the job does.
+assign the governed tags it creates, which the job does, to the tables, the Genie space
+and the dashboard.
 
 ### Let the service principal use a SQL warehouse
 
@@ -362,7 +365,10 @@ first run creates the tables of `nprod.donnees_qc_req`. Each run then:
 4. checks them with DQX: each row gets its `_errors` and `_warnings` (quality);
 5. updates their history in the `<table>_historique` tables, created with the tags of
    their columns, and deletes the versions replaced more than 10 years ago (scd);
-6. creates or updates the Genie space of the data product, in the `genie` folder (genie).
+6. creates or updates the Genie space of the data product, in the `genie` folder, and
+   places it in the Discover domain of the tables (genie);
+7. creates or updates the quality dashboard, publishes it, in the `dashboards` folder,
+   and places it in the Discover domain of the tables (dashboard).
 
 The columns of a new table, or of a new history table, are tagged before any data is
 written to it: its classified columns are masked from the first run. If they cannot be
