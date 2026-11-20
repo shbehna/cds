@@ -23,7 +23,7 @@ from cds.data_context import DataContext, DataProduct, Table
 from cds.errors import CdsError
 from cds.genie import build_space, run_time_examples
 from cds.services.checks import CheckSet, build_checks, checked_tables, configured_checks
-from cds.services.tags import discover_domains, tag_problems
+from cds.services.tags import discover_domains, domain_environments, tag_problems
 from cds.sla import sla_problems
 
 
@@ -142,7 +142,7 @@ def _validate_genie(data_product: DataProduct, context: ServiceContext) -> bool:
     )
     if run_time:
         details += f" + {len(run_time)} example(s) computed at run time"
-    print(f"  + Genie space: {details}{_in_domains(domains)}")
+    print(f"  + Genie space: {details}{_in_domains(data_product.tables, domains)}")
     return True
 
 
@@ -157,13 +157,18 @@ def _validate_dashboard(data_product: DataProduct, context: ServiceContext) -> b
     except CdsError as exc:
         print(f"  x Dashboard: {exc}")
         return False
-    print(f"  + Dashboard: {len(tables)} table(s), {len(dashboard['pages'])} page(s){_in_domains(domains)}")
+    pages = len(dashboard["pages"])
+    print(f"  + Dashboard: {len(tables)} table(s), {pages} page(s){_in_domains(tables, domains)}")
     return True
 
 
-def _in_domains(domains: Sequence[str]) -> str:
-    """The Discover domains a workspace object joins, for ``cds validate``."""
-    return f", in the Discover domain(s) {', '.join(domains)}" if domains else ""
+def _in_domains(tables: Sequence[Table], domains: Sequence[str]) -> str:
+    """The Discover domains a workspace object of tables joins, and in which environments."""
+    if not domains:
+        return ""
+    environments = domain_environments(tables)
+    where = f" in {', '.join(environments)}" if environments is not None else ""
+    return f", in the Discover domain(s) {', '.join(domains)}{where}"
 
 
 def _print_dashboard(context: ServiceContext, reference: str) -> int:

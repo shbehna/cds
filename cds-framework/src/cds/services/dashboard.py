@@ -79,7 +79,7 @@ class DashboardService(DataProductService):
         }
         parent_path = runtime.get(PARENT_PATH_PARAMETER)
 
-        domains = discover_domains(tables)
+        domains = discover_domains(tables, self.context.environment.id)
         schema = self.context.full_schema_name(data_product)
         properties = self.schema_properties(schema)
         dashboard_id = properties.get(DASHBOARD_PROPERTY)

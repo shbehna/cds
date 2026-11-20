@@ -16,6 +16,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import Field, dataclass, fields
 from typing import Any, ClassVar, Protocol, TypeVar
 
+from cds.environment import Environment
 from cds.errors import ConfigurationError
 from cds.sql import tag_key_problem
 
@@ -205,7 +206,13 @@ class MetadataSettings:
             Databricks Discover domain: the ``domain`` of its contract, or
             ``<domain>/<subdomain>`` when the contract has a ``subdomain`` custom property
             (see ``cds.services.tags.discover_domain``). The governed tags must exist.
-            Default: ``False``.
+            The Genie space and the quality dashboard of the data product join the
+            Discover domains of their tables. Default: ``False``.
+        discover_environments: Environments whose tables, Genie space and dashboard
+            join their Discover domain, such as ``["prod"]``: those of the other
+            environments stay out of the Discover page. Each is an environment id, and
+            the list is not empty: ``discover_domain=False`` puts no environment in a
+            domain. Default: none, every environment.
     """
 
     attribute: ClassVar[str] = "metadata"
@@ -217,6 +224,7 @@ class MetadataSettings:
     classification_tag: str | None = None
     classifications: Sequence[str] | None = None
     discover_domain: bool | None = None
+    discover_environments: Sequence[str] | None = None
 
     def __post_init__(self) -> None:
         keys = [key for key in (self.field_tags or {}).values() if key]
@@ -228,6 +236,19 @@ class MetadataSettings:
                 raise ConfigurationError(f"MetadataSettings: {problem}.")
         if isinstance(self.classifications, str):
             raise ConfigurationError("MetadataSettings.classifications must be a list of classifications.")
+        environments = self.discover_environments
+        if environments is not None:
+            if isinstance(environments, str) or not environments:
+                raise ConfigurationError(
+                    "MetadataSettings.discover_environments must be a non-empty list of environment ids, "
+                    f"got {environments!r}: use discover_domain=False for none."
+                )
+            for item in environments:
+                try:
+                    # The same ids as those of the services: a typo would never match.
+                    Environment(item)
+                except ConfigurationError as exc:
+                    raise ConfigurationError(f"MetadataSettings.discover_environments: {exc}") from None
 
 
 @dataclass(frozen=True)

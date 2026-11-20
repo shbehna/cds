@@ -21,10 +21,13 @@ config = GroupConfig(
     # The classification of the columns becomes their classification tag, a governed tag
     # whose values are these (cds-demo/manifest): the columns classified restricted are
     # masked by the deployment. The domain of the contracts, and their subdomain custom
-    # property, are the Discover domain of their tables, which the deployment creates.
+    # property, are the Discover domain of their tables, which the deployment creates: in
+    # prod only, so that the Discover page shows the tables, the Genie space and the
+    # dashboard of prod, and not their nprod copies.
     metadata=MetadataSettings(
         certification={"active": "certified", "deprecated": "deprecated", "retired": "deprecated"},
         classifications=["public", "internal", "confidential", "restricted"],
         discover_domain=True,
+        discover_environments=["prod"],
     ),
 )

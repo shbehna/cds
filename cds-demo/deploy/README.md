@@ -65,12 +65,12 @@ contracts: regenerate it after changing them (`uv run python cds-demo/manifest/m
 
 ### Discover domains
 
-The metadata step of the job tags each table with the governed tag of its Discover
-domain: the subdomain **Registraire des entreprises du Québec** of the domain
+In `prod`, the metadata step of the job tags each table with the governed tag of its
+Discover domain: the subdomain **Registraire des entreprises du Québec** of the domain
 **Économie** (see [cds-demo/README.md](../README.md#discover-domains)). The `genie` and
 `dashboard` steps tag the Genie space and the quality dashboard with it: the subdomain
-lists them with the tables. With
-`cds-demo:createDomains`, the deployment creates them, from the manifest:
+lists them with the tables. The `nprod` job does not, and removes the tags it applied
+before. With `cds-demo:createDomains`, the deployment creates them, from the manifest:
 
 | Resource | Name | Role |
 | --- | --- | --- |
@@ -78,8 +78,10 @@ lists them with the tables. With
 | Discover domains | **Économie**, and its subdomain **Registraire des entreprises du Québec** | Built on the governed tags, and published. Their subtitles and descriptions, in French, are in `DOMAINS` ([pipeline.py](pipeline.py)): a domain of the contracts without a description fails the deployment. |
 
 The governed tags and the domains belong to the account: only the `nprod` stack creates
-them, protected, and the `prod` job applies them. The `nprod` and `prod` tables are both
-in the domains: the Discover page shows them side by side, each with its catalog.
+them, protected, and the `prod` job applies them. Only the `prod` assets are in the
+domains (`discover_environments` in
+[donnees_qc_config.py](../products/donnees_qc/donnees_qc_config.py)): the Discover page
+does not show their `nprod` copies.
 
 Renaming a domain or a subdomain in the contracts replaces its governed tag and its
 domain. As they are protected, the `nprod` deployment then fails to delete the old ones:
@@ -360,15 +362,15 @@ first run creates the tables of `nprod.donnees_qc_req`. Each run then:
    (schema);
 2. loads them from the CSV files, with the names and types of their contracts
    (transformation): the synthetic files in `nprod`, those of the register in `prod`;
-3. documents and tags them, and their history tables, and places them in their Discover
-   domain (metadata);
+3. documents and tags them, and their history tables, and in `prod` places them in their
+   Discover domain (metadata);
 4. checks them with DQX: each row gets its `_errors` and `_warnings` (quality);
 5. updates their history in the `<table>_historique` tables, created with the tags of
    their columns, and deletes the versions replaced more than 10 years ago (scd);
-6. creates or updates the Genie space of the data product, in the `genie` folder, and
-   places it in the Discover domain of the tables (genie);
+6. creates or updates the Genie space of the data product, in the `genie` folder, and in
+   `prod` places it in the Discover domain of the tables (genie);
 7. creates or updates the quality dashboard, publishes it, in the `dashboards` folder,
-   and places it in the Discover domain of the tables (dashboard).
+   and in `prod` places it in the Discover domain of the tables (dashboard).
 
 The columns of a new table, or of a new history table, are tagged before any data is
 written to it: its classified columns are masked from the first run. If they cannot be

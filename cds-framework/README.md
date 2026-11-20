@@ -116,6 +116,7 @@ group, then the framework default).
 | | `classification_tag` | `classification` |
 | | `classifications` | none: any classification |
 | | `discover_domain` | `False`: the tables, the Genie space and the dashboard are not in a Discover domain |
+| | `discover_environments` | none: the assets of every environment are in their Discover domain |
 | `GenieSettings` | `enabled` | `False`: the data product has no Genie space |
 | | `title` | the `name` of the ODPS document, else `<group>.<data_product>` |
 | | `instructions`, `sample_questions`, `examples` | none |
@@ -366,7 +367,13 @@ The tables of a subdomain also appear on the page of its parent domain. The
 product join the Discover domains of their tables: the `genie` and `dashboard` services
 tag them with the same governed tags, which the user running them needs `ASSIGN` on. The
 governed tags and the domains are not created by the framework: create them first, with
-the deployment or in the **Discover** page. A domain has up to five levels, each a valid tag
+the deployment or in the **Discover** page.
+
+`MetadataSettings.discover_environments` limits the domains to some environments, such
+as `["prod"]`: the tables, the Genie space and the dashboard of the other environments
+stay out of the Discover page, which would otherwise show them side by side with those
+of production. The services remove the domain tags they applied in those environments.
+`cds validate` checks the domains as in every environment. A domain has up to five levels, each a valid tag
 key, which `cds validate` checks. The `customProperties` of a contract replace those of
 the contract defaults: a contract defining its own repeats the `subdomain`.
 
