@@ -11,16 +11,12 @@ The Pulumi program ([pipeline.py](pipeline.py)) creates, in the workspace folder
 ```text
 /Shared/cds-demo/nprod/
 ├── alerts/          the SQL alerts of the service levels (cds-demo/manifest)
-├── dashboards/      the quality dashboard (cds-demo/dashboards), published
+├── dashboards/      the quality dashboard of the data product, created by the job
 ├── genie/           the Genie space of the data product, created by the job
 ├── notebooks/       the service notebooks of the framework (cds-framework/notebooks)
 ├── products/        the data products of the demo (cds-demo/products)
 └── wheels/<hash>/   the wheel of the framework, built by the workflow
 ```
-
-The quality dashboard, **REQ data quality (&lt;environment&gt;)**, shows the results of
-the quality service. Its queries run on a SQL warehouse with the credentials of the
-service principal, which owns the tables; it reads the tables of its environment.
 
 It also creates the job `cds-demo-req-<environment>`, which runs the services of the
 framework on serverless compute. It runs on the schedule of the `frequency` of the
@@ -31,6 +27,7 @@ you run the job on demand.
 ```text
 schema --> transformation --> metadata --> genie
                           --> quality --> scd
+                                      --> dashboard
 ```
 
 A failed step fails the run, and the steps after it do not run. A failed run sends an
@@ -86,6 +83,24 @@ Renaming a domain or a subdomain in the contracts replaces its governed tag and 
 domain. As they are protected, the `nprod` deployment then fails to delete the old ones:
 once the `prod` job has tagged its tables with the new tag, run `pulumi state unprotect`
 on the old tag and domain of the `nprod` stack, and deploy again.
+
+### Quality dashboard
+
+The `dashboard` step of the job creates the quality dashboard of the data product, **REQ
+data quality (&lt;environment&gt;)**, in the `dashboards` folder, from the contracts (see
+[cds-demo/README.md](../README.md#quality-dashboard)), and publishes it. The next runs
+update it, and publish it again, when the contracts change. The job keeps its id in the
+`cds.dashboard_id` property of the schema `donnees_qc_req`. It receives two parameters
+from the deployment: the SQL warehouse (`dashboard_warehouse_id`) and the folder
+(`dashboard_parent_path`). The deployment does not manage the dashboard: deleting the
+`dashboards` folder, as `pulumi destroy` does, deletes it.
+
+The dashboard is published with the credentials of the service principal, which owns the
+tables and which the masking exempts: its viewers need no access to the tables, and it
+leaves the restricted addresses out of the keys of the rows it shows.
+
+The first deployment of this version deletes the dashboard of the previous versions,
+which the deployment published: the next run of the job creates the new one, at a new URL.
 
 ### Genie space
 
@@ -330,8 +345,8 @@ Push to `master`, or open **Actions > Deploy demo > Run workflow**: the run depl
 run the workflow again.
 
 In each deployment job, the logs of the **Deploy with Pulumi** step list the created
-resources and end with the URLs of the job (`job_url`) and of the quality dashboard
-(`dashboard_url`).
+resources and end with the URL of the job (`job_url`). The job creates the quality
+dashboard and the Genie space, in the `dashboards` and `genie` folders.
 
 ## 5. Run the pipeline
 
@@ -402,8 +417,7 @@ The stack files are the variables of the deployment.
 | `cds-demo:environmentVersion` | Serverless environment version of the job. |
 | `cds-demo:dqxVersion` | Version of DQX installed in the job environment. |
 | `cds-demo:maxWorkers` | Number of tables processed in parallel by each service. |
-| `cds-demo:warehouseName` | SQL warehouse of the quality dashboard. **Placeholder**: `Serverless Starter Warehouse`. |
-| `cds-demo:schema` | Optional. Schema of the tables, read by the dashboard: `donnees_qc_req` by default. |
+| `cds-demo:warehouseName` | SQL warehouse of the quality dashboard, the Genie space and the alerts. **Placeholder**: `Serverless Starter Warehouse`. |
 | `cds-demo:masking` | `true`: the deployment masks the classified columns (see [Masking of the classified columns](#masking-of-the-classified-columns)). `true` in both stacks. |
 | `cds-demo:maskedClassifications` | Optional. List of the classifications masked, among the values of the manifest: `["restricted"]` by default, `[]` for none. |
 | `cds-demo:maskingExemptPrincipals` | Optional. List of the users or groups reading the masked columns as they are, besides the service principal. |
@@ -436,8 +450,9 @@ The stack files are the variables of the deployment.
    pulumi up        # applies them
    ```
 
-`pulumi destroy` removes the job, the dashboard, the alerts and their notification
-destination, the files, the `genie` folder with the Genie space, and the masking (policy,
+`pulumi destroy` removes the job, the alerts and their notification destination, the
+files, the `dashboards` and `genie` folders with the dashboard and the Genie space, and
+the masking (policy,
 function, `governance` schema). It does not drop the tables. The governed tag
 `classification` created by the `nprod` stack is protected, because the `prod` masking
 uses it: `pulumi destroy` of `nprod` fails until you run `pulumi state unprotect` on it,

@@ -43,7 +43,7 @@ from cds.sql import quote_identifier, quote_name, string_literal
 
 if TYPE_CHECKING:
     from cds.context import ServiceContext
-    from cds.data_context import Table
+    from cds.data_context import DataProduct, Table
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +131,23 @@ def build_checks(table: Table, context: ServiceContext, *, include_configured: b
     if include_configured:
         check_set.checks.extend(configured_checks(table, context))
     return check_set
+
+
+def checked_tables(data_product: DataProduct, context: ServiceContext) -> list[Table]:
+    """The tables of a data product to which the quality service adds its result columns, by full name.
+
+    The service skips a table without checks, inferred or configured: it has no result
+    columns. Checks computed at run time count as checks.
+    """
+    checked = []
+    for table in sorted(data_product.tables, key=context.full_table_name):
+        if not table.settings(QualitySettings).enabled:
+            continue
+        dynamic = callable(getattr(table.contract.config, "quality_checks", None))
+        inferred = build_checks(table, context, include_configured=False).checks
+        if dynamic or inferred or configured_checks(table, context):
+            checked.append(table)
+    return checked
 
 
 def configured_checks(table: Table, context: ServiceContext) -> list[dict[str, Any]]:

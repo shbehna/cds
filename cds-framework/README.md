@@ -120,6 +120,9 @@ group, then the framework default).
 | | `title` | the `name` of the ODPS document, else `<group>.<data_product>` |
 | | `instructions`, `sample_questions`, `examples` | none |
 | | `masked_classifications` | none |
+| `DashboardSettings` | `enabled` | `False`: the data product has no quality dashboard |
+| | `title` | `<name> data quality`, the `name` of the ODPS document, else `<group>.<data_product>` |
+| | `shown_classifications` | `public` |
 
 ```python
 # donnees_qc/req/req_config.py
@@ -269,6 +272,7 @@ per table: success, skipped, warning or error. A run fails if a table is in erro
 | `scd` | Keeps the history (SCD type 2) of the tables with a primary key, in `<table>_history`, whose columns get the tags of those of the table. Purges the versions closed for longer than the `retention` of the contract. |
 | `snapshot` | Loads a table with the latest record of each key of a historical table. |
 | `genie` | Creates the [Genie space](#genie-spaces) of the data product from its contracts, or updates it to match them. It processes the data product, not its tables, and reports a single result. |
+| `dashboard` | Creates the [quality dashboard](#quality-dashboards) of the data product from its contracts, or updates it, and publishes it. It processes the data product, not its tables, and reports a single result. |
 
 ### Quality checks
 
@@ -508,6 +512,46 @@ and fails, rather than creating another one on the next run. The user running th
 USE` on the warehouse, and the right to set the properties of the schema, which its owner
 has.
 
+## Quality dashboards
+
+`cds.dashboard.build_dashboard` generates the quality dashboard of a data product, a
+Databricks AI/BI dashboard of the results of the quality service, from its contracts:
+
+| Dashboard | From |
+| --- | --- |
+| Tables | the tables that get checks (`cds.services.checks.checked_tables`), named in the environment of the service context |
+| Key of the rows | the primary key of each table, as a JSON object; all the columns of a table without primary key. The classified columns not in `DashboardSettings.shown_classifications` are left out |
+| Results | the `errors_column` and `warnings_column` of `QualitySettings` |
+
+It has two pages. **Statistics** shows the status of the rows (without issue, with
+warnings, with errors: a row with both is in error), the occurrences of each check, and
+their count by table, check and severity. **Occurrences** lists each error and warning
+with the key of its row, its check, message and columns. The `DashboardSettings` of a
+data product, or of its group, enable it:
+
+```python
+from cds import DashboardSettings, DataProductConfig
+
+config = DataProductConfig(name="orders", dashboard=DashboardSettings(enabled=True, title="Orders quality"))
+```
+
+The `dashboard` service creates it in the workspace, titled `<title> (<environment>)`,
+and publishes it with embedded credentials: its viewers see the data with the
+permissions of the user running the service, which a column mask may exempt, hence the
+classified columns left out of the keys. The service keeps its id in the
+`cds.dashboard_id` property of the schema of the data product. The next runs update the
+dashboard when the contracts or the settings change and publish it again, leave it
+unchanged otherwise, and create a new one if it was deleted. It reads two runtime
+parameters:
+
+| Parameter | Description |
+| --- | --- |
+| `dashboard_warehouse_id` | Id of the SQL warehouse running the queries of the dashboard. Required. |
+| `dashboard_parent_path` | Workspace folder of a new dashboard, such as `/Workspace/Shared/dashboards`. The home folder of the user running the service by default. An existing dashboard is not moved: the service warns when it is in another folder. |
+
+`cds validate` builds the dashboard of the data products that have one, and `cds
+dashboard` prints it.
+
 ## Running the services
 
 The `notebooks` folder contains one Databricks notebook per service. A notebook only
@@ -534,15 +578,17 @@ Any other parameter is available to the configuration through the
 environment variables (`CDS_ENVIRONMENT=nprod`) or passed to `run_service`.
 
 A typical pipeline runs `schema`, then `transformation`, then `metadata` and `quality`,
-then `scd`, and `genie` after `metadata`. Running `metadata` after the load keeps the time of the last change of the
+then `scd`, `genie` after `metadata`, and `dashboard` after `quality`. Running `metadata` after the load keeps the time of the last change of the
 tables (`last_altered`) for the loads that succeeded.
 
 ## Command line
 
 `cds validate <root>` loads the data products of a root folder, validates their
-contracts and configurations, including their tags, service levels and Genie spaces, and
+contracts and configurations, including their tags, service levels, Genie spaces and
+dashboards, and
 validates the inferred checks with DQX, without Spark. `cds checks <root> --data-product <group>.<data_product>` prints the inferred
-checks, and `cds genie <root> --data-product <group>.<data_product>` the Genie space.
+checks, `cds genie <root> --data-product <group>.<data_product>` the Genie space, and
+`cds dashboard <root> --data-product <group>.<data_product>` the quality dashboard.
 
 ## Development
 

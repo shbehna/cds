@@ -3,7 +3,8 @@
 A project describes its data products with ODCS data contracts and Python
 configuration files, in a ``<group>/<data_product>/<contract>`` layout. The services
 implement the data products from the contracts: schema, metadata, transformation,
-quality (DQX), SCD and snapshot, and the Genie spaces of the data products (genie).
+quality (DQX), SCD and snapshot, and the Genie spaces and quality dashboards of the
+data products (genie, dashboard).
 ``run_service`` runs a service from a Databricks notebook or job.
 """
 
@@ -11,6 +12,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from cds.config import (
     ContractConfig,
+    DashboardSettings,
     DataProductConfig,
     GenieExample,
     GenieSettings,
@@ -30,6 +32,7 @@ from cds.injection import ContractInjection
 from cds.runner import run_service
 from cds.runtime import RuntimeConfiguration
 from cds.services import (
+    DashboardService,
     GenieService,
     MetadataService,
     QualityService,
@@ -56,6 +59,8 @@ __all__ = [
     "ContractConfig",
     "ContractError",
     "ContractInjection",
+    "DashboardService",
+    "DashboardSettings",
     "DataContext",
     "DataProduct",
     "DataProductConfig",

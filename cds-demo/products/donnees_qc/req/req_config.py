@@ -4,7 +4,7 @@ The data product is described by its ODPS document, req.odps.yaml, and the servi
 of its contracts by its partial data contract, req.odcs.yaml.
 """
 
-from cds import DataProductConfig, GenieSettings, ScdSettings
+from cds import DashboardSettings, DataProductConfig, GenieSettings, ScdSettings
 
 from .questions import EXAMPLES, INSTRUCTIONS, SAMPLE_QUESTIONS
 
@@ -22,4 +22,8 @@ config = DataProductConfig(
         examples=EXAMPLES,
         masked_classifications=["restricted"],
     ),
+    # The quality dashboard is generated from the contracts. Published with the credentials
+    # of the service principal, which the masking exempts, it leaves the restricted
+    # addresses out of the keys of the rows: it only shows the public columns.
+    dashboard=DashboardSettings(enabled=True, title="REQ data quality"),
 )

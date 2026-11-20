@@ -1,6 +1,7 @@
 """The services of the framework."""
 
 from cds.services.base import DEFAULT_MAX_WORKERS, Service, ServiceReport, Status, TableResult
+from cds.services.dashboard import DashboardService
 from cds.services.genie import GenieService
 from cds.services.metadata import MetadataService
 from cds.services.quality import QualityService
@@ -11,6 +12,7 @@ from cds.services.transformation import TransformationService
 
 __all__ = [
     "DEFAULT_MAX_WORKERS",
+    "DashboardService",
     "GenieService",
     "MetadataService",
     "QualityService",
