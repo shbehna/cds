@@ -15,7 +15,7 @@ products/                                   root folder of the data products
     ├── donnees_qc_config.py                naming conventions, history table names, metadata
     ├── donnees_qc.odcs.yaml                contract defaults of the group: tenant, tags
     └── req/                                data product
-        ├── req_config.py                   history settings, Genie space
+        ├── req_config.py                   history settings, Genie space, quality dashboard
         ├── req.odps.yaml                   ODPS document: description, domain, status, support, usage
         ├── req.odcs.yaml                   contract defaults: service levels
         ├── sources.py                      reading of the CSV files, shared by the contracts
@@ -30,10 +30,9 @@ products/                                   root folder of the data products
         ├── continuation_transformation/
         └── domaine_valeur/
 csv/                                        synthetic data set and its generator
-dashboards/                                 quality dashboard, generated from the contracts
 manifest/                                   what the deployment needs of the contracts, generated from them
 deploy/                                     deployment with Pulumi
-tests/                                      tests of the data products, the data set and the dashboard, without Spark
+tests/                                      tests of the data products, the data set, the dashboard and the Genie space, without Spark
 ```
 
 ## Language
@@ -213,28 +212,27 @@ uv run python cds-demo/csv/generate_testdata.py
 
 ## Quality dashboard
 
-The Databricks AI/BI dashboard **REQ data quality** follows the results of the
-quality service. It belongs to the demo, not to the framework: it reads the `_errors`
-and `_warnings` columns that the quality service writes in each row.
+The Databricks AI/BI dashboard **REQ data quality (&lt;environment&gt;)** follows the
+results of the quality service. The framework generates it from the contracts (see
+[cds.dashboard](../cds-framework/README.md#quality-dashboards)): their tables, primary keys
+and result columns. The `dashboard` settings of
+[req_config.py](products/donnees_qc/req/req_config.py) enable it and give its title.
 
 - **Statistics**: a pie chart of the rows without issue, with warnings and with errors
   (a row with both is in error), a bar chart of the occurrences of each check, and a
   table of the occurrences by table, check and severity. Filter: table.
 - **Occurrences**: each error and warning, with the primary key of its row as a JSON
   object (`{"numero_entreprise": "1140000016"}`), the check, its message and columns.
-  `fusion_scission` has no primary key: its rows are identified by all their columns.
-  The check time is shown in the time zone of the SQL warehouse, UTC by default.
-  Filters: table, check, severity (error or warning).
+  `fusion_scission` has no primary key: its rows are identified by all their columns,
+  except the restricted addresses. The check time is shown in the time zone of the SQL
+  warehouse, UTC by default. Filters: table, check, severity (error or warning).
 
-[dashboards/quality_dashboard.py](dashboards/quality_dashboard.py) generates the
-dashboard, [dashboards/req_quality.lvdash.json](dashboards/req_quality.lvdash.json),
-from the contracts: their tables, primary keys and result columns. Its queries name
-the tables without catalog nor schema: the deployment sets those of each environment.
-After changing the contracts, regenerate it and commit it; a test checks that it is up
-to date:
+The `dashboard` step of the job creates and publishes it, and updates it on each run when
+the contracts change (see [deploy/README.md](deploy/README.md#quality-dashboard)). To see
+it without deploying it:
 
 ```bash
-uv run python cds-demo/dashboards/quality_dashboard.py
+uv run cds dashboard cds-demo/products --data-product donnees_qc.req --environment nprod
 ```
 
 ## Genie space

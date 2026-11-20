@@ -84,6 +84,8 @@ def test_job(settings: pipeline.Settings) -> pulumi.Output[None]:
             ("scd", ["quality"]),
             # Once the comments of the tables are set.
             ("genie", ["metadata"]),
+            # Once the quality step has added its result columns.
+            ("dashboard", ["quality"]),
         ]
         # A failed service fails the run, and the services after it do not run.
         assert all(value(task, "run_if") is None for task in tasks)
@@ -107,6 +109,8 @@ def test_job(settings: pipeline.Settings) -> pulumi.Output[None]:
             "synthetic_data": "false",
             "genie_warehouse_id": "warehouse-of-Serverless Starter Warehouse",
             "genie_parent_path": "/Workspace/Shared/cds-demo/nprod/genie",
+            "dashboard_warehouse_id": "warehouse-of-Serverless Starter Warehouse",
+            "dashboard_parent_path": "/Workspace/Shared/cds-demo/nprod/dashboards",
         }
         assert value(run_as, "service_principal_name") == "bf175dc4-c86b-4e88-83e9-9194c485a080"
 
@@ -139,21 +143,19 @@ def test_files(settings: pipeline.Settings) -> pulumi.Output[None]:
 
 @pulumi.runtime.test
 def test_quality_dashboard(settings: pipeline.Settings) -> pulumi.Output[None]:
+    """The job creates and publishes the dashboard, in the dashboards folder: the deployment does not."""
+    CREATED.clear()
     job = pipeline.deploy(settings)
 
     def check(_: str) -> None:
-        # CREATED holds the resources of all the tests: the last dashboard is this one.
-        dashboard = [args for args in CREATED if args.typ == "databricks:index/dashboard:Dashboard"][-1]
-        inputs = dashboard.inputs
-        assert inputs["displayName"] == "REQ data quality (nprod)"
-        assert inputs["parentPath"] == "/Shared/cds-demo/nprod/dashboards"
-        assert inputs["warehouseId"] == "warehouse-of-Serverless Starter Warehouse"
-        assert (inputs["datasetCatalog"], inputs["datasetSchema"]) == ("nprod", "donnees_qc_req")
-        assert inputs["embedCredentials"] is True
-        content = json.loads(inputs["serializedDashboard"])
-        assert [page["displayName"] for page in content["pages"]] == ["Statistics", "Occurrences"]
-        directories = {args.inputs["path"] for args in CREATED if args.typ == "databricks:index/directory:Directory"}
-        assert "/Shared/cds-demo/nprod/dashboards" in directories
+        assert not [args for args in CREATED if args.typ == "databricks:index/dashboard:Dashboard"]
+        folders = {
+            args.inputs["path"]: args.inputs.get("deleteRecursive")
+            for args in CREATED
+            if args.typ == "databricks:index/directory:Directory"
+        }
+        # Deleting the folder deletes the dashboard the job created in it.
+        assert folders["/Shared/cds-demo/nprod/dashboards"] is True
 
     return job.id.apply(check)
 

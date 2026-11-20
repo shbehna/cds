@@ -31,7 +31,7 @@ from cds.data_context import DataProduct, Table
 from cds.errors import CdsError, ConfigurationError, ContractError
 from cds.injection import ContractInjection
 from cds.odcs import Relationship, SchemaProperty
-from cds.services.checks import build_checks, configured_checks
+from cds.services.checks import checked_tables
 from cds.sla import percentage, table_sla
 from cds.sql import quote_identifier, quote_name, string_literal
 
@@ -87,23 +87,6 @@ def lines(text: str) -> list[str]:
 def _tables(data_product: DataProduct, context: ServiceContext) -> list[Table]:
     """The tables of a data product, sorted by their full name, as the Genie API requires."""
     return sorted(data_product.tables, key=context.full_table_name)
-
-
-def checked_tables(data_product: DataProduct, context: ServiceContext) -> list[Table]:
-    """The tables of a data product to which the quality service adds its result columns.
-
-    The service skips a table without checks, inferred or configured: it has no result
-    columns. Checks computed at run time count as checks.
-    """
-    checked = []
-    for table in _tables(data_product, context):
-        if not table.settings(QualitySettings).enabled:
-            continue
-        dynamic = callable(getattr(table.contract.config, "quality_checks", None))
-        inferred = build_checks(table, context, include_configured=False).checks
-        if dynamic or inferred or configured_checks(table, context):
-            checked.append(table)
-    return checked
 
 
 def column_description(prop: SchemaProperty) -> str | None:
