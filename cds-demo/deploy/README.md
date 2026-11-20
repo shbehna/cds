@@ -12,6 +12,7 @@ The Pulumi program ([pipeline.py](pipeline.py)) creates, in the workspace folder
 /Shared/cds-demo/nprod/
 ├── alerts/          the SQL alerts of the service levels (cds-demo/manifest)
 ├── dashboards/      the quality dashboard (cds-demo/dashboards), published
+├── genie/           the Genie space of the data product, created by the job
 ├── notebooks/       the service notebooks of the framework (cds-framework/notebooks)
 ├── products/        the data products of the demo (cds-demo/products)
 └── wheels/<hash>/   the wheel of the framework, built by the workflow
@@ -28,7 +29,7 @@ schedule is paused unless `cds-demo:pauseSchedule` is `false`, as in `prod`: in 
 you run the job on demand.
 
 ```text
-schema --> transformation --> metadata
+schema --> transformation --> metadata --> genie
                           --> quality --> scd
 ```
 
@@ -85,6 +86,30 @@ Renaming a domain or a subdomain in the contracts replaces its governed tag and 
 domain. As they are protected, the `nprod` deployment then fails to delete the old ones:
 once the `prod` job has tagged its tables with the new tag, run `pulumi state unprotect`
 on the old tag and domain of the `nprod` stack, and deploy again.
+
+### Genie space
+
+The `genie` step of the job creates the Genie space of the data product, **Registre des
+entreprises du Québec (&lt;environment&gt;)**, in the `genie` folder, from the contracts
+(see [cds-demo/README.md](../README.md#genie-space)). The next runs update it when the
+contracts change. The job keeps its id in the `cds.genie_space_id` property of the schema
+`donnees_qc_req`. It receives two parameters from the deployment: the SQL warehouse of the
+dashboard (`genie_warehouse_id`), and the folder (`genie_parent_path`).
+
+| Resource | Name | Role |
+| --- | --- | --- |
+| Folder | `<workspaceRoot>/genie` | Holds the space, created by the job: the deployment does not manage it. Deleting the folder, as `pulumi destroy` does, deletes the space. |
+| Permissions | `CAN RUN` on the folder | The principals of `cds-demo:genieUsers` (`users`, every user of the workspace) can view the space and ask questions: the space inherits the permissions of its folder. |
+
+The folder also inherits the permissions of its parents: under `/Shared`, the default
+workspace root, the `users` group already has `CAN MANAGE` on it, and so on the space. To
+restrict the space to `CAN RUN`, set a `cds-demo:workspaceRoot` outside `/Shared`.
+
+The space runs its queries with the permissions of the user asking, on the SQL warehouse of
+the dashboard: users need `CAN USE` on the warehouse, which the `users` group has on the
+Serverless Starter Warehouse, and `SELECT` on the tables. The deployment does not grant
+them: the permissions of a warehouse are shared with its other uses. Users see the
+addresses masked (`****`). The service principal owns the space.
 
 ### Alerts of the service levels
 
@@ -321,7 +346,8 @@ first run creates the tables of `nprod.donnees_qc_req`. Each run then:
    domain (metadata);
 4. checks them with DQX: each row gets its `_errors` and `_warnings` (quality);
 5. updates their history in the `<table>_historique` tables, created with the tags of
-   their columns, and deletes the versions replaced more than 10 years ago (scd).
+   their columns, and deletes the versions replaced more than 10 years ago (scd);
+6. creates or updates the Genie space of the data product, in the `genie` folder (genie).
 
 The columns of a new table, or of a new history table, are tagged before any data is
 written to it: its classified columns are masked from the first run. If they cannot be
@@ -383,6 +409,7 @@ The stack files are the variables of the deployment.
 | `cds-demo:maskingExemptPrincipals` | Optional. List of the users or groups reading the masked columns as they are, besides the service principal. |
 | `cds-demo:createTagPolicies` | `true`: the deployment creates the governed tag `classification`. It belongs to the account: `true` in `nprod` only. |
 | `cds-demo:createDomains` | `true`: the deployment creates the Discover domains of the contracts and their governed tags (see [Discover domains](#discover-domains)). They belong to the account: `true` in `nprod` only. |
+| `cds-demo:genieUsers` | Optional. List of the users, groups or service principals (application ids) granted `CAN RUN` on the `genie` folder, and so on the Genie space: `["users"]` in both stacks. None by default: the folder then only has the permissions it inherits (see [Genie space](#genie-space)). |
 | `cds-demo:timezone` | Time zone of the schedules of the job and of the alerts: `America/Toronto`. |
 | `cds-demo:pauseSchedule` | `true`, the default: the schedule of the job is paused, and the job runs on demand. `true` in `nprod`, `false` in `prod`. |
 
@@ -410,7 +437,8 @@ The stack files are the variables of the deployment.
    ```
 
 `pulumi destroy` removes the job, the dashboard, the alerts and their notification
-destination, the files and the masking (policy, function, `governance` schema). It does not drop the tables. The governed tag
+destination, the files, the `genie` folder with the Genie space, and the masking (policy,
+function, `governance` schema). It does not drop the tables. The governed tag
 `classification` created by the `nprod` stack is protected, because the `prod` masking
 uses it: `pulumi destroy` of `nprod` fails until you run `pulumi state unprotect` on it,
 or `pulumi state delete` to keep the tag and forget it. The same goes for the Discover
