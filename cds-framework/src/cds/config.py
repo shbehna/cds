@@ -297,6 +297,44 @@ class GenieSettings:
                 raise ConfigurationError(f"The SQL of a GenieExample must be a string or a function: {example!r}.")
 
 
+@dataclass(frozen=True)
+class DashboardSettings:
+    """Settings of the quality dashboard of a data product (see ``cds.dashboard``).
+
+    The dashboard shows the results of the quality service: the errors and warnings of the
+    rows of the checked tables. It is generated from the contracts. These settings are set
+    on a data product or a group, not on a contract.
+
+    Attributes:
+        enabled: Whether the data product has a quality dashboard. Default: ``False``.
+        title: Title of the dashboard. Default: ``<name> data quality``, the ``name`` of
+            the ODPS document of the data product, else its qualified name.
+        shown_classifications: Classifications of the columns the dashboard may show in the
+            keys of the rows. A published dashboard runs its queries with the credentials
+            of its publisher, which column masks may exempt: the other classified columns
+            are left out of the keys. Unclassified columns are shown. Default: ``public``.
+    """
+
+    attribute: ClassVar[str] = "dashboard"
+
+    enabled: bool | None = None
+    title: str | None = None
+    shown_classifications: Sequence[str] | None = None
+
+    def __post_init__(self) -> None:
+        if self.enabled is not None and not isinstance(self.enabled, bool):
+            raise ConfigurationError(f"DashboardSettings.enabled must be a boolean, got {self.enabled!r}.")
+        if self.title is not None and (not isinstance(self.title, str) or not self.title.strip()):
+            raise ConfigurationError(f"DashboardSettings.title must be a non-empty string, got {self.title!r}.")
+        value = self.shown_classifications
+        if value is not None and (
+            isinstance(value, str) or not all(isinstance(item, str) and item.strip() for item in value)
+        ):
+            raise ConfigurationError(
+                f"DashboardSettings.shown_classifications must be a list of non-empty strings, got {value!r}."
+            )
+
+
 DEFAULTS: Mapping[type[Settings], Settings] = {
     NamingSettings: NamingSettings(catalog="{environment}", schema="{group}_{data_product}"),
     SchemaSettings: SchemaSettings(on_breaking_change="replace"),
@@ -324,6 +362,7 @@ DEFAULTS: Mapping[type[Settings], Settings] = {
         classification_tag="classification",
         discover_domain=False,
     ),
+    DashboardSettings: DashboardSettings(enabled=False, shown_classifications=("public",)),
     GenieSettings: GenieSettings(
         enabled=False, instructions=(), sample_questions=(), examples=(), masked_classifications=()
     ),
@@ -431,10 +470,12 @@ class GroupConfig(_LevelConfig):
             contracts themselves take precedence. Alternatively, the group may define
             them in its partial ODCS file ``<group>/<group>.odcs.yaml``, but not both.
         genie: Settings of the Genie spaces of the data products of the group.
+        dashboard: Settings of the quality dashboards of the data products of the group.
     """
 
     contract_defaults: Mapping[str, Any] | None = None
     genie: GenieSettings | None = None
+    dashboard: DashboardSettings | None = None
 
     def __init__(
         self,
@@ -449,6 +490,7 @@ class GroupConfig(_LevelConfig):
         metadata: MetadataSettings | None = None,
         contract_defaults: Mapping[str, Any] | None = None,
         genie: GenieSettings | None = None,
+        dashboard: DashboardSettings | None = None,
     ) -> None:
         self._assign(locals())
 
@@ -467,10 +509,12 @@ class DataProductConfig(_LevelConfig):
             its partial ODCS file ``<group>/<data_product>/<data_product>.odcs.yaml``, but
             not both.
         genie: Settings of the Genie space of the data product.
+        dashboard: Settings of the quality dashboard of the data product.
     """
 
     contract_defaults: Mapping[str, Any] | None = None
     genie: GenieSettings | None = None
+    dashboard: DashboardSettings | None = None
 
     def __init__(
         self,
@@ -485,6 +529,7 @@ class DataProductConfig(_LevelConfig):
         metadata: MetadataSettings | None = None,
         contract_defaults: Mapping[str, Any] | None = None,
         genie: GenieSettings | None = None,
+        dashboard: DashboardSettings | None = None,
     ) -> None:
         self._assign(locals())
 
