@@ -2,7 +2,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from conftest import MakeProject
+from conftest import PROJECT, MakeProject
 from fakes import FakeSpark
 
 from cds import ConfigurationError, SchemaService, ServiceError, Status, run_service
@@ -118,3 +118,30 @@ def test_cli_checks(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["checks", str(project), "--data-product", "sales.orders", "--environment", "prod"]) == 0
 
     assert '"ref_table": "`prod`.`sales_orders`.`customer`"' in capsys.readouterr().out
+
+
+def test_cli_validate_shows_the_environments_of_the_domains(
+    make_project: MakeProject, capsys: pytest.CaptureFixture[str]
+) -> None:
+    group = """
+        from cds import GroupConfig, MetadataSettings
+
+        config = GroupConfig(
+            name="sales",
+            contract_defaults={"domain": "Ventes"},
+            metadata=MetadataSettings(discover_domain=True, discover_environments=["prod"]),
+        )
+    """
+    dashboard = """
+        from cds import DashboardSettings, DataProductConfig
+
+        config = DataProductConfig(name="orders", dashboard=DashboardSettings(enabled=True))
+    """
+    files = {**PROJECT, "sales/sales_config.py": group, "sales/orders/orders_config.py": dashboard}
+
+    assert main(["validate", str(make_project(files))]) == 0
+    assert "+ Dashboard: 2 table(s), 2 page(s), in the Discover domain(s) Ventes in prod" in capsys.readouterr().out
+
+    every = group.replace(', discover_environments=["prod"]', "")
+    assert main(["validate", str(make_project({**files, "sales/sales_config.py": every}, name="every"))]) == 0
+    assert "page(s), in the Discover domain(s) Ventes\n" in capsys.readouterr().out

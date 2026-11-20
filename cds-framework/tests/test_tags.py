@@ -1,5 +1,5 @@
 import pytest
-from conftest import MakeProject
+from conftest import PROJECT, MakeProject
 
 from cds import ConfigurationError, ContractError, DataContext, MetadataSettings, Table
 from cds.services.tags import (
@@ -7,6 +7,7 @@ from cds.services.tags import (
     TableTags,
     discover_domain,
     discover_domains,
+    domain_environments,
     expected_tags,
     managed_keys,
     managed_property,
@@ -96,6 +97,12 @@ def test_field_tags_can_be_disabled(make_project: MakeProject) -> None:
     assert tags["data_product"] == "sales.orders"
 
 
+ORDER_IN_NPROD = """
+    from cds import ContractConfig, MetadataSettings
+
+    config = ContractConfig(name="order", metadata=MetadataSettings(discover_environments=["prod", "nprod"]))
+"""
+
 DISCOVER_CONFIG = (
     "from cds import GroupConfig, MetadataSettings\n"
     "config = GroupConfig(name='sales', metadata=MetadataSettings(discover_domain=True))\n"
@@ -158,10 +165,44 @@ def test_discover_domain_in_some_environments(make_project: MakeProject) -> None
     assert discover_domains([table], "nprod") == []
 
 
-@pytest.mark.parametrize("environments", ["prod", ["prod", ""], [1]])
-def test_the_discover_environments_are_validated(environments: object) -> None:
-    with pytest.raises(ConfigurationError, match="discover_environments must be a list of environments"):
+@pytest.mark.parametrize(
+    ("environments", "message"),
+    [
+        ("prod", "must be a non-empty list of environment ids"),
+        ([], "must be a non-empty list of environment ids, got \\[\\]: use discover_domain=False for none"),
+        # Never equal to the id of an environment: the domain would be removed everywhere.
+        (["Prod"], "discover_environments: Invalid environment id 'Prod'"),
+        (["prod "], "Invalid environment id 'prod '"),
+        ([1], "Invalid environment id 1"),
+    ],
+)
+def test_the_discover_environments_are_validated(environments: object, message: str) -> None:
+    with pytest.raises(ConfigurationError, match=message):
         MetadataSettings(discover_environments=environments)  # type: ignore[arg-type]
+
+
+def test_the_discover_domain_is_validated_outside_its_environments(make_project: MakeProject) -> None:
+    """An invalid domain fails in nprod, before it fails in prod."""
+    config = DISCOVER_CONFIG.replace("discover_domain=True", "discover_domain=True, discover_environments=['prod']")
+    table = customer(make_project, config, with_subdomain("12"))
+
+    with pytest.raises(ContractError, match="the subdomain custom property must be a string"):
+        discover_domain(table, "nprod")
+
+
+def test_the_environments_of_the_domains(make_project: MakeProject) -> None:
+    # Every contract in the domain sales, in prod only.
+    config = DISCOVER_CONFIG.replace("metadata=", "contract_defaults={'domain': 'sales'}, metadata=").replace(
+        "discover_domain=True", "discover_domain=True, discover_environments=['prod']"
+    )
+    files = {"sales/sales_config.py": config, "sales/orders/order/order_config.py": ORDER_IN_NPROD}
+    tables = DataContext.discover(make_project({**PROJECT, **files})).get_data_product("sales.orders").tables
+
+    # The order contract adds nprod for its table: the objects of both tables join it there.
+    assert domain_environments(tables) == ["nprod", "prod"]
+    assert domain_environments([table for table in tables if table.name == "customer"]) == ["prod"]
+    # A table in its domain in every environment.
+    assert domain_environments([customer(make_project, DISCOVER_CONFIG)]) is None
 
 
 def test_no_discover_domain_without_tags(make_project: MakeProject) -> None:

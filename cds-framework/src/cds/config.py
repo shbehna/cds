@@ -16,6 +16,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import Field, dataclass, fields
 from typing import Any, ClassVar, Protocol, TypeVar
 
+from cds.environment import Environment
 from cds.errors import ConfigurationError
 from cds.sql import tag_key_problem
 
@@ -209,7 +210,9 @@ class MetadataSettings:
             Discover domains of their tables. Default: ``False``.
         discover_environments: Environments whose tables, Genie space and dashboard
             join their Discover domain, such as ``["prod"]``: those of the other
-            environments stay out of the Discover page. Default: none, every environment.
+            environments stay out of the Discover page. Each is an environment id, and
+            the list is not empty: ``discover_domain=False`` puts no environment in a
+            domain. Default: none, every environment.
     """
 
     attribute: ClassVar[str] = "metadata"
@@ -234,12 +237,18 @@ class MetadataSettings:
         if isinstance(self.classifications, str):
             raise ConfigurationError("MetadataSettings.classifications must be a list of classifications.")
         environments = self.discover_environments
-        if environments is not None and (
-            isinstance(environments, str) or not all(isinstance(item, str) and item.strip() for item in environments)
-        ):
-            raise ConfigurationError(
-                f"MetadataSettings.discover_environments must be a list of environments, got {environments!r}."
-            )
+        if environments is not None:
+            if isinstance(environments, str) or not environments:
+                raise ConfigurationError(
+                    "MetadataSettings.discover_environments must be a non-empty list of environment ids, "
+                    f"got {environments!r}: use discover_domain=False for none."
+                )
+            for item in environments:
+                try:
+                    # The same ids as those of the services: a typo would never match.
+                    Environment(item)
+                except ConfigurationError as exc:
+                    raise ConfigurationError(f"MetadataSettings.discover_environments: {exc}") from None
 
 
 @dataclass(frozen=True)

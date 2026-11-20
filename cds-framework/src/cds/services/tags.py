@@ -160,9 +160,6 @@ def discover_domain(table: Table, environment: str | None = None) -> str | None:
     document = table.contract.document
     if not (settings.tags and settings.discover_domain) or document is None:
         return None
-    environments = settings.discover_environments
-    if environment is not None and environments is not None and environment not in environments:
-        return None
     where = table.qualified_name
     subdomain = document.custom_properties.get(SUBDOMAIN_PROPERTY)
     if subdomain is not None and not isinstance(subdomain, str):
@@ -183,6 +180,10 @@ def discover_domain(table: Table, environment: str | None = None) -> str | None:
         problem = tag_key_problem(level)
         if problem:
             raise ContractError(f"{where}: invalid Discover domain {tag!r}: {problem}.")
+    # Validated in every environment: an invalid domain fails nprod before prod.
+    environments = settings.discover_environments
+    if environment is not None and environments is not None and environment not in environments:
+        return None
     return tag
 
 
@@ -197,6 +198,24 @@ def discover_domains(tables: Iterable[Table], environment: str | None = None) ->
         ContractError: If the Discover domain of a contract is not valid.
     """
     return sorted({tag for table in tables if (tag := discover_domain(table, environment))})
+
+
+def domain_environments(tables: Iterable[Table]) -> list[str] | None:
+    """Returns the environments in which tables are in their Discover domain, for ``cds validate``.
+
+    Returns:
+        The environments of their ``MetadataSettings.discover_environments``, sorted;
+        ``None`` if a table with a domain is in it in every environment.
+    """
+    environments: set[str] = set()
+    for table in tables:
+        if discover_domain(table) is None:
+            continue
+        listed = table.settings(MetadataSettings).discover_environments
+        if listed is None:
+            return None
+        environments.update(listed)
+    return sorted(environments)
 
 
 def certification_value(table: Table) -> str | None:
