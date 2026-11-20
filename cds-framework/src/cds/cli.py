@@ -4,6 +4,7 @@ Usage::
 
     cds validate <root> [<root> ...]
     cds checks <root> [<root> ...] --data-product <group>.<data_product> [--environment <id>]
+    cds genie <root> [<root> ...] --data-product <group>.<data_product> [--environment <id>]
 """
 
 from __future__ import annotations
@@ -14,9 +15,11 @@ import sys
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from cds.config import GenieSettings
 from cds.context import ServiceContext
-from cds.data_context import DataContext, Table
+from cds.data_context import DataContext, DataProduct, Table
 from cds.errors import CdsError
+from cds.genie import build_space
 from cds.services.checks import CheckSet, build_checks, configured_checks
 from cds.services.tags import tag_problems
 from cds.sla import sla_problems
@@ -37,6 +40,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     checks.add_argument("--data-product", required=True, help="<group>.<data_product>")
     checks.add_argument("--environment", default="validation", help="Environment id used to resolve names.")
 
+    genie = commands.add_parser("genie", help="Print the Genie space of a data product.")
+    genie.add_argument("roots", nargs="+", help="Root folders of the data products.")
+    genie.add_argument("--data-product", required=True, help="<group>.<data_product>")
+    genie.add_argument("--environment", default="validation", help="Environment id used to resolve names.")
+
     args = parser.parse_args(argv)
     try:
         context = ServiceContext(
@@ -44,6 +52,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         if args.command == "validate":
             return _validate(context)
+        if args.command == "genie":
+            space = build_space(context.get_data_product(args.data_product), context)
+            print(json.dumps(space, indent=2))
+            return 0
         return _print_checks(context, args.data_product)
     except CdsError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -96,9 +108,28 @@ def _validate(context: ServiceContext) -> int:
             if sla:
                 failed = True
                 print(f"  x contract {contract.name}: invalid SLA: {'; '.join(sla)}")
+        if not _validate_genie(data_product, context):
+            failed = True
     if validator is None:
         print("DQX is not installed: the checks were not validated (install cds-framework[dqx]).")
     return 1 if failed else 0
+
+
+def _validate_genie(data_product: DataProduct, context: ServiceContext) -> bool:
+    """Builds the Genie space of a data product that has one; returns whether it is valid."""
+    if not data_product.settings(GenieSettings).enabled:
+        return True
+    try:
+        space = build_space(data_product, context)["serialized_space"]
+    except CdsError as exc:
+        print(f"  x Genie space: {exc}")
+        return False
+    instructions = space["instructions"]
+    print(
+        f"  + Genie space: {len(space['data_sources']['tables'])} table(s), "
+        f"{len(instructions['join_specs'])} join(s), {len(instructions['example_question_sqls'])} example(s)"
+    )
+    return True
 
 
 def _print_checks(context: ServiceContext, reference: str) -> int:

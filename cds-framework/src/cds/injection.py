@@ -43,8 +43,10 @@ class ContractInjection:
     """
 
     def __init__(self, context: ServiceContext, **objects: object) -> None:
+        # Without a Spark session, as in ``cds validate``, a function needing one cannot be called.
+        spark: dict[str, object] = {_SPARK: context.spark} if context.has_spark else {}
         self._objects: dict[str, object] = {
-            _SPARK: context.spark,
+            **spark,
             "service_context": context,
             "data_context": context.data_context,
             "runtime_configuration": context.runtime_configuration,

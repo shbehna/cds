@@ -230,6 +230,61 @@ class MetadataSettings:
             raise ConfigurationError("MetadataSettings.classifications must be a list of classifications.")
 
 
+@dataclass(frozen=True)
+class GenieExample:
+    """An example question of a Genie space, with the SQL answering it.
+
+    Attributes:
+        question: The question, in the language of the users of the space.
+        sql: The SQL answering it, or a function returning it, called with injected
+            parameters (see ``cds.injection.ContractInjection``), such as
+            ``service_context`` and ``data_product``, to name the tables of the
+            environment.
+    """
+
+    question: str
+    sql: str | Callable[..., str]
+
+
+@dataclass(frozen=True)
+class GenieSettings:
+    """Settings of the Genie space of a data product (see ``cds.genie``).
+
+    The space is generated from the contracts and the ODPS document of the data product:
+    these settings add what they cannot express. They are set on a data product or a
+    group, not on a contract.
+
+    Attributes:
+        enabled: Whether the data product has a Genie space. Default: ``False``.
+        title: Title of the space. Default: the ``name`` of the ODPS document of the data
+            product, else its qualified name.
+        instructions: Paragraphs added to the instructions generated from the contracts.
+        sample_questions: Questions suggested to the users of the space, before those of
+            the examples.
+        examples: Example questions with their SQL, also suggested to the users.
+        masked_classifications: Classifications of the columns masked for most users,
+            such as ``restricted``: the instructions name these columns, so that Genie
+            does not filter nor group on them. Default: none.
+    """
+
+    attribute: ClassVar[str] = "genie"
+
+    enabled: bool | None = None
+    title: str | None = None
+    instructions: Sequence[str] | None = None
+    sample_questions: Sequence[str] | None = None
+    examples: Sequence[GenieExample] | None = None
+    masked_classifications: Sequence[str] | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("instructions", "sample_questions", "masked_classifications"):
+            if isinstance(getattr(self, name), str):
+                raise ConfigurationError(f"GenieSettings.{name} must be a list of strings.")
+        for example in self.examples or ():
+            if not isinstance(example, GenieExample):
+                raise ConfigurationError(f"GenieSettings.examples must be GenieExample objects, got {example!r}.")
+
+
 DEFAULTS: Mapping[type[Settings], Settings] = {
     NamingSettings: NamingSettings(catalog="{environment}", schema="{group}_{data_product}"),
     SchemaSettings: SchemaSettings(on_breaking_change="replace"),
@@ -256,6 +311,9 @@ DEFAULTS: Mapping[type[Settings], Settings] = {
         certification_tag="system.certification_status",
         classification_tag="classification",
         discover_domain=False,
+    ),
+    GenieSettings: GenieSettings(
+        enabled=False, instructions=(), sample_questions=(), examples=(), masked_classifications=()
     ),
 }
 
@@ -360,9 +418,11 @@ class GroupConfig(_LevelConfig):
             group (see ``cds.odcs.merge_documents``). The data product defaults and the
             contracts themselves take precedence. Alternatively, the group may define
             them in its partial ODCS file ``<group>/<group>.odcs.yaml``, but not both.
+        genie: Settings of the Genie spaces of the data products of the group.
     """
 
     contract_defaults: Mapping[str, Any] | None = None
+    genie: GenieSettings | None = None
 
     def __init__(
         self,
@@ -376,6 +436,7 @@ class GroupConfig(_LevelConfig):
         snapshot: SnapshotSettings | None = None,
         metadata: MetadataSettings | None = None,
         contract_defaults: Mapping[str, Any] | None = None,
+        genie: GenieSettings | None = None,
     ) -> None:
         self._assign(locals())
 
@@ -393,9 +454,11 @@ class DataProductConfig(_LevelConfig):
             which it cannot set again. Alternatively, the data product may define them in
             its partial ODCS file ``<group>/<data_product>/<data_product>.odcs.yaml``, but
             not both.
+        genie: Settings of the Genie space of the data product.
     """
 
     contract_defaults: Mapping[str, Any] | None = None
+    genie: GenieSettings | None = None
 
     def __init__(
         self,
@@ -409,6 +472,7 @@ class DataProductConfig(_LevelConfig):
         snapshot: SnapshotSettings | None = None,
         metadata: MetadataSettings | None = None,
         contract_defaults: Mapping[str, Any] | None = None,
+        genie: GenieSettings | None = None,
     ) -> None:
         self._assign(locals())
 
