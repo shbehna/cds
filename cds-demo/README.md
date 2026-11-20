@@ -30,9 +30,10 @@ products/                                   root folder of the data products
         └── domaine_valeur/
 csv/                                        synthetic data set and its generator
 dashboards/                                 quality dashboard, generated from the contracts
+genie/                                      Genie space, generated from the contracts
 manifest/                                   what the deployment needs of the contracts, generated from them
 deploy/                                     deployment with Pulumi
-tests/                                      tests of the data products, the data set and the dashboard, without Spark
+tests/                                      tests of the data products, the data set, the dashboard and the Genie space, without Spark
 ```
 
 ## Language
@@ -234,6 +235,38 @@ to date:
 
 ```bash
 uv run python cds-demo/dashboards/quality_dashboard.py
+```
+
+## Genie space
+
+A [Genie space](https://docs.databricks.com/aws/en/genie/) answers questions on the
+tables of the data product in natural language, by writing SQL. Genie reads the comments
+of the tables and columns, which the metadata service sets from the contracts. The space
+**Registre des entreprises du Québec** adds what the comments do not say, generated from
+the contracts and the ODPS document of `req`:
+
+| Genie space | From |
+| --- | --- |
+| Tables | the `schema` objects of the contracts, in the catalog and schema of the naming conventions |
+| Joins | the `foreignKey` relationships: the tables join `entreprise` on `numero_entreprise`, and `fusion_scission` joins it a second time, as `entreprise_liee`, on `numero_entreprise_liee` |
+| Descriptions of the coded columns | the `enum` of their properties: each value and its label |
+| Instructions | the purpose, usage and limitations of the ODPS document, the primary keys, the deprecated contracts (`fusion_scission`), the quality result columns (`_errors`, `_warnings`) and the `errorRate` service level, the classified columns, which may be masked, and the `frequency` of the loads |
+| Example questions with their SQL | generated from the contracts: the error rate of each table, and the economic activities of the enterprises, described by `domaine_valeur` |
+| Sample questions | written in the generator, in French |
+
+The space is in French, the language of the register. The codes without `enum`, such as
+the economic activities, are described in `domaine_valeur`: the instructions tell Genie to
+join it on the value domain named in the description of the column.
+
+[genie/genie_space.py](genie/genie_space.py) generates
+[genie/req_genie_space.json](genie/req_genie_space.json): the title and description of
+the space, and its `serialized_space`, the configuration of the Genie API (version 2). Its
+tables are named with the placeholder `${environment}` for the catalog, replaced by the
+deployment. The deployment does not create the space yet. After changing the contracts,
+regenerate it and commit it; a test checks that it is up to date:
+
+```bash
+uv run python cds-demo/genie/genie_space.py
 ```
 
 ## Run locally

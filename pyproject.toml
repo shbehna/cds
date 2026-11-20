@@ -28,9 +28,9 @@ cds-framework = { workspace = true }
 [tool.pytest.ini_options]
 testpaths = ["cds-framework/tests", "cds-demo/tests"]
 addopts = ["--import-mode=importlib", "-ra"]
-# The generators of the dashboards, of the deployment manifest and of the synthetic data of
-# the demo, imported by its tests.
-pythonpath = ["cds-demo/dashboards", "cds-demo/manifest", "cds-demo/csv"]
+# The generators of the dashboards, of the deployment manifest, of the Genie space and of the
+# synthetic data of the demo, imported by its tests.
+pythonpath = ["cds-demo/dashboards", "cds-demo/manifest", "cds-demo/genie", "cds-demo/csv"]
 
 [tool.ruff]
 line-length = 120
@@ -59,13 +59,14 @@ files = [
     "cds-demo/products",
     "cds-demo/dashboards",
     "cds-demo/manifest",
+    "cds-demo/genie",
     "cds-demo/csv",
     "cds-demo/tests",
 ]
 # The tests import their helpers (conftest, fakes) by module name, and the files of a
 # root folder of data products are modules of namespace packages, as the framework
 # loads them.
-mypy_path = "cds-framework/src,cds-framework/tests,cds-demo/products,cds-demo/dashboards,cds-demo/manifest,cds-demo/csv,cds-demo/tests"
+mypy_path = "cds-framework/src,cds-framework/tests,cds-demo/products,cds-demo/dashboards,cds-demo/manifest,cds-demo/genie,cds-demo/csv,cds-demo/tests"
 explicit_package_bases = true
 
 [tool.databricks.environment]
