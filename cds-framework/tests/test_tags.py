@@ -1,11 +1,12 @@
 import pytest
 from conftest import MakeProject
 
-from cds import ContractError, DataContext, Table
+from cds import ConfigurationError, ContractError, DataContext, MetadataSettings, Table
 from cds.services.tags import (
     MANAGED_TAGS_PROPERTY,
     TableTags,
     discover_domain,
+    discover_domains,
     expected_tags,
     managed_keys,
     managed_property,
@@ -142,6 +143,25 @@ def test_no_discover_domain_without_domain(make_project: MakeProject) -> None:
     contract = CUSTOMER.replace("    domain: sales\n", "")
 
     assert discover_domain(customer(make_project, DISCOVER_CONFIG, contract)) is None
+
+
+def test_discover_domain_in_some_environments(make_project: MakeProject) -> None:
+    config = DISCOVER_CONFIG.replace("discover_domain=True", "discover_domain=True, discover_environments=['prod']")
+    table = customer(make_project, config)
+
+    assert discover_domain(table, "prod") == "sales"
+    assert discover_domain(table, "nprod") is None
+    assert "sales" not in expected_tags(table, "nprod").table
+    assert expected_tags(table, "prod").table["sales"] == ""
+    # Without environment, the domain is validated as in every environment.
+    assert discover_domain(table) == "sales"
+    assert discover_domains([table], "nprod") == []
+
+
+@pytest.mark.parametrize("environments", ["prod", ["prod", ""], [1]])
+def test_the_discover_environments_are_validated(environments: object) -> None:
+    with pytest.raises(ConfigurationError, match="discover_environments must be a list of environments"):
+        MetadataSettings(discover_environments=environments)  # type: ignore[arg-type]
 
 
 def test_no_discover_domain_without_tags(make_project: MakeProject) -> None:

@@ -88,8 +88,14 @@ def parse_tag(tag: str, where: str) -> tuple[str, str]:
     return key, value
 
 
-def expected_tags(table: Table) -> TableTags:
+def expected_tags(table: Table, environment: str | None = None) -> TableTags:
     """Returns the tags of a table and of its columns, derived from its contract.
+
+    Args:
+        table: The table.
+        environment: The environment of the table, which may leave it out of its Discover
+            domain (``MetadataSettings.discover_environments``). ``None`` for every
+            environment, to validate the tags.
 
     Raises:
         ContractError: If a tag of the contract is not a valid Unity Catalog tag.
@@ -102,7 +108,7 @@ def expected_tags(table: Table) -> TableTags:
         value = raw.get(name)
         if key and isinstance(value, (str, int, float)) and not isinstance(value, bool) and str(value).strip():
             tags[key] = str(value).strip()
-    domain = discover_domain(table)
+    domain = discover_domain(table, environment)
     if domain:
         tags[domain] = ""
     for tag in (*(document.tags if document else ()), *table.schema_object.tags):
@@ -126,7 +132,7 @@ def expected_tags(table: Table) -> TableTags:
     return TableTags(tags, columns)
 
 
-def discover_domain(table: Table) -> str | None:
+def discover_domain(table: Table, environment: str | None = None) -> str | None:
     """Returns the governed tag of the Databricks Discover domain of a table.
 
     A Discover domain is a governed tag: the tables tagged with it belong to the domain.
@@ -135,9 +141,16 @@ def discover_domain(table: Table) -> str | None:
     subdomain under its domain: ``Finance/Tax`` for the subdomain ``Tax`` of the domain
     ``Finance``. The subdomain can itself be a path, such as ``Tax/Audit``.
 
+    Args:
+        table: The table.
+        environment: The environment of the table: outside
+            ``MetadataSettings.discover_environments``, it is in no domain. ``None`` for
+            every environment, to validate the domain.
+
     Returns:
         The tag, ``None`` if the tags of the table are not synchronized, if
-        ``MetadataSettings.discover_domain`` is not set, or if the contract has no domain.
+        ``MetadataSettings.discover_domain`` is not set, if the environment is not one of
+        ``MetadataSettings.discover_environments``, or if the contract has no domain.
 
     Raises:
         ContractError: If the contract has a subdomain without domain, or its tag is not
@@ -146,6 +159,9 @@ def discover_domain(table: Table) -> str | None:
     settings = table.settings(MetadataSettings)
     document = table.contract.document
     if not (settings.tags and settings.discover_domain) or document is None:
+        return None
+    environments = settings.discover_environments
+    if environment is not None and environments is not None and environment not in environments:
         return None
     where = table.qualified_name
     subdomain = document.custom_properties.get(SUBDOMAIN_PROPERTY)
@@ -170,16 +186,17 @@ def discover_domain(table: Table) -> str | None:
     return tag
 
 
-def discover_domains(tables: Iterable[Table]) -> list[str]:
+def discover_domains(tables: Iterable[Table], environment: str | None = None) -> list[str]:
     """Returns the governed tags of the Discover domains of tables, sorted.
 
     The Genie space and the quality dashboard of a data product join the Discover domains
-    of their tables.
+    of their tables, in the environments of ``MetadataSettings.discover_environments``
+    (see ``discover_domain``).
 
     Raises:
         ContractError: If the Discover domain of a contract is not valid.
     """
-    return sorted({tag for table in tables if (tag := discover_domain(table))})
+    return sorted({tag for table in tables if (tag := discover_domain(table, environment))})
 
 
 def certification_value(table: Table) -> str | None:

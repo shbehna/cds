@@ -78,7 +78,7 @@ class GenieService(DataProductService):
         if parent_path:
             body["parent_path"] = parent_path
 
-        domains = discover_domains(data_product.tables)
+        domains = discover_domains(data_product.tables, self.context.environment.id)
         schema = self.context.full_schema_name(data_product)
         properties = self.schema_properties(schema)
         space_id = properties.get(SPACE_PROPERTY)

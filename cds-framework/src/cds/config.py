@@ -205,7 +205,11 @@ class MetadataSettings:
             Databricks Discover domain: the ``domain`` of its contract, or
             ``<domain>/<subdomain>`` when the contract has a ``subdomain`` custom property
             (see ``cds.services.tags.discover_domain``). The governed tags must exist.
-            Default: ``False``.
+            The Genie space and the quality dashboard of the data product join the
+            Discover domains of their tables. Default: ``False``.
+        discover_environments: Environments whose tables, Genie space and dashboard
+            join their Discover domain, such as ``["prod"]``: those of the other
+            environments stay out of the Discover page. Default: none, every environment.
     """
 
     attribute: ClassVar[str] = "metadata"
@@ -217,6 +221,7 @@ class MetadataSettings:
     classification_tag: str | None = None
     classifications: Sequence[str] | None = None
     discover_domain: bool | None = None
+    discover_environments: Sequence[str] | None = None
 
     def __post_init__(self) -> None:
         keys = [key for key in (self.field_tags or {}).values() if key]
@@ -228,6 +233,13 @@ class MetadataSettings:
                 raise ConfigurationError(f"MetadataSettings: {problem}.")
         if isinstance(self.classifications, str):
             raise ConfigurationError("MetadataSettings.classifications must be a list of classifications.")
+        environments = self.discover_environments
+        if environments is not None and (
+            isinstance(environments, str) or not all(isinstance(item, str) and item.strip() for item in environments)
+        ):
+            raise ConfigurationError(
+                f"MetadataSettings.discover_environments must be a list of environments, got {environments!r}."
+            )
 
 
 @dataclass(frozen=True)

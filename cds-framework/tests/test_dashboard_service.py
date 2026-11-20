@@ -363,6 +363,27 @@ def test_the_tags_are_removed_without_a_domain(root: Path, spark: FakeSpark) -> 
     assert spark.statements_matching(rf"'{DOMAINS_PROPERTY}' = '\[\]'")
 
 
+def test_a_dashboard_outside_the_discover_environments_leaves_its_domain(
+    make_project: MakeProject, spark: FakeSpark
+) -> None:
+    api = FakeLakeview()
+    root = with_domain(make_project)
+    dashboard_id = created_once(root, spark, api)
+    api.properties[DOMAINS_PROPERTY] = '["Ventes"]'
+    api.tag_api.tags[("dashboards", dashboard_id)] = {"Ventes"}
+    prod_only = DOMAIN_GROUP.replace("discover_domain=True", 'discover_domain=True, discover_environments=["prod"]')
+    dev = make_project(
+        {**PROJECT, "sales/sales_config.py": prod_only, "sales/orders/orders_config.py": DASHBOARD_CONFIG},
+        name="prod_only",
+    )
+
+    status, message = run(service_for(dev, spark, api))
+
+    assert (status, message.rsplit(", ", 1)[1]) == (Status.SUCCESS, "already published")
+    assert api.tag_api.of("dashboards", dashboard_id) == set()
+    assert spark.statements_matching(rf"'{DOMAINS_PROPERTY}' = '\[\]'")
+
+
 def test_a_dashboard_that_cannot_be_tagged_is_reported(make_project: MakeProject, spark: FakeSpark) -> None:
     api = FakeLakeview()
     api.tag_api.error = PermissionDenied("User does not have ASSIGN on the tag Ventes")

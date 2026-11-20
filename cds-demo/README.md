@@ -137,13 +137,15 @@ in the subdomain **Registraire des entreprises du Québec** of the domain **Éco
   `Registraire des entreprises du Québec`;
 - the `donnees_qc` group makes them the Discover domain of the tables
   (`MetadataSettings.discover_domain`): the metadata service tags each table with the
-  governed tag of the subdomain, `Économie/Registraire des entreprises du Québec`.
+  governed tag of the subdomain, `Économie/Registraire des entreprises du Québec`;
+- in `prod` only (`MetadataSettings.discover_environments`): the Discover page shows the
+  data of production, not its `nprod` copy.
 
 The tables then appear on the page of the subdomain, and on that of the domain. They also
 keep the `domain` tag, `domain = Économie`. The history tables are not in the domain:
 their contract is that of their table. The [quality dashboard](#quality-dashboard) and the
-[Genie space](#genie-space) join the subdomain of their tables: the `dashboard` and
-`genie` services tag them with the same governed tag.
+[Genie space](#genie-space) of `prod` join the subdomain of their tables: the
+`dashboard` and `genie` services tag them with the same governed tag.
 
 A Discover domain is built on its governed tag, and its name is the key of the tag. The
 deployment creates the governed tags and the domains, which the manifest lists, parents
