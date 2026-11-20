@@ -41,3 +41,8 @@ config:
   cds-demo:pauseSchedule: "true"
   # The alerts are sent to the email support channels of the contracts, whose address is
   # fictitious, and to the addresses of the ALERT_EMAILS secret of GitHub (README.md).
+  # The job creates the Genie space of the data product in the genie folder of the
+  # workspace root, from the contracts. Its users can ask questions (CAN RUN on the
+  # folder); its queries run with their permissions, so the masking applies. "users" is
+  # the group of all the users of the workspace.
+  cds-demo:genieUsers: ["users"]

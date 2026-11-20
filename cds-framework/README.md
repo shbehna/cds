@@ -268,6 +268,7 @@ per table: success, skipped, warning or error. A run fails if a table is in erro
 | `quality` | Applies DQX checks and writes their results in the `_errors` and `_warnings` columns of each row. |
 | `scd` | Keeps the history (SCD type 2) of the tables with a primary key, in `<table>_history`, whose columns get the tags of those of the table. Purges the versions closed for longer than the `retention` of the contract. |
 | `snapshot` | Loads a table with the latest record of each key of a historical table. |
+| `genie` | Creates the [Genie space](#genie-spaces) of the data product from its contracts, or updates it to match them. It processes the data product, not its tables, and reports a single result. |
 
 ### Quality checks
 
@@ -488,6 +489,23 @@ prints it. Without Spark, they leave out the examples whose function needs the `
 session, and report them as computed at run time; an example whose function fails is an
 error of the space.
 
+The `genie` service creates the space in the workspace, titled `<title> (<environment>)`,
+and keeps its id in the `cds.genie_space_id` property of the schema of the data product.
+The next runs update that space when the contracts or the settings change, leave it
+unchanged otherwise, and create a new one if it was deleted. It reads two runtime
+parameters:
+
+| Parameter | Description |
+| --- | --- |
+| `genie_warehouse_id` | Id of the SQL warehouse running the queries of the space. Required. |
+| `genie_parent_path` | Workspace folder of the space, such as `/Workspace/Shared/genie`. The home folder of the user running the service by default. |
+
+A space inherits the permissions of its folder: grant its users `CAN RUN` on the folder.
+They then ask questions with their own permissions, so column masks and row filters
+apply. The user running the service needs the *Databricks SQL access* entitlement, `CAN
+USE` on the warehouse, and the right to set the properties of the schema, which its owner
+has.
+
 ## Running the services
 
 The `notebooks` folder contains one Databricks notebook per service. A notebook only
@@ -514,7 +532,7 @@ Any other parameter is available to the configuration through the
 environment variables (`CDS_ENVIRONMENT=nprod`) or passed to `run_service`.
 
 A typical pipeline runs `schema`, then `transformation`, then `metadata` and `quality`,
-then `scd`. Running `metadata` after the load keeps the time of the last change of the
+then `scd`, and `genie` after `metadata`. Running `metadata` after the load keeps the time of the last change of the
 tables (`last_altered`) for the loads that succeeded.
 
 ## Command line
