@@ -110,9 +110,11 @@ class DataProductService(Service):
         """Tags a workspace object with the governed tags of its Discover domains.
 
         A dashboard or a Genie space joins a Discover domain with its governed tag, as a
-        table does. The keys of the tags applied are recorded in the ``key`` property of the
-        schema: the next runs remove those no longer expected, and leave the other tags of
-        the object, such as a domain added in the Discover page, untouched.
+        table does. The keys of the tags the service applies are recorded in the ``key``
+        property of the schema, before they are applied: the next runs remove those no
+        longer expected, even after a run that failed halfway. The other tags of the object,
+        such as a domain added in the Discover page, are left untouched, even when the
+        contracts later expect it.
 
         Args:
             entity_type: The type of the object for the tag API: ``dashboards`` or ``geniespaces``.
@@ -127,33 +129,46 @@ class DataProductService(Service):
             The problem, if the object could not be tagged, such as a missing ``ASSIGN``
             permission on a governed tag; ``None`` otherwise.
         """
-        managed = recorded_keys(properties.get(key))
-        if not domains and not managed:
+        recorded = recorded_keys(properties.get(key))
+        if not domains and not recorded:
             return None
-        from databricks.sdk.errors import AlreadyExists, NotFound
+        from databricks.sdk.errors import AlreadyExists, ResourceAlreadyExists
 
+        expected = set(domains)
         path = f"{TAG_ASSIGNMENTS_PATH}/{quote(entity_type, safe='')}/{quote(entity_id, safe='')}/tags"
         try:
             actual = self._tag_keys(path)
-            for tag in domains:
-                if tag not in actual:
-                    with contextlib.suppress(AlreadyExists):
-                        self.api.do(
-                            "POST",
-                            TAG_ASSIGNMENTS_PATH,
-                            body={"entity_type": entity_type, "entity_id": entity_id, "tag_key": tag},
-                        )
-            for tag in sorted((managed - set(domains)) & actual):
-                with contextlib.suppress(NotFound):
-                    self.api.do("DELETE", f"{path}/{quote(tag, safe='')}")
-            if managed != set(domains):
-                self.set_schema_property(schema, key, json.dumps(sorted(domains), ensure_ascii=False))
+            # A tag the object already has is the service's only if it applied it.
+            to_add = sorted(expected - actual)
+            to_remove = sorted((recorded - expected) & actual)
+            pending = recorded | set(to_add)
+            if pending != recorded:
+                self._record_keys(schema, key, pending)
+                recorded = pending
+            for tag in to_add:
+                # Assigned since it was listed, by another run or a user.
+                with contextlib.suppress(AlreadyExists, ResourceAlreadyExists):
+                    self.api.do(
+                        "POST",
+                        TAG_ASSIGNMENTS_PATH,
+                        body={"entity_type": entity_type, "entity_id": entity_id, "tag_key": tag},
+                    )
+            for tag in to_remove:
+                # Not found would mean it was not removed: the error keeps it recorded.
+                self.api.do("DELETE", f"{path}/{quote(tag, safe='')}")
+            applied = (recorded & expected & actual) | set(to_add)
+            if applied != recorded:
+                self._record_keys(schema, key, applied)
         except Exception as exc:
             logger.exception(
                 "%s: cannot tag the %s %s with its Discover domains", self.name, self.object_name, entity_id
             )
             return f"cannot tag it with its Discover domain(s): {type(exc).__name__}: {exc}"
         return None
+
+    def _record_keys(self, schema: str, key: str, keys: Iterable[str]) -> None:
+        """Records the keys of the tags applied by the service in a property of a schema."""
+        self.set_schema_property(schema, key, json.dumps(sorted(keys), ensure_ascii=False))
 
     def _tag_keys(self, path: str) -> set[str]:
         """The keys of the tags of a workspace object, from all the pages of the tag API."""

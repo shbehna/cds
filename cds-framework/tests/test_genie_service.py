@@ -244,7 +244,7 @@ def test_the_space_joins_the_discover_domain_of_its_tables(make_project: MakePro
     status, message = run(service_for(root, spark, api))
 
     [space_id] = api.spaces
-    assert (status, message.rsplit("; ", 1)[1]) == (Status.SUCCESS, "in the Discover domain(s) Ventes")
+    assert (status, message.rsplit(", ", 1)[1]) == (Status.SUCCESS, "in the Discover domain(s) Ventes")
     assert api.tag_api.of("geniespaces", space_id) == {"Ventes"}
     assert spark.statements_matching(rf"'{DOMAINS_PROPERTY}' = '\[\"Ventes\"\]'")
 

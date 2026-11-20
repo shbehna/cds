@@ -151,8 +151,8 @@ def _validate_dashboard(data_product: DataProduct, context: ServiceContext) -> b
     if not data_product.settings(DashboardSettings).enabled:
         return True
     try:
-        dashboard = build_dashboard(data_product, context)["serialized_dashboard"]
         tables = checked_tables(data_product, context)
+        dashboard = build_dashboard(data_product, context, tables)["serialized_dashboard"]
         domains = discover_domains(tables)
     except CdsError as exc:
         print(f"  x Dashboard: {exc}")

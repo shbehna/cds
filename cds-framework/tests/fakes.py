@@ -176,11 +176,13 @@ class FakeTagAssignments:
     Attributes:
         tags: The tag keys of each object, by entity type and id.
         error: An error raised by every call, such as a missing permission.
+        errors: Errors raised by the calls on a tag key, by method and key.
     """
 
     def __init__(self) -> None:
         self.tags: dict[tuple[str, str], set[str]] = {}
         self.error: Exception | None = None
+        self.errors: dict[tuple[str, str], Exception] = {}
 
     def handles(self, path: str) -> bool:
         return path.startswith(TAG_ASSIGNMENTS)
@@ -193,6 +195,8 @@ class FakeTagAssignments:
         if method == "POST" and path == TAG_ASSIGNMENTS:
             entity = (str((body or {})["entity_type"]), str((body or {})["entity_id"]))
             key = str((body or {})["tag_key"])
+            if ("POST", key) in self.errors:
+                raise self.errors["POST", key]
             if key in self.tags.setdefault(entity, set()):
                 raise AlreadyExists(f"Tag assignment with key {key} already exists")
             self.tags[entity].add(key)
@@ -205,6 +209,8 @@ class FakeTagAssignments:
             assignments = [{"entity_type": entity_type, "entity_id": entity_id, "tag_key": tag} for tag in sorted(keys)]
             return {"tag_assignments": assignments} if assignments else {}
         if method == "DELETE" and tag_key is not None:
+            if ("DELETE", tag_key) in self.errors:
+                raise self.errors["DELETE", tag_key]
             if tag_key not in keys:
                 raise NotFound(f"Tag assignment with key {tag_key} does not exist")
             keys.remove(tag_key)

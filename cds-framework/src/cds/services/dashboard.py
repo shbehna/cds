@@ -69,7 +69,8 @@ class DashboardService(DataProductService):
         if not data_product.settings(DashboardSettings).enabled:
             return TableResult.skipped(name, "no dashboard: DashboardSettings.enabled is not set")
         runtime = self.context.runtime_configuration
-        dashboard = build_dashboard(data_product, self.context)
+        tables = checked_tables(data_product, self.context)
+        dashboard = build_dashboard(data_product, self.context, tables)
         warehouse_id = runtime.require(WAREHOUSE_PARAMETER)
         body: dict[str, Any] = {
             "display_name": f"{dashboard['title']} ({self.context.environment})",
@@ -78,7 +79,7 @@ class DashboardService(DataProductService):
         }
         parent_path = runtime.get(PARENT_PATH_PARAMETER)
 
-        domains = discover_domains(checked_tables(data_product, self.context))
+        domains = discover_domains(tables)
         schema = self.context.full_schema_name(data_product)
         properties = self.schema_properties(schema)
         dashboard_id = properties.get(DASHBOARD_PROPERTY)

@@ -110,7 +110,7 @@ class GenieService(DataProductService):
         if problem:
             return TableResult.warning(name, f"{message}; {problem}")
         if domains:
-            message += f"; in the Discover domain(s) {', '.join(domains)}"
+            message += f", in the Discover domain(s) {', '.join(domains)}"
         return TableResult.success(name, message)
 
 

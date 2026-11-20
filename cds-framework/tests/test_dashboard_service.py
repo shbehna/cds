@@ -10,7 +10,12 @@ from unittest.mock import MagicMock
 
 import pytest
 from conftest import PROJECT, MakeProject
-from databricks.sdk.errors import NotFound, PermissionDenied
+from databricks.sdk.errors import (
+    AlreadyExists,
+    NotFound,
+    PermissionDenied,
+    ResourceAlreadyExists,
+)
 from fakes import TAG_ASSIGNMENTS, FakeSpark, FakeTagAssignments
 from test_dashboard import DASHBOARD_CONFIG
 
@@ -280,8 +285,8 @@ def test_a_tagged_dashboard_is_not_tagged_again(make_project: MakeProject, spark
 
 def test_a_changed_domain_replaces_the_tag_it_applied(make_project: MakeProject, spark: FakeSpark) -> None:
     api = FakeLakeview()
-    dashboard_id = created_once(with_domain(make_project), spark, api)
-    api.properties[DOMAINS_PROPERTY] = '["Ventes"]'
+    dashboard_id = created_once(with_domain(make_project, "Ventes/Détail"), spark, api)
+    api.properties[DOMAINS_PROPERTY] = '["Ventes/Détail"]'
     # Added in the Discover page: not a tag of the service.
     api.tag_api.tags[("dashboards", dashboard_id)].add("Autre/Domaine")
 
@@ -290,7 +295,59 @@ def test_a_changed_domain_replaces_the_tag_it_applied(make_project: MakeProject,
     assert status is Status.SUCCESS
     assert message.endswith("in the Discover domain(s) Achats")
     assert api.tag_api.of("dashboards", dashboard_id) == {"Achats", "Autre/Domaine"}
+    # The key of a subdomain tag is a single segment of the path: its slash is encoded.
+    assert ("DELETE", f"{TAG_ASSIGNMENTS}/dashboards/{dashboard_id}/tags/Ventes%2FD%C3%A9tail") in api.calls
     assert spark.statements_matching(rf"'{DOMAINS_PROPERTY}' = '\[\"Achats\"\]'")
+
+
+def test_a_tag_is_recorded_before_it_is_applied(make_project: MakeProject, spark: FakeSpark) -> None:
+    """A run that fails halfway does not lose the tags it applied: the next run removes them."""
+    api = FakeLakeview()
+    dashboard_id = created_once(with_domain(make_project), spark, api)
+    api.properties[DOMAINS_PROPERTY] = '["Ventes"]'
+    api.tag_api.tags[("dashboards", dashboard_id)] = {"Ventes"}
+    api.tag_api.errors["DELETE", "Ventes"] = NotFound("Tag assignment with key Ventes does not exist")
+    achats = with_domain(make_project, "Achats", name="achats")
+
+    status, message = run(service_for(achats, spark, api))
+
+    assert status is Status.WARNING
+    assert message.endswith(
+        "cannot tag it with its Discover domain(s): NotFound: Tag assignment with key Ventes does not exist"
+    )
+    assert api.tag_api.of("dashboards", dashboard_id) == {"Achats", "Ventes"}
+    [recorded] = spark.statements_matching(DOMAINS_PROPERTY)
+    assert recorded.endswith(f"('{DOMAINS_PROPERTY}' = '[\"Achats\", \"Ventes\"]')")
+
+    api.properties[DOMAINS_PROPERTY] = '["Achats", "Ventes"]'
+    del api.tag_api.errors["DELETE", "Ventes"]
+    assert run(service_for(achats, spark, api))[0] is Status.SUCCESS
+    assert api.tag_api.of("dashboards", dashboard_id) == {"Achats"}
+
+
+def test_a_domain_added_in_the_discover_page_is_not_the_services(make_project: MakeProject, spark: FakeSpark) -> None:
+    api = FakeLakeview()
+    root = with_domain(make_project)
+    dashboard_id = created_once(root, spark, api)
+    api.tag_api.tags[("dashboards", dashboard_id)] = {"Ventes"}
+
+    assert run(service_for(root, spark, api))[0] is Status.SUCCESS
+    assert ("POST", TAG_ASSIGNMENTS) not in api.calls
+    assert not spark.statements_matching(DOMAINS_PROPERTY)
+
+    # The contracts no longer expect it: it stays.
+    run(service_for(with_domain(make_project, "Achats", name="achats"), spark, api))
+    assert api.tag_api.of("dashboards", dashboard_id) == {"Achats", "Ventes"}
+
+
+@pytest.mark.parametrize("error", [AlreadyExists("exists"), ResourceAlreadyExists("exists")])
+def test_a_tag_assigned_meanwhile_is_not_an_error(
+    make_project: MakeProject, spark: FakeSpark, error: Exception
+) -> None:
+    api = FakeLakeview()
+    api.tag_api.errors["POST", "Ventes"] = error
+
+    assert run(service_for(with_domain(make_project), spark, api))[0] is Status.SUCCESS
 
 
 def test_the_tags_are_removed_without_a_domain(root: Path, spark: FakeSpark) -> None:
