@@ -51,14 +51,21 @@ MANIFEST = REPOSITORY / "cds-demo" / "manifest" / "req_manifest.json"
 READER_PRIVILEGES = ["USE_CATALOG", "USE_SCHEMA", "SELECT"]
 
 # Services run by the job, with the services they wait for. The metadata step updates the
-# tables on each run: after the load, so that the latency alert sees the failed loads.
+# tables on each run: after the load, so that the latency alert sees the failed loads. The
+# genie step updates the Genie space once the comments of the tables are set.
 TASKS: dict[str, list[str]] = {
     "schema": [],
     "transformation": ["schema"],
     "metadata": ["transformation"],
     "quality": ["transformation"],
     "scd": ["quality"],
+    "genie": ["metadata"],
 }
+# Permission of the users of the Genie space on its folder, which the space inherits: they
+# can view the space and ask questions.
+GENIE_PERMISSION = "CAN_RUN"
+# Application ids of the service principals, as opposed to the names of users and groups.
+UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 ENVIRONMENT_KEY = "cds"
 
 # Schema of the catalog of an environment holding the masking function, created by the
@@ -149,6 +156,12 @@ class Settings:
     # Whether the deployment creates the Discover domains of the contracts and their
     # governed tags, which the job applies to the tables. They belong to the account.
     create_domains: bool = False
+    # Users, groups or service principals granted CAN RUN on the genie folder, and so on
+    # the Genie space the job creates in it: they can ask questions. The folder also
+    # inherits the permissions of its parents: under /Shared, every user already has CAN
+    # MANAGE on it. They need CAN USE on the SQL warehouse, which the deployment does not
+    # grant.
+    genie_users: tuple[str, ...] = ()
     # Time zone of the schedules of the job and of the alerts.
     timezone: str = "America/Toronto"
     # Whether the schedule of the job is paused: the job then runs on demand. Paused unless
@@ -189,6 +202,7 @@ class Settings:
             ),
             create_tag_policies=config.get_bool("createTagPolicies") or False,
             create_domains=config.get_bool("createDomains") or False,
+            genie_users=string_list("genieUsers", config.get_object("genieUsers")),
             timezone=config.get("timezone") or cls.timezone,
             pause_schedule=config.get_bool("pauseSchedule") is not False,
             # A GitHub secret, as the secret of the service principal: the addresses stay out
@@ -208,6 +222,17 @@ def string_list(key: str, value: object, default: tuple[str, ...] = ()) -> tuple
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError(f'cds-demo:{key} must be a list of strings, such as ["a", "b"], not {value!r}.')
     return tuple(value)
+
+
+def access_control(principal: str, permission_level: str) -> databricks.PermissionsAccessControlArgs:
+    """The permission of a principal: a user (an email address), a service principal (an application id) or a group."""
+    if "@" in principal:
+        return databricks.PermissionsAccessControlArgs(user_name=principal, permission_level=permission_level)
+    if UUID.match(principal):
+        return databricks.PermissionsAccessControlArgs(
+            service_principal_name=principal, permission_level=permission_level
+        )
+    return databricks.PermissionsAccessControlArgs(group_name=principal, permission_level=permission_level)
 
 
 def framework_wheel(directory: Path) -> Path:
@@ -659,6 +684,8 @@ def deploy(settings: Settings) -> databricks.Job:
     product_paths = {path: f"{root}/products/{path.relative_to(PRODUCTS).as_posix()}" for path in product_files()}
     dashboard_folder = f"{root}/dashboards"
     alerts_folder = f"{root}/alerts"
+    # The job creates the Genie space of the data product in this folder.
+    genie_folder = f"{root}/genie"
     has_alerts = bool(manifest.get("alerts"))
     # The alerts, and the failed runs of the job, email the support channels and ALERT_EMAILS.
     recipients = [str(address) for address in manifest.get("recipients") or []]
@@ -674,13 +701,28 @@ def deploy(settings: Settings) -> databricks.Job:
         *product_paths.values(),
         f"{dashboard_folder}/{QUALITY_DASHBOARD.name}",
     ]
-    for folder in folders(root, paths, [alerts_folder] if has_alerts else []):
+    for folder in folders(root, paths, [genie_folder, *([alerts_folder] if has_alerts else [])]):
         parent = directories.get(posixpath.dirname(folder))
         directories[folder] = databricks.Directory(
             f"folder:{posixpath.relpath(folder, root)}",
             path=folder,
+            # The Genie space is created by the job, not by the deployment: deleting the
+            # folder deletes it.
+            delete_recursive=folder == genie_folder,
             opts=pulumi.ResourceOptions(depends_on=[parent] if parent else None),
         )
+    genie_access = (
+        [
+            databricks.Permissions(
+                "genie-folder-permissions",
+                directory_path=genie_folder,
+                access_controls=[access_control(principal, GENIE_PERMISSION) for principal in settings.genie_users],
+                opts=pulumi.ResourceOptions(depends_on=[directories[genie_folder]]),
+            )
+        ]
+        if settings.genie_users
+        else []
+    )
 
     def in_folder(path: str) -> pulumi.ResourceOptions:
         return pulumi.ResourceOptions(depends_on=[directories[posixpath.dirname(path)]])
@@ -710,7 +752,7 @@ def deploy(settings: Settings) -> databricks.Job:
         for source, path in product_paths.items()
     ]
 
-    parameters = {
+    parameters: dict[str, pulumi.Input[str]] = {
         "environment": settings.environment,
         "roots": f"/Workspace{root}/products",
         "data_product": settings.data_product,
@@ -718,6 +760,9 @@ def deploy(settings: Settings) -> databricks.Job:
         "max_workers": str(settings.max_workers),
         # Read by the transformations of the demo (products/donnees_qc/req/sources.py).
         "synthetic_data": "true" if settings.synthetic_data else "false",
+        # Read by the genie service: the warehouse of the space, and its folder.
+        "genie_warehouse_id": warehouse.id,
+        "genie_parent_path": f"/Workspace{genie_folder}",
     }
     job = databricks.Job(
         "pipeline",
@@ -762,7 +807,7 @@ def deploy(settings: Settings) -> databricks.Job:
             else None
         ),
         tags={"project": "cds-demo", "environment": settings.environment, "data_product": settings.data_product},
-        opts=pulumi.ResourceOptions(depends_on=[*products, *prerequisites]),
+        opts=pulumi.ResourceOptions(depends_on=[*products, *prerequisites, directories[genie_folder], *genie_access]),
     )
     dashboard = quality_dashboard(settings, dashboard_folder, directories[dashboard_folder], warehouse.id)
     if has_alerts:

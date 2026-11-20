@@ -259,7 +259,10 @@ not say, in French:
 - the masked classification, `restricted`, which the deployment masks
   (`cds-demo:maskedClassifications`).
 
-The deployment does not create the space yet. To see it:
+The `genie` step of the job creates the space, **Registre des entreprises du Québec
+(&lt;environment&gt;)**, and updates it on each run when the contracts change (see
+[deploy/README.md](deploy/README.md#genie-space)). Its queries run with the permissions of
+each user: the addresses are masked. To see the space without deploying it:
 
 ```bash
 uv run cds genie cds-demo/products --data-product donnees_qc.req --environment nprod

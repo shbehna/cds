@@ -82,6 +82,8 @@ def test_job(settings: pipeline.Settings) -> pulumi.Output[None]:
             ("metadata", ["transformation"]),
             ("quality", ["transformation"]),
             ("scd", ["quality"]),
+            # Once the comments of the tables are set.
+            ("genie", ["metadata"]),
         ]
         # A failed service fails the run, and the services after it do not run.
         assert all(value(task, "run_if") is None for task in tasks)
@@ -103,6 +105,8 @@ def test_job(settings: pipeline.Settings) -> pulumi.Output[None]:
             "source_path": "/Volumes/ext/donnees_qc/req",
             "max_workers": "4",
             "synthetic_data": "false",
+            "genie_warehouse_id": "warehouse-of-Serverless Starter Warehouse",
+            "genie_parent_path": "/Workspace/Shared/cds-demo/nprod/genie",
         }
         assert value(run_as, "service_principal_name") == "bf175dc4-c86b-4e88-83e9-9194c485a080"
 
@@ -584,3 +588,51 @@ def test_invalid_alert_emails_are_not_shown() -> None:
         pipeline.alert_emails_from_environment({"ALERT_EMAILS": "me@example.org,secret-name"})
 
     assert "secret-name" not in str(raised.value) and "me@example.org" not in str(raised.value)
+
+
+@pulumi.runtime.test
+def test_genie_folder(settings: pipeline.Settings) -> pulumi.Output[None]:
+    CREATED.clear()
+    job = pipeline.deploy(dataclasses.replace(settings, genie_users=("users", "someone@example.com")))
+
+    def check(_: str) -> None:
+        folders = {
+            args.inputs["path"]: args.inputs.get("deleteRecursive")
+            for args in CREATED
+            if args.typ == "databricks:index/directory:Directory"
+        }
+        # The space in the folder is created by the job: deleting the folder deletes it.
+        assert folders["/Shared/cds-demo/nprod/genie"] is True
+        assert not folders["/Shared/cds-demo/nprod/notebooks"]
+        [permissions] = [args for args in CREATED if args.typ == "databricks:index/permissions:Permissions"]
+        assert permissions.inputs["directoryPath"] == "/Shared/cds-demo/nprod/genie"
+        assert permissions.inputs["accessControls"] == [
+            {"groupName": "users", "permissionLevel": "CAN_RUN"},
+            {"userName": "someone@example.com", "permissionLevel": "CAN_RUN"},
+        ]
+
+    return job.id.apply(check)
+
+
+@pulumi.runtime.test
+def test_no_genie_users_by_default(settings: pipeline.Settings) -> pulumi.Output[None]:
+    CREATED.clear()
+    job = pipeline.deploy(settings)
+
+    def check(_: str) -> None:
+        assert not created("databricks:index/permissions:Permissions")
+
+    return job.id.apply(check)
+
+
+def test_access_control() -> None:
+    sp = "bf175dc4-c86b-4e88-83e9-9194c485a080"
+
+    assert pipeline.access_control("users", "CAN_RUN").group_name == "users"
+    assert pipeline.access_control("someone@example.com", "CAN_RUN").user_name == "someone@example.com"
+    assert pipeline.access_control(sp, "CAN_RUN").service_principal_name == sp
+
+
+def test_the_stacks_grant_the_genie_space_to_the_users() -> None:
+    for stack in ("nprod", "prod"):
+        assert json.loads(stack_config(stack)["genieUsers"]) == ["users"], stack

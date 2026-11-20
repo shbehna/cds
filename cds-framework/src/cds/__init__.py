@@ -3,7 +3,7 @@
 A project describes its data products with ODCS data contracts and Python
 configuration files, in a ``<group>/<data_product>/<contract>`` layout. The services
 implement the data products from the contracts: schema, metadata, transformation,
-quality (DQX), SCD and snapshot; ``cds.genie`` generates their Genie spaces.
+quality (DQX), SCD and snapshot, and the Genie spaces of the data products (genie).
 ``run_service`` runs a service from a Databricks notebook or job.
 """
 
@@ -30,6 +30,7 @@ from cds.injection import ContractInjection
 from cds.runner import run_service
 from cds.runtime import RuntimeConfiguration
 from cds.services import (
+    GenieService,
     MetadataService,
     QualityService,
     ScdService,
@@ -60,6 +61,7 @@ __all__ = [
     "DataProductConfig",
     "Environment",
     "GenieExample",
+    "GenieService",
     "GenieSettings",
     "Group",
     "GroupConfig",
