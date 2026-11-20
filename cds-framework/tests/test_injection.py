@@ -97,3 +97,27 @@ def test_positional_only_parameters_raise(injection: ContractInjection) -> None:
 
     with pytest.raises(InjectionError, match="positional-only"):
         injection.call(function)
+
+
+def test_needs_spark(context: ServiceContext) -> None:
+    injection = ContractInjection(context)
+
+    def by_name(spark: object) -> None: ...
+
+    def by_type(session: SparkSession) -> None: ...
+
+    def without(data_context: DataContext, table: Table | None = None) -> None: ...
+
+    assert injection.needs_spark(by_name)
+    assert injection.needs_spark(by_type)
+    assert not injection.needs_spark(without)
+
+
+def test_spark_is_not_injected_without_a_session(context: ServiceContext) -> None:
+    offline = ServiceContext(spark=None, environment="dev", data_context=context.data_context)
+
+    def function(spark: object) -> None: ...
+
+    with pytest.raises(InjectionError, match="cannot inject the parameter 'spark'"):
+        ContractInjection(offline).call(function)
+    assert ContractInjection(offline).call(lambda data_context: data_context) is context.data_context
