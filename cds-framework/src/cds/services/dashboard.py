@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any
 from cds.config import DashboardSettings
 from cds.dashboard import build_dashboard
 from cds.services.base import TableResult
+from cds.services.checks import checked_tables
+from cds.services.tags import discover_domains
 from cds.services.workspace import DataProductService, folder
 
 if TYPE_CHECKING:
@@ -19,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 # Schema property holding the id of the quality dashboard of the data product of the schema.
 DASHBOARD_PROPERTY = "cds.dashboard_id"
+# Schema property recording the Discover domains the service tagged the dashboard with.
+DOMAINS_PROPERTY = "cds.dashboard_domains"
 # Runtime parameters of the service.
 WAREHOUSE_PARAMETER = "dashboard_warehouse_id"
 PARENT_PATH_PARAMETER = "dashboard_parent_path"
@@ -38,6 +42,10 @@ class DashboardService(DataProductService):
     The dashboard is published with embedded credentials: its viewers see the data with the
     permissions of the user running the service, who needs ``CAN USE`` on the warehouse.
     The columns it may not show are left out of its queries (see ``DashboardSettings``).
+
+    With ``MetadataSettings.discover_domain``, the dashboard joins the Discover domains of
+    its tables: it gets their governed tags, which the user running the service needs
+    ``ASSIGN`` on. A dashboard that cannot be tagged is reported as a warning.
 
     The service processes a data product, not its tables: it reports a single result,
     named after the data product. It is skipped when ``DashboardSettings.enabled`` is not set.
@@ -61,7 +69,8 @@ class DashboardService(DataProductService):
         if not data_product.settings(DashboardSettings).enabled:
             return TableResult.skipped(name, "no dashboard: DashboardSettings.enabled is not set")
         runtime = self.context.runtime_configuration
-        dashboard = build_dashboard(data_product, self.context)
+        tables = checked_tables(data_product, self.context)
+        dashboard = build_dashboard(data_product, self.context, tables)
         warehouse_id = runtime.require(WAREHOUSE_PARAMETER)
         body: dict[str, Any] = {
             "display_name": f"{dashboard['title']} ({self.context.environment})",
@@ -70,8 +79,10 @@ class DashboardService(DataProductService):
         }
         parent_path = runtime.get(PARENT_PATH_PARAMETER)
 
+        domains = discover_domains(tables)
         schema = self.context.full_schema_name(data_product)
-        dashboard_id = self.recorded_id(schema, DASHBOARD_PROPERTY)
+        properties = self.schema_properties(schema)
+        dashboard_id = properties.get(DASHBOARD_PROPERTY)
         existing = self.get_or_none(f"{DASHBOARDS_PATH}/{dashboard_id}") if dashboard_id else None
         # Unlike Genie spaces, a dashboard in the trash can still be read.
         if existing is not None and existing.get("lifecycle_state") == TRASHED:
@@ -95,6 +106,11 @@ class DashboardService(DataProductService):
             warnings.append(f"it is in {existing.get('parent_path')}, not in {parent_path}: move it there")
         published = self._publish(str(dashboard_id), warehouse_id, force=action != "unchanged")
         message = f"{action} the dashboard {dashboard_id} ({body['display_name']}), {published}"
+        problem = self.tag_domains("dashboards", str(dashboard_id), domains, schema, properties, DOMAINS_PROPERTY)
+        if problem:
+            warnings.append(problem)
+        elif domains:
+            message += f", in the Discover domain(s) {', '.join(domains)}"
         if warnings:
             return TableResult.warning(name, f"{message}; {'; '.join(warnings)}")
         return TableResult.success(name, message)

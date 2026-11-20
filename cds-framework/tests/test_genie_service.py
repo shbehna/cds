@@ -10,13 +10,13 @@ from unittest.mock import MagicMock
 
 import pytest
 from conftest import PROJECT, MakeProject
-from databricks.sdk.errors import NotFound
-from fakes import FakeSpark
+from databricks.sdk.errors import NotFound, PermissionDenied
+from fakes import FakeSpark, FakeTagAssignments
 from test_genie import GENIE_CONFIG
 
 from cds import DataContext, GenieService, RuntimeConfiguration, ServiceContext, Status
 from cds.genie import build_space
-from cds.services.genie import SPACE_PROPERTY
+from cds.services.genie import DOMAINS_PROPERTY, SPACE_PROPERTY
 
 SCHEMA_PATH = "/api/2.1/unity-catalog/schemas/dev.sales_orders"
 
@@ -28,6 +28,7 @@ class FakeApi:
         self.properties: dict[str, str] = dict(properties or {})
         self.spaces: dict[str, dict[str, Any]] = {}
         self.calls: list[tuple[str, str]] = []
+        self.tag_api = FakeTagAssignments()
 
     def do(
         self,
@@ -37,6 +38,8 @@ class FakeApi:
         body: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         self.calls.append((method, path))
+        if self.tag_api.handles(path):
+            return self.tag_api.do(method, path, body)
         if path == SCHEMA_PATH and method == "GET":
             return {"full_name": "dev.sales_orders", "properties": dict(self.properties)}
         if path == "/api/2.0/genie/spaces" and method == "POST":
@@ -223,3 +226,34 @@ def test_a_removed_description_is_cleared(root: Path, spark: FakeSpark, make_pro
     assert api.spaces[space_id]["description"] == ""
     # Cleared, the description no longer differs.
     assert run(service_for(without, spark, api))[1].startswith("unchanged ")
+
+
+def test_the_space_joins_the_discover_domain_of_its_tables(make_project: MakeProject, spark: FakeSpark) -> None:
+    group = """
+        from cds import GroupConfig, MetadataSettings
+
+        config = GroupConfig(
+            name="sales",
+            contract_defaults={"domain": "Ventes"},
+            metadata=MetadataSettings(discover_domain=True),
+        )
+    """
+    root = make_project({**PROJECT, "sales/sales_config.py": group, "sales/orders/orders_config.py": GENIE_CONFIG})
+    api = FakeApi()
+
+    status, message = run(service_for(root, spark, api))
+
+    [space_id] = api.spaces
+    assert (status, message.rsplit(", ", 1)[1]) == (Status.SUCCESS, "in the Discover domain(s) Ventes")
+    assert api.tag_api.of("geniespaces", space_id) == {"Ventes"}
+    assert spark.statements_matching(rf"'{DOMAINS_PROPERTY}' = '\[\"Ventes\"\]'")
+
+    api.tag_api.error = PermissionDenied("User does not have ASSIGN on the tag Ventes")
+    api.properties.update({SPACE_PROPERTY: space_id, DOMAINS_PROPERTY: "[]"})
+    status, message = run(service_for(root, spark, api))
+
+    assert status is Status.WARNING
+    assert message.startswith(f"unchanged the Genie space {space_id}")
+    assert message.endswith(
+        "; cannot tag it with its Discover domain(s): PermissionDenied: User does not have ASSIGN on the tag Ventes"
+    )

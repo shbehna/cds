@@ -361,16 +361,25 @@ def serialized_dashboard(tables: Sequence[Table], context: ServiceContext, shown
     }
 
 
-def build_dashboard(data_product: DataProduct, context: ServiceContext) -> dict[str, Any]:
+def build_dashboard(
+    data_product: DataProduct, context: ServiceContext, tables: Sequence[Table] | None = None
+) -> dict[str, Any]:
     """The quality dashboard of a data product: its ``title`` and ``serialized_dashboard``.
 
     The ``serialized_dashboard`` is a mapping: the Lakeview API takes it serialized as a
     JSON string.
 
+    Args:
+        data_product: The data product.
+        context: The service context, which names the tables in its environment.
+        tables: The tables of the data product checked by the quality service, if the
+            caller already has them (see ``checked_tables``): their checks, computed by
+            the functions of their configurations, are then not computed again.
+
     Raises:
         ConfigurationError: If no table of the data product is checked by the quality service.
     """
-    tables = checked_tables(data_product, context)
+    tables = checked_tables(data_product, context) if tables is None else tables
     if not tables:
         raise ConfigurationError(f"{data_product.qualified_name}: no table is checked by the quality service.")
     shown = resolved(data_product.settings(DashboardSettings).shown_classifications)

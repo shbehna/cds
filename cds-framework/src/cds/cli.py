@@ -22,8 +22,8 @@ from cds.dashboard import build_dashboard
 from cds.data_context import DataContext, DataProduct, Table
 from cds.errors import CdsError
 from cds.genie import build_space, run_time_examples
-from cds.services.checks import CheckSet, build_checks, configured_checks
-from cds.services.tags import tag_problems
+from cds.services.checks import CheckSet, build_checks, checked_tables, configured_checks
+from cds.services.tags import discover_domains, tag_problems
 from cds.sla import sla_problems
 
 
@@ -131,6 +131,7 @@ def _validate_genie(data_product: DataProduct, context: ServiceContext) -> bool:
     try:
         space = build_space(data_product, context)["serialized_space"]
         run_time = run_time_examples(data_product, context)
+        domains = discover_domains(data_product.tables)
     except CdsError as exc:
         print(f"  x Genie space: {exc}")
         return False
@@ -141,7 +142,7 @@ def _validate_genie(data_product: DataProduct, context: ServiceContext) -> bool:
     )
     if run_time:
         details += f" + {len(run_time)} example(s) computed at run time"
-    print(f"  + Genie space: {details}")
+    print(f"  + Genie space: {details}{_in_domains(domains)}")
     return True
 
 
@@ -150,13 +151,19 @@ def _validate_dashboard(data_product: DataProduct, context: ServiceContext) -> b
     if not data_product.settings(DashboardSettings).enabled:
         return True
     try:
-        dashboard = build_dashboard(data_product, context)["serialized_dashboard"]
+        tables = checked_tables(data_product, context)
+        dashboard = build_dashboard(data_product, context, tables)["serialized_dashboard"]
+        domains = discover_domains(tables)
     except CdsError as exc:
         print(f"  x Dashboard: {exc}")
         return False
-    tables = "".join(dashboard["datasets"][0]["queryLines"]).count("UNION ALL") + 1
-    print(f"  + Dashboard: {tables} table(s), {len(dashboard['pages'])} page(s)")
+    print(f"  + Dashboard: {len(tables)} table(s), {len(dashboard['pages'])} page(s){_in_domains(domains)}")
     return True
+
+
+def _in_domains(domains: Sequence[str]) -> str:
+    """The Discover domains a workspace object joins, for ``cds validate``."""
+    return f", in the Discover domain(s) {', '.join(domains)}" if domains else ""
 
 
 def _print_dashboard(context: ServiceContext, reference: str) -> int:

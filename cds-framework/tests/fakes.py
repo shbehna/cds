@@ -1,11 +1,12 @@
-"""Test doubles of the Spark objects used by the services: no Spark is needed."""
+"""Test doubles of the Spark objects and of the workspace APIs used by the services: no Spark is needed."""
 
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock
+from urllib.parse import unquote
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession
@@ -164,3 +165,58 @@ def alias(expression: str) -> str:
 
 def _quote(name: str) -> str:
     return ".".join(f"`{part}`" for part in name.split("."))
+
+
+TAG_ASSIGNMENTS = "/api/2.0/entity-tag-assignments"
+
+
+class FakeTagAssignments:
+    """The tags of the workspace objects, as the entity tag assignment API serves them.
+
+    Attributes:
+        tags: The tag keys of each object, by entity type and id.
+        error: An error raised by every call, such as a missing permission.
+        errors: Errors raised by the calls on a tag key, by method and key.
+    """
+
+    def __init__(self) -> None:
+        self.tags: dict[tuple[str, str], set[str]] = {}
+        self.error: Exception | None = None
+        self.errors: dict[tuple[str, str], Exception] = {}
+
+    def handles(self, path: str) -> bool:
+        return path.startswith(TAG_ASSIGNMENTS)
+
+    def do(self, method: str, path: str, body: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        from databricks.sdk.errors import AlreadyExists, NotFound
+
+        if self.error is not None:
+            raise self.error
+        if method == "POST" and path == TAG_ASSIGNMENTS:
+            entity = (str((body or {})["entity_type"]), str((body or {})["entity_id"]))
+            key = str((body or {})["tag_key"])
+            if ("POST", key) in self.errors:
+                raise self.errors["POST", key]
+            if key in self.tags.setdefault(entity, set()):
+                raise AlreadyExists(f"Tag assignment with key {key} already exists")
+            self.tags[entity].add(key)
+            return {"entity_type": entity[0], "entity_id": entity[1], "tag_key": key, "tag_value": ""}
+        # <entity type>/<entity id>/tags[/<tag key>], each part URL-encoded.
+        parts = [unquote(part) for part in path.removeprefix(f"{TAG_ASSIGNMENTS}/").split("/")]
+        entity_type, entity_id, tag_key = parts[0], parts[1], parts[3] if len(parts) > 3 else None
+        keys = self.tags.setdefault((entity_type, entity_id), set())
+        if method == "GET" and tag_key is None:
+            assignments = [{"entity_type": entity_type, "entity_id": entity_id, "tag_key": tag} for tag in sorted(keys)]
+            return {"tag_assignments": assignments} if assignments else {}
+        if method == "DELETE" and tag_key is not None:
+            if ("DELETE", tag_key) in self.errors:
+                raise self.errors["DELETE", tag_key]
+            if tag_key not in keys:
+                raise NotFound(f"Tag assignment with key {tag_key} does not exist")
+            keys.remove(tag_key)
+            return {}
+        raise AssertionError(f"unexpected call {method} {path}")
+
+    def of(self, entity_type: str, entity_id: str) -> set[str]:
+        """The tag keys of an object."""
+        return self.tags.get((entity_type, entity_id), set())

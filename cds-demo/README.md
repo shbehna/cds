@@ -141,7 +141,9 @@ in the subdomain **Registraire des entreprises du Québec** of the domain **Éco
 
 The tables then appear on the page of the subdomain, and on that of the domain. They also
 keep the `domain` tag, `domain = Économie`. The history tables are not in the domain:
-their contract is that of their table.
+their contract is that of their table. The [quality dashboard](#quality-dashboard) and the
+[Genie space](#genie-space) join the subdomain of their tables: the `dashboard` and
+`genie` services tag them with the same governed tag.
 
 A Discover domain is built on its governed tag, and its name is the key of the tag. The
 deployment creates the governed tags and the domains, which the manifest lists, parents

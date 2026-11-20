@@ -170,6 +170,18 @@ def discover_domain(table: Table) -> str | None:
     return tag
 
 
+def discover_domains(tables: Iterable[Table]) -> list[str]:
+    """Returns the governed tags of the Discover domains of tables, sorted.
+
+    The Genie space and the quality dashboard of a data product join the Discover domains
+    of their tables.
+
+    Raises:
+        ContractError: If the Discover domain of a contract is not valid.
+    """
+    return sorted({tag for table in tables if (tag := discover_domain(table))})
+
+
 def certification_value(table: Table) -> str | None:
     """Returns the value of the certification tag of a table, from the status of its contract."""
     certification = table.settings(MetadataSettings).certification
