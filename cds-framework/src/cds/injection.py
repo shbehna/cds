@@ -43,8 +43,10 @@ class ContractInjection:
     """
 
     def __init__(self, context: ServiceContext, **objects: object) -> None:
+        # Without a Spark session, as in ``cds validate``, a function needing one cannot be called.
+        spark: dict[str, object] = {_SPARK: context.spark} if context.has_spark else {}
         self._objects: dict[str, object] = {
-            _SPARK: context.spark,
+            **spark,
             "service_context": context,
             "data_context": context.data_context,
             "runtime_configuration": context.runtime_configuration,
@@ -85,6 +87,28 @@ class ContractInjection:
                     f"Injectable names: {', '.join(self.names)}."
                 )
         return arguments
+
+    def needs_spark(self, function: Callable[..., object]) -> bool:
+        """Whether a function has a parameter resolved as the Spark session.
+
+        That is a parameter named ``spark``, or typed ``SparkSession`` and not named after
+        another injectable object.
+
+        Raises:
+            InjectionError: If the function cannot be inspected.
+        """
+        try:
+            signature = inspect.signature(function)
+        except (TypeError, ValueError) as exc:
+            raise InjectionError(f"Cannot inspect {_describe(function)}: {exc}") from exc
+        hints = _type_hints(function)
+        for parameter in signature.parameters.values():
+            name = ALIASES.get(parameter.name, parameter.name)
+            if name == _SPARK:
+                return True
+            if name not in self._objects and _matches(_SPARK, None, hints.get(parameter.name)):
+                return True
+        return False
 
     def call(self, function: Callable[..., T]) -> T:
         """Calls a function with its injected parameters."""
