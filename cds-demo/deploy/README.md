@@ -101,8 +101,15 @@ dashboard (`genie_warehouse_id`), and the folder (`genie_parent_path`).
 | Folder | `<workspaceRoot>/genie` | Holds the space, created by the job: the deployment does not manage it. Deleting the folder, as `pulumi destroy` does, deletes the space. |
 | Permissions | `CAN RUN` on the folder | The principals of `cds-demo:genieUsers` (`users`, every user of the workspace) can view the space and ask questions: the space inherits the permissions of its folder. |
 
-The space runs its queries with the permissions of the user asking: users need `SELECT` on
-the tables, and see the addresses masked (`****`). The service principal owns the space.
+The folder also inherits the permissions of its parents: under `/Shared`, the default
+workspace root, the `users` group already has `CAN MANAGE` on it, and so on the space. To
+restrict the space to `CAN RUN`, set a `cds-demo:workspaceRoot` outside `/Shared`.
+
+The space runs its queries with the permissions of the user asking, on the SQL warehouse of
+the dashboard: users need `CAN USE` on the warehouse, which the `users` group has on the
+Serverless Starter Warehouse, and `SELECT` on the tables. The deployment does not grant
+them: the permissions of a warehouse are shared with its other uses. Users see the
+addresses masked (`****`). The service principal owns the space.
 
 ### Alerts of the service levels
 
@@ -402,7 +409,7 @@ The stack files are the variables of the deployment.
 | `cds-demo:maskingExemptPrincipals` | Optional. List of the users or groups reading the masked columns as they are, besides the service principal. |
 | `cds-demo:createTagPolicies` | `true`: the deployment creates the governed tag `classification`. It belongs to the account: `true` in `nprod` only. |
 | `cds-demo:createDomains` | `true`: the deployment creates the Discover domains of the contracts and their governed tags (see [Discover domains](#discover-domains)). They belong to the account: `true` in `nprod` only. |
-| `cds-demo:genieUsers` | Optional. List of the users, groups or service principals (application ids) granted `CAN RUN` on the `genie` folder, and so on the Genie space: `["users"]` in both stacks. Nobody but the administrators and the service principal by default. |
+| `cds-demo:genieUsers` | Optional. List of the users, groups or service principals (application ids) granted `CAN RUN` on the `genie` folder, and so on the Genie space: `["users"]` in both stacks. None by default: the folder then only has the permissions it inherits (see [Genie space](#genie-space)). |
 | `cds-demo:timezone` | Time zone of the schedules of the job and of the alerts: `America/Toronto`. |
 | `cds-demo:pauseSchedule` | `true`, the default: the schedule of the job is paused, and the job runs on demand. `true` in `nprod`, `false` in `prod`. |
 

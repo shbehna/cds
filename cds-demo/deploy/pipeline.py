@@ -156,9 +156,11 @@ class Settings:
     # Whether the deployment creates the Discover domains of the contracts and their
     # governed tags, which the job applies to the tables. They belong to the account.
     create_domains: bool = False
-    # Users, groups or service principals granted access to the Genie space, which the job
-    # creates in the genie folder: they can ask questions. Nobody but the administrators
-    # and the service principal by default.
+    # Users, groups or service principals granted CAN RUN on the genie folder, and so on
+    # the Genie space the job creates in it: they can ask questions. The folder also
+    # inherits the permissions of its parents: under /Shared, every user already has CAN
+    # MANAGE on it. They need CAN USE on the SQL warehouse, which the deployment does not
+    # grant.
     genie_users: tuple[str, ...] = ()
     # Time zone of the schedules of the job and of the alerts.
     timezone: str = "America/Toronto"

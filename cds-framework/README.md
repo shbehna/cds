@@ -501,8 +501,10 @@ parameters:
 | `genie_parent_path` | Workspace folder of the space, such as `/Workspace/Shared/genie`. The home folder of the user running the service by default. |
 
 A space inherits the permissions of its folder: grant its users `CAN RUN` on the folder.
-They then ask questions with their own permissions, so column masks and row filters
-apply. The user running the service needs the *Databricks SQL access* entitlement, `CAN
+They then ask questions with their own permissions, on the warehouse of the space: they
+need `CAN USE` on it and `SELECT` on the tables, and column masks and row filters apply.
+If the id of a new space cannot be recorded in the schema, the service deletes the space
+and fails, rather than creating another one on the next run. The user running the service needs the *Databricks SQL access* entitlement, `CAN
 USE` on the warehouse, and the right to set the properties of the schema, which its owner
 has.
 

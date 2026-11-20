@@ -56,6 +56,10 @@ class FakeApi:
         if method == "PATCH":
             self.spaces[space_id].update(body or {})
             return self.spaces[space_id]
+        if method == "DELETE":
+            # Deleted, the space goes to the trash: the API then answers NOT_FOUND.
+            del self.spaces[space_id]
+            return {}
         raise AssertionError(f"unexpected call {method} {path}")
 
 
@@ -191,3 +195,31 @@ def test_the_service_does_not_process_tables(root: Path, spark: FakeSpark) -> No
 
     with pytest.raises(Exception, match="processes data products, not tables"):
         service.process(table)
+
+
+def test_a_space_whose_id_cannot_be_recorded_is_deleted(root: Path, spark: FakeSpark) -> None:
+    """Otherwise the next run would not find it, and would create another one."""
+    api = FakeApi()
+    spark.on(r"^ALTER SCHEMA", RuntimeError("permission denied"))
+
+    status, message = run(service_for(root, spark, api))
+
+    assert (status, message) == (Status.ERROR, "RuntimeError: permission denied")
+    assert api.spaces == {}
+    assert [method for method, _ in api.calls] == ["GET", "POST", "DELETE"]
+
+
+def test_a_removed_description_is_cleared(root: Path, spark: FakeSpark, make_project: MakeProject) -> None:
+    api = FakeApi()
+    run(service_for(root, spark, api))
+    [space_id] = api.spaces
+    api.properties[SPACE_PROPERTY] = space_id
+    without = make_project(
+        {**PROJECT, "sales/orders/orders_config.py": GENIE_CONFIG.replace('description="Orders of the shop.",', "")},
+        name="without",
+    )
+
+    assert run(service_for(without, spark, api))[1].startswith("updated ")
+    assert api.spaces[space_id]["description"] == ""
+    # Cleared, the description no longer differs.
+    assert run(service_for(without, spark, api))[1].startswith("unchanged ")

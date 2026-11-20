@@ -41,5 +41,6 @@ config:
   # The job creates the Genie space of the data product in the genie folder of the
   # workspace root, from the contracts. Its users can ask questions (CAN RUN on the
   # folder); its queries run with their permissions, so the masking applies. "users" is
-  # the group of all the users of the workspace.
+  # the group of all the users of the workspace, which also inherits CAN MANAGE from
+  # /Shared, and has CAN USE on the warehouse.
   cds-demo:genieUsers: ["users"]

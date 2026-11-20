@@ -22,4 +22,9 @@
 
 from cds import GenieService, run_service
 
+# The parameters of the genie service, besides those of every service: set them to run the
+# notebook by hand. The job parameters take precedence.
+dbutils.widgets.text("genie_warehouse_id", "", "SQL warehouse id")
+dbutils.widgets.text("genie_parent_path", "", "Folder of the space")
+
 run_service(GenieService, spark=spark, dbutils=dbutils)

@@ -49,7 +49,8 @@ class GenieService(Service):
       service. The users of the space are granted access on the folder: a space inherits
       the permissions of its folder.
 
-    The space runs its queries with the permissions of each user: column masks and row
+    The space runs its queries with the permissions of each user, on its warehouse: they
+    need ``CAN USE`` on the warehouse and ``SELECT`` on the tables, and column masks and row
     filters apply.
     """
 
@@ -89,9 +90,9 @@ class GenieService(Service):
             "title": f"{space['title']} ({self.context.environment})",
             "warehouse_id": runtime.require(WAREHOUSE_PARAMETER),
             "serialized_space": json.dumps(space["serialized_space"], ensure_ascii=False),
+            # Always sent: an empty description clears that of the space.
+            "description": space["description"] or "",
         }
-        if space["description"]:
-            body["description"] = space["description"]
         parent_path = runtime.get(PARENT_PATH_PARAMETER)
         if parent_path:
             body["parent_path"] = parent_path
@@ -104,14 +105,12 @@ class GenieService(Service):
         if existing is None:
             created = self._api.do("POST", SPACES_PATH, body=body)
             space_id = str(created["space_id"])
-            self.spark.sql(
-                f"ALTER SCHEMA {quote_name(schema)} SET DBPROPERTIES "
-                f"({string_literal(SPACE_PROPERTY)} = {string_literal(space_id)})"
-            )
+            self._record_space_id(schema, space_id)
             action = "created"
         elif _matches(existing, body):
             action = "unchanged"
         else:
+            # The update also moves the space to the folder of the request.
             self._api.do("PATCH", f"{SPACES_PATH}/{space_id}", body=body)
             action = "updated"
         serialized = space["serialized_space"]
@@ -133,8 +132,30 @@ class GenieService(Service):
         value = properties.get(SPACE_PROPERTY)
         return str(value) if value else None
 
+    def _record_space_id(self, schema: str, space_id: str) -> None:
+        """Records the id of a new space in the properties of the schema.
+
+        If it cannot be recorded, the space is deleted, and the error raised: the next run
+        would not find the space, and would create another one.
+        """
+        try:
+            self.spark.sql(
+                f"ALTER SCHEMA {quote_name(schema)} SET DBPROPERTIES "
+                f"({string_literal(SPACE_PROPERTY)} = {string_literal(space_id)})"
+            )
+        except Exception:
+            logger.error("genie: cannot record the Genie space %s in %s: deleting it", space_id, schema)
+            try:
+                self._api.do("DELETE", f"{SPACES_PATH}/{space_id}")
+            except Exception:
+                logger.exception("genie: cannot delete the Genie space %s", space_id)
+            raise
+
     def _get_space(self, space_id: str) -> Mapping[str, Any] | None:
-        """The space with its serialized configuration, ``None`` if it does not exist."""
+        """The space with its serialized configuration, ``None`` if it does not exist.
+
+        A deleted space is in the trash: the API answers ``NOT_FOUND`` for it.
+        """
         from databricks.sdk.errors import NotFound
 
         try:
@@ -145,7 +166,11 @@ class GenieService(Service):
 
 
 def _matches(existing: Mapping[str, Any], body: Mapping[str, Any]) -> bool:
-    """Whether an existing space already has the configuration of a request."""
+    """Whether an existing space already has the configuration of a request.
+
+    The API returns the serialized space as it was sent: the configurations are compared
+    as parsed JSON.
+    """
     try:
         serialized = json.loads(existing.get("serialized_space") or "null")
     except ValueError:
