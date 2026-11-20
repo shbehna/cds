@@ -115,7 +115,7 @@ group, then the framework default).
 | | `certification_tag` | `system.certification_status` |
 | | `classification_tag` | `classification` |
 | | `classifications` | none: any classification |
-| | `discover_domain` | `False`: the tables are not tagged with their Discover domain |
+| | `discover_domain` | `False`: the tables, the Genie space and the dashboard are not in a Discover domain |
 | `GenieSettings` | `enabled` | `False`: the data product has no Genie space |
 | | `title` | the `name` of the ODPS document, else `<group>.<data_product>` |
 | | `instructions`, `sample_questions`, `examples` | none |
@@ -361,9 +361,12 @@ customProperties:
     value: Tax          # governed tag Finance/Tax, in the subdomain Tax of Finance
 ```
 
-The tables of a subdomain also appear on the page of its parent domain. The governed
-tags and the domains are not created by the framework: create them first, with the
-deployment or in the **Discover** page. A domain has up to five levels, each a valid tag
+The tables of a subdomain also appear on the page of its parent domain. The
+[Genie space](#genie-spaces) and the [quality dashboard](#quality-dashboards) of a data
+product join the Discover domains of their tables: the `genie` and `dashboard` services
+tag them with the same governed tags, which the user running them needs `ASSIGN` on. The
+governed tags and the domains are not created by the framework: create them first, with
+the deployment or in the **Discover** page. A domain has up to five levels, each a valid tag
 key, which `cds validate` checks. The `customProperties` of a contract replace those of
 the contract defaults: a contract defining its own repeats the `subdomain`.
 
@@ -496,7 +499,11 @@ error of the space.
 The `genie` service creates the space in the workspace, titled `<title> (<environment>)`,
 and keeps its id in the `cds.genie_space_id` property of the schema of the data product.
 The next runs update that space when the contracts or the settings change, leave it
-unchanged otherwise, and create a new one if it was deleted. It reads two runtime
+unchanged otherwise, and create a new one if it was deleted. With
+`MetadataSettings.discover_domain`, the space joins the Discover domains of its tables
+(see [Tags](#tags)), recorded in the `cds.genie_space_domains`
+property: the next runs remove the domains it no longer has, and leave those added in
+the Discover page. A space that cannot be tagged is a warning. It reads two runtime
 parameters:
 
 | Parameter | Description |
@@ -541,8 +548,9 @@ permissions of the user running the service, which a column mask may exempt, hen
 classified columns left out of the keys. The service keeps its id in the
 `cds.dashboard_id` property of the schema of the data product. The next runs update the
 dashboard when the contracts or the settings change and publish it again, leave it
-unchanged otherwise, and create a new one if it was deleted. It reads two runtime
-parameters:
+unchanged otherwise, and create a new one if it was deleted. As the Genie space, the
+dashboard joins the Discover domains of its tables, recorded in the
+`cds.dashboard_domains` property. It reads two runtime parameters:
 
 | Parameter | Description |
 | --- | --- |
