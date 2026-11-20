@@ -85,7 +85,7 @@ class MetadataService(Service):
         properties = contract_properties(table)
         history: list[str] = []
         if table.settings(MetadataSettings).tags:
-            expected = expected_tags(table)
+            expected = expected_tags(table, self.context.environment.id)
             names = {name: field.name for name, field in fields.items()}
             applied = restricted(expected, names)
             tag_statements, changed = self._tag_statements(full_schema_name, table.name, full_name, applied, names)

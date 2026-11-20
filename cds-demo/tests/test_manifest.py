@@ -41,6 +41,9 @@ def test_the_tables_are_in_the_subdomain_of_the_register(data_context: DataConte
 
     assert {discover_domain(table) for table in tables} == {subdomain}
     assert all(expected_tags(table).table[subdomain] == "" for table in tables)
+    # Only those of prod are on the Discover page, not their nprod copies.
+    assert {discover_domain(table, "prod") for table in tables} == {subdomain}
+    assert {discover_domain(table, "nprod") for table in tables} == {None}
     # The subdomain is created under its parent domain.
     assert manifest.domains(data_context) == [
         {"tag": "Économie", "parent": None},

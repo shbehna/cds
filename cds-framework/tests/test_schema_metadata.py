@@ -160,6 +160,67 @@ def test_metadata_synchronizes_the_tags(make_project: MakeProject, spark: FakeSp
     assert spark.statements.index(properties) == len(spark.statements) - 1
 
 
+@pytest.mark.parametrize(("environment", "tagged"), [("prod", True), ("dev", False)])
+def test_metadata_tags_the_discover_domain_in_its_environments(
+    make_project: MakeProject, spark: FakeSpark, environment: str, tagged: bool
+) -> None:
+    group = """
+        from cds import GroupConfig, MetadataSettings
+
+        config = GroupConfig(
+            name="sales",
+            metadata=MetadataSettings(discover_domain=True, discover_environments=["prod"]),
+            contract_defaults={"domain": "Ventes"},
+        )
+    """
+    root = make_project({**TAGGED_PROJECT, "sales/sales_config.py": group})
+    context = ServiceContext(spark=spark.as_session(), environment=environment, data_context=DataContext.discover(root))
+    spark.add_table(
+        f"{environment}.sales_orders.customer", [FakeField("customer_id", "string"), FakeField("Name", "string")]
+    )
+
+    [result] = run(MetadataService, context).results
+
+    assert result.status is Status.SUCCESS
+    assert bool(spark.statements_matching(r"SET TAGS \(.*'Ventes' = ''")) is tagged
+
+
+def test_metadata_removes_the_discover_domain_outside_its_environments(
+    make_project: MakeProject, spark: FakeSpark
+) -> None:
+    group = """
+        from cds import GroupConfig, MetadataSettings
+
+        config = GroupConfig(
+            name="sales",
+            metadata=MetadataSettings(discover_domain=True, discover_environments=["prod"]),
+            contract_defaults={"domain": "Ventes"},
+        )
+    """
+    root = make_project({**TAGGED_PROJECT, "sales/sales_config.py": group})
+    context = ServiceContext(spark=spark.as_session(), environment="dev", data_context=DataContext.discover(root))
+    spark.add_table(CUSTOMER_TABLE, [FakeField("customer_id", "string"), FakeField("Name", "string")])
+    # Applied by a run before the domain was limited to prod.
+    spark.on(
+        r"FROM `dev`.`information_schema`.`table_tags`",
+        [
+            Row(table_name="customer", tag_name="Ventes", tag_value=""),
+            Row(table_name="customer", tag_name="domain", tag_value="Ventes"),
+        ],
+    )
+    spark.on(
+        r"^SHOW TBLPROPERTIES `dev`.`sales_orders`.`customer`$",
+        [Row(key="cds.tags", value='{"table":["Ventes","domain"]}')],
+    )
+
+    [result] = run(MetadataService, context).results
+
+    assert result.status is Status.SUCCESS
+    assert spark.statements_matching(r"^ALTER TABLE `dev`.`sales_orders`.`customer` UNSET TAGS \('Ventes'\)$")
+    [properties] = spark.statements_matching(r"SET TBLPROPERTIES")
+    assert '"table":["domain"]' in properties
+
+
 def test_metadata_tags_the_columns_of_the_history_table(make_project: MakeProject, spark: FakeSpark) -> None:
     root = make_project(TAGGED_PROJECT)
     context = ServiceContext(spark=spark.as_session(), environment="dev", data_context=DataContext.discover(root))

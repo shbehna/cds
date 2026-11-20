@@ -257,3 +257,32 @@ def test_the_space_joins_the_discover_domain_of_its_tables(make_project: MakePro
     assert message.endswith(
         "; cannot tag it with its Discover domain(s): PermissionDenied: User does not have ASSIGN on the tag Ventes"
     )
+
+
+def test_a_space_outside_the_discover_environments_leaves_its_domain(
+    make_project: MakeProject, spark: FakeSpark
+) -> None:
+    group = """
+        from cds import GroupConfig, MetadataSettings
+
+        config = GroupConfig(
+            name="sales",
+            contract_defaults={"domain": "Ventes"},
+            metadata=MetadataSettings(discover_domain=True, discover_environments=["prod"]),
+        )
+    """
+    root = make_project({**PROJECT, "sales/sales_config.py": group, "sales/orders/orders_config.py": GENIE_CONFIG})
+    api = FakeApi()
+    run(service_for(root, spark, api))
+    [space_id] = api.spaces
+    # Applied by a run before the domain was limited to prod.
+    api.tag_api.tags[("geniespaces", space_id)] = {"Ventes"}
+    api.properties.update({SPACE_PROPERTY: space_id, DOMAINS_PROPERTY: '["Ventes"]'})
+    spark.statements.clear()
+
+    status, message = run(service_for(root, spark, api))
+
+    assert (status, message.startswith(f"unchanged the Genie space {space_id}")) == (Status.SUCCESS, True)
+    assert "Discover" not in message
+    assert api.tag_api.of("geniespaces", space_id) == set()
+    assert spark.statements_matching(rf"'{DOMAINS_PROPERTY}' = '\[\]'")
