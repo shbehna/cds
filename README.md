@@ -12,6 +12,39 @@ tables, load them, check their quality with [DQX](https://databrickslabs.github.
 and keep their history. Conventions apply by default, and can be overridden for a
 group of data products, a data product or a single contract.
 
+## Services
+
+```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 12, "rankSpacing": 80, "padding": 6}}}%%
+flowchart LR
+    odps["<b>ODPS document</b><br/>"]
+    odcs["<b>ODCS data contracts</b><br/>"]
+
+    subgraph services [CDS services]
+        schema["Schema creation"]
+        metadata["Table and field doc and tags"]
+        transformation["Transformation"]
+        quality["Data quality with DQX"]
+        scd["History (SCD Type 2)"]
+        snapshot["Snapshot (latest record)"]
+        genie["Genie space"]
+        dashboard["Quality dashboard"]
+    end
+
+    odcs --> schema & metadata & transformation & quality & scd & snapshot & genie & dashboard
+    odps -.-> schema & metadata & genie & dashboard
+
+    classDef document fill:#dbeafe,stroke:#1d4ed8,color:#0b1f4d
+    classDef service fill:#ecfdf5,stroke:#047857,color:#052e1f
+    class odps,odcs document
+    class schema,metadata,transformation,quality,scd,snapshot,genie,dashboard service
+```
+
+The contracts drive every service. The data product document, when there is one, adds
+the description of the data product and the fields its contracts share (domain, status,
+support...), the title and instructions of its Genie space, and the title of its
+quality dashboard.
+
 ## Repository
 
 | Folder | Content |
