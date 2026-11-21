@@ -52,6 +52,9 @@ schema:
           COD_REGIM_JURI.
         logicalType: string
         physicalType: STRING
+        customProperties:
+          - property: allowedValues
+            value: { reference: domaine_valeur.code, filter: "domaine = 'REGIM_JURI'" }
         required: false
         primaryKey: true
         primaryKeyPosition: 3

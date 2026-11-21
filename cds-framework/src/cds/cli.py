@@ -75,11 +75,11 @@ def offline_checks(table: Table, context: ServiceContext) -> tuple[CheckSet, boo
     Returns:
         The checks, and whether the configuration also defines checks computed at run time.
     """
-    check_set = build_checks(table, context, include_configured=False)
-    dynamic = callable(getattr(table.contract.config, "quality_checks", None))
-    if not dynamic:
+    check_set = build_checks(table, context, include_configured=False, read_values=False)
+    configured = callable(getattr(table.contract.config, "quality_checks", None))
+    if not configured:
         check_set.checks.extend(configured_checks(table, context))
-    return check_set, dynamic
+    return check_set, configured or bool(check_set.run_time)
 
 
 def _validate(context: ServiceContext) -> int:
@@ -99,6 +99,8 @@ def _validate(context: ServiceContext) -> int:
             details += f"{len(check_set.checks)} check(s)"
             if dynamic:
                 details += " + checks computed at run time"
+            for note in check_set.run_time:
+                details += f"\n      computed at run time: {note}"
             for note in check_set.unsupported:
                 details += f"\n      not checked: {note}"
             tags = tag_problems(table)

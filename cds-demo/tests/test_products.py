@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Sequence
+import re
+from collections.abc import Iterable, Mapping, Sequence
 from importlib.resources import files
 from pathlib import Path
 from typing import Any, cast
@@ -130,12 +131,16 @@ class Reader:
 
 
 class Spark:
-    def __init__(self, tables: dict[str, Frame] | None = None) -> None:
+    def __init__(self, domains: Mapping[str, Sequence[str]] | None = None) -> None:
         self.read = Reader()
-        self._tables = tables or {}
+        self.domains = domains or {}
+        self.statements: list[str] = []
 
-    def table(self, name: str) -> Frame:
-        return self._tables[name]
+    def sql(self, statement: str) -> Frame:
+        """Returns the codes of the value domain that a query of allowed values filters."""
+        self.statements.append(statement)
+        [domain] = re.findall(r"\(domaine = '(\w+)'\)$", statement)
+        return Frame(["value"], rows=[{"value": code} for code in self.domains.get(domain, [])])
 
 
 @pytest.fixture(scope="module")
@@ -211,9 +216,7 @@ def test_the_synthetic_files_have_the_columns_of_the_register() -> None:
 def test_the_row_count_threshold_depends_on_the_data_set(
     data_context: DataContext, synthetic_data: bool, minimum: int
 ) -> None:
-    rows = [{"domaine": "ACT_ECON", "code": "0100"}, {"domaine": "REGIM_JURI", "code": "024"}]
-    spark = Spark({"nprod.donnees_qc_req.domaine_valeur": Frame(["domaine", "code"], rows=rows)})
-    context = service_context(data_context, spark, synthetic_data=synthetic_data)
+    context = service_context(data_context, Spark(), synthetic_data=synthetic_data)
 
     checks = {check["name"]: check for check in build_checks(data_context.get_table("entreprise"), context).checks}
 
@@ -279,14 +282,9 @@ def test_history_settings_combine_the_group_and_the_data_product(data_context: D
     assert table.settings(ScdSettings).on_duplicate_keys == "deduplicate"
 
 
-def test_domain_checks_are_valid_for_dqx(data_context: DataContext) -> None:
+def test_the_codes_are_checked_against_their_value_domain(data_context: DataContext) -> None:
     dqx = pytest.importorskip("databricks.labs.dqx.engine")
-    rows = [
-        {"domaine": "ACT_ECON", "code": "0100"},
-        {"domaine": "ACT_ECON", "code": "0110"},
-        {"domaine": "REGIM_JURI", "code": "024"},
-    ]
-    spark = Spark({"nprod.donnees_qc_req.domaine_valeur": Frame(["domaine", "code"], rows=rows)})
+    spark = Spark({"ACT_ECON": ["0110", "0100"], "REGIM_JURI": ["024"]})
     context = service_context(data_context, spark)
 
     for table in data_context.tables:
@@ -294,9 +292,23 @@ def test_domain_checks_are_valid_for_dqx(data_context: DataContext) -> None:
         assert not dqx.DQEngine.validate_checks(checks).has_errors, table.name
 
     entreprise = {check["name"]: check for check in build_checks(data_context.get_table("entreprise"), context).checks}
+    allowed = {
+        name.removesuffix("_is_not_allowed"): check["check"]["arguments"]["allowed"]
+        for name, check in entreprise.items()
+        if name.endswith("_is_not_allowed")
+    }
     # DQX reads bare strings as SQL: the codes are passed as string literals, not as the numbers 100 and 110.
-    arguments = entreprise["code_premiere_activite_is_not_in_domain"]["check"]["arguments"]
-    assert arguments["allowed"] == ["'0100'", "'0110'"]
+    assert allowed == {
+        "code_regime_juridique": ["'024'"],
+        "code_regime_juridique_constitution": ["'024'"],
+        "code_premiere_activite": ["'0100'", "'0110'"],
+        "code_deuxieme_activite": ["'0100'", "'0110'"],
+    }
+    assert {entreprise[f"{column}_is_not_allowed"]["criticality"] for column in allowed} == {"warn"}
+    assert spark.statements[-1] == (
+        "SELECT DISTINCT `code` AS value FROM `nprod`.`donnees_qc_req`.`domaine_valeur` "
+        "WHERE `code` IS NOT NULL AND (domaine = 'ACT_ECON')"
+    )
 
 
 def test_cli_validates_the_products(capsys: pytest.CaptureFixture[str]) -> None:

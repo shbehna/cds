@@ -148,25 +148,35 @@ class Result:
     warnings: set[str] = field(default_factory=set)
 
 
-class DomainTable:
-    """The domaine_valeur table, as read by the quality checks of the value domains."""
+# The query of the allowed values of a column (allowedValues custom property of the contracts).
+ALLOWED_VALUES_QUERY = re.compile(
+    r"SELECT DISTINCT `(?P<column>\w+)` AS value FROM `\w+`\.`\w+`\.`(?P<table>\w+)` "
+    r"WHERE `(?P=column)` IS NOT NULL AND \((?P<filtered>\w+) = '(?P<value>\w+)'\)"
+)
 
-    def __init__(self, rows: list[Row]) -> None:
-        self.rows = rows
 
-    def select(self, *columns: str) -> DomainTable:
-        return self
+@dataclass
+class Values:
+    """The result of a query: its rows."""
+
+    rows: list[Row]
 
     def collect(self) -> list[Row]:
         return self.rows
 
 
 class Spark:
+    """Answers the queries of allowed values from the rows of the committed files."""
+
     def __init__(self, tables: Mapping[str, list[Row]]) -> None:
         self.tables = tables
 
-    def table(self, name: str) -> DomainTable:
-        return DomainTable(self.tables[name.rsplit(".", 1)[1]])
+    def sql(self, statement: str) -> Values:
+        match = ALLOWED_VALUES_QUERY.fullmatch(statement)
+        assert match, f"unexpected query: {statement}"
+        column, filtered, value = match["column"], match["filtered"], match["value"]
+        found = {row[column] for row in self.tables[match["table"]] if row[filtered] == value}
+        return Values([{"value": code} for code in found if code is not None])
 
 
 @pytest.fixture(scope="module")

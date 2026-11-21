@@ -52,6 +52,35 @@ def test_cli_validate(project: Path, capsys: pytest.CaptureFixture[str]) -> None
     assert "+ order: 6 column(s), key (order_id, line), 7 check(s)" in output
 
 
+ALLOWED_VALUES = """
+    apiVersion: v3.2.0
+    kind: DataContract
+    id: c
+    version: 1.0.0
+    schema:
+      - name: code
+        properties:
+          - {name: value, physicalType: STRING}
+      - name: t
+        properties:
+          - name: a
+            physicalType: STRING
+            customProperties:
+              - {property: allowedValues, value: {reference: code.value}}
+"""
+
+
+def test_cli_validate_reports_the_checks_computed_at_run_time(
+    make_project: MakeProject, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = make_project({"s/d/c/c.yaml": ALLOWED_VALUES})
+
+    assert main(["validate", str(root)]) == 0
+    output = capsys.readouterr().out
+    assert "+ t: 1 column(s), key (none), 0 check(s) + checks computed at run time" in output
+    assert "computed at run time: s.d.t.a: allowedValues of s.d.code.value" in output
+
+
 TAGS_CONFIG = """
     from cds import GroupConfig, MetadataSettings
 

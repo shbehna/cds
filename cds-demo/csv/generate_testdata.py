@@ -760,17 +760,17 @@ def entreprise_file(rng: random.Random, found: Sequence[Enterprise]) -> SourceFi
     source.duplicate_key(*picker.pair(), ["NEQ"])
     # Warnings.
     for index in picker.take(5):
-        source.warn(index, "code_regime_juridique_is_not_in_domain", {"COD_REGIM_JURI": rng.choice(UNKNOWN_REGIMES)})
+        source.warn(index, "code_regime_juridique_is_not_allowed", {"COD_REGIM_JURI": rng.choice(UNKNOWN_REGIMES)})
     for index in picker.take(4):
         regime = rng.choice(UNKNOWN_REGIMES)
-        source.warn(index, "code_regime_juridique_constitution_is_not_in_domain", {"COD_REGIM_JURI_CONSTI": regime})
+        source.warn(index, "code_regime_juridique_constitution_is_not_allowed", {"COD_REGIM_JURI_CONSTI": regime})
     for index in picker.take(4):
         activity = rng.choice(UNKNOWN_ACTIVITIES)
-        source.warn(index, "code_premiere_activite_is_not_in_domain", {"COD_ACT_ECON_CAE": activity})
+        source.warn(index, "code_premiere_activite_is_not_allowed", {"COD_ACT_ECON_CAE": activity})
     for index in picker.take(3):
         values = {"COD_ACT_ECON_CAE2": rng.choice(UNKNOWN_ACTIVITIES), "NO_ACT_ECON_ASSUJ2": "2"}
         values["DESC_ACT_ECON_ASSUJ2"] = "AUTRE ACTIVITÉ"
-        source.warn(index, "code_deuxieme_activite_is_not_in_domain", values)
+        source.warn(index, "code_deuxieme_activite_is_not_allowed", values)
     for index in picker.take(4, lambda row: row["COD_FORME_JURI"] in PARTNERSHIPS):
         # The limited liability ends before it starts.
         start = later(rng, date.fromisoformat(source.rows[index]["DAT_IMMAT"]), 30, 400)
@@ -826,11 +826,11 @@ def etablissement_file(rng: random.Random, clean: Sequence[Enterprise]) -> Sourc
     source.duplicate_key(*picker.pair(), ["NEQ", "NO_SUF_ETAB"])
     # Warnings.
     for index in picker.take(10):
-        source.warn(index, "code_premiere_activite_is_not_in_domain", {"COD_ACT_ECON": rng.choice(UNKNOWN_ACTIVITIES)})
+        source.warn(index, "code_premiere_activite_is_not_allowed", {"COD_ACT_ECON": rng.choice(UNKNOWN_ACTIVITIES)})
     for index in picker.take(10):
         values = {"COD_ACT_ECON2": rng.choice(UNKNOWN_ACTIVITIES), "NO_ACT_ECON_ETAB2": "2"}
         values["DESC_ACT_ECON_ETAB2"] = "AUTRE ACTIVITÉ"
-        source.warn(index, "code_deuxieme_activite_is_not_in_domain", values)
+        source.warn(index, "code_deuxieme_activite_is_not_allowed", values)
     return source
 
 
@@ -995,7 +995,7 @@ def continuation_file(rng: random.Random, clean: Sequence[Enterprise]) -> Source
     source.duplicate_key(*picker.pair(), CHANGE_KEY)
     # Warnings.
     for index in picker.take(12):
-        source.warn(index, "code_regime_juridique_is_not_in_domain", {"COD_REGIM_JURI": rng.choice(UNKNOWN_REGIMES)})
+        source.warn(index, "code_regime_juridique_is_not_allowed", {"COD_REGIM_JURI": rng.choice(UNKNOWN_REGIMES)})
     for index in picker.take(8):
         source.warn(index, "date_effet_passee", {"DAT_EFCTVT": a_century_later(source.rows[index]["DAT_EFCTVT"])})
     return source
