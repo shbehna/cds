@@ -1,5 +1,10 @@
-"""Tests of the deployment manifest of the demo, without Spark nor workspace."""
+"""Tests of the deployment manifest of the demo, without Spark nor workspace.
 
+The tests read what they expect from the contracts and their configurations: changing a
+contract only needs regenerating the manifest, not changing the tests.
+"""
+
+import ast
 import json
 import textwrap
 from pathlib import Path
@@ -7,14 +12,26 @@ from typing import Any
 
 import manifest
 import pytest
+import yaml
 
-from cds import ConfigurationError, DataContext
-from cds.services.tags import discover_domain, expected_tags
+from cds import ConfigurationError, DataContext, DataProduct, MetadataSettings, Table
+from cds.config import resolved
+from cds.odcs import SchemaProperty
+from cds.services.tags import DOMAIN_SEPARATOR, discover_domain, expected_tags
+from cds.sla import cron_schedule, quartz_cron, support_emails, table_sla
+
+# The Pulumi program and its stacks.
+DEPLOY = manifest.PRODUCTS.parent / "deploy"
 
 
 @pytest.fixture(scope="module")
 def data_context() -> DataContext:
     return DataContext.discover(manifest.PRODUCTS)
+
+
+@pytest.fixture(scope="module")
+def data_product(data_context: DataContext) -> DataProduct:
+    return data_context.get_data_product(manifest.DATA_PRODUCT)
 
 
 def test_the_committed_manifest_is_up_to_date(data_context: DataContext) -> None:
@@ -25,57 +42,96 @@ def test_the_committed_manifest_is_up_to_date(data_context: DataContext) -> None
     )
 
 
-def test_classification(data_context: DataContext) -> None:
+def test_classification(data_context: DataContext, data_product: DataProduct) -> None:
     document: dict[str, Any] = json.loads(manifest.render(data_context))
+    values = document["classification"]["values"]
 
-    assert document["data_product"] == "donnees_qc.req"
-    assert document["classification"] == {
-        "tag": "classification",
-        "values": ["public", "internal", "confidential", "restricted"],
-    }
+    assert document["data_product"] == data_product.qualified_name
+    assert values == list(resolved(data_product.settings(MetadataSettings).classifications) or [])
+    assert values and len(set(values)) == len(values)
 
 
-def test_the_tables_are_in_the_subdomain_of_the_register(data_context: DataContext) -> None:
-    subdomain = "Économie/Registraire des entreprises du Québec"
-    tables = data_context.get_data_product(manifest.DATA_PRODUCT).tables
+def test_the_tables_are_in_discover_domains(data_product: DataProduct) -> None:
+    for table in data_product.tables:
+        settings = table.settings(MetadataSettings)
+        domain = discover_domain(table)
+        if resolved(settings.discover_domain):
+            assert domain, table.name
+            assert expected_tags(table).table[domain] == "", table.name
+        # The tables are in their domain in the environments of the Discover page, every
+        # environment when none is set; their copies of the other environments are not.
+        environments = resolved(settings.discover_environments)
+        for environment in ("nprod", "prod"):
+            expected = domain if environments is None or environment in environments else None
+            assert discover_domain(table, environment) == expected, (table.name, environment)
 
-    assert {discover_domain(table) for table in tables} == {subdomain}
-    assert all(expected_tags(table).table[subdomain] == "" for table in tables)
-    # Only those of prod are on the Discover page, not their nprod copies.
-    assert {discover_domain(table, "prod") for table in tables} == {subdomain}
-    assert {discover_domain(table, "nprod") for table in tables} == {None}
-    # The subdomain is created under its parent domain.
-    assert manifest.domains(data_context) == [
-        {"tag": "Économie", "parent": None},
-        {"tag": subdomain, "parent": "Économie"},
+
+def test_the_domains_are_listed_parents_first(data_context: DataContext, data_product: DataProduct) -> None:
+    listed = manifest.domains(data_context)
+    tags = [domain["tag"] for domain in listed]
+
+    assert {discover_domain(table) for table in data_product.tables} - {None} <= set(tags)
+    for index, domain in enumerate(listed):
+        parent = domain["parent"]
+        assert parent == ((domain["tag"] or "").rpartition(DOMAIN_SEPARATOR)[0] or None), domain
+        assert parent is None or parent in tags[:index], domain
+
+
+def classified(data_product: DataProduct) -> list[tuple[Table, SchemaProperty]]:
+    return [(table, prop) for table in data_product.tables for prop in table.columns if prop.classification]
+
+
+def test_the_classified_columns_use_the_declared_values(data_product: DataProduct) -> None:
+    values = resolved(data_product.settings(MetadataSettings).classifications) or []
+
+    unknown = [
+        f"{table.name}.{prop.column} ({prop.classification})"
+        for table, prop in classified(data_product)
+        if prop.classification not in values
     ]
 
-
-def test_the_classified_columns_use_the_declared_values(data_context: DataContext) -> None:
-    values = manifest.classification(data_context)["values"]
-    classified = {
-        (table.name, prop.column): prop.classification
-        for table in data_context.get_data_product(manifest.DATA_PRODUCT).tables
-        for prop in table.columns
-        if prop.classification
-    }
-
-    # The addresses: of the establishments, of the home of the enterprises, and of the linked enterprises.
-    assert classified == {
-        (table, f"adresse_ligne_{line}"): "restricted"
-        for table in ("entreprise", "etablissement", "fusion_scission")
-        for line in (1, 2, 3, 4)
-    }
-    assert set(classified.values()) <= set(values)
+    assert unknown == []
 
 
-def test_the_masked_columns_are_strings(data_context: DataContext) -> None:
+def deployment_masked_classifications() -> set[str]:
+    """The classifications the deployment masks: those of its stacks masking the columns.
+
+    A stack masks the classifications of its ``cds-demo:maskedClassifications``, or by
+    default those of ``pipeline.Settings``, read without importing the Pulumi program.
+    """
+    tree = ast.parse((DEPLOY / "pipeline.py").read_text(encoding="utf-8"))
+    [default] = [
+        node.value
+        for definition in tree.body
+        if isinstance(definition, ast.ClassDef) and definition.name == "Settings"
+        for node in definition.body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "masked_classifications"
+        and node.value is not None
+    ]
+    masked: set[str] = set()
+    stacks = sorted(DEPLOY.glob("Pulumi.*.yaml"))
+    assert stacks
+    for stack in stacks:
+        config: dict[str, Any] = (yaml.safe_load(stack.read_text(encoding="utf-8")) or {}).get("config") or {}
+        if str(config.get("cds-demo:masking", "false")).lower() != "true":
+            continue
+        value = config.get("cds-demo:maskedClassifications")
+        if isinstance(value, str):
+            value = json.loads(value)
+        masked.update(ast.literal_eval(default) if value is None else value)
+    return masked
+
+
+def test_the_masked_columns_are_strings(data_product: DataProduct) -> None:
     """The masking function of the deployment (cds-demo/deploy) takes and returns a string."""
+    masked = deployment_masked_classifications()
+
     not_strings = [
         f"{table.name}.{prop.column} ({prop.data_type})"
-        for table in data_context.get_data_product(manifest.DATA_PRODUCT).tables
-        for prop in table.columns
-        if prop.classification == "restricted" and prop.data_type.upper() != "STRING"
+        for table, prop in classified(data_product)
+        if prop.classification in masked and prop.data_type.upper() != "STRING"
     ]
 
     assert not_strings == []
@@ -131,33 +187,46 @@ def test_the_classifications_must_be_those_of_the_data_product(tmp_path: Path) -
         manifest.classification(DataContext.discover(root))
 
 
-def test_the_job_runs_on_the_frequency_of_the_register(data_context: DataContext) -> None:
-    # The register is published twice a month.
-    assert manifest.schedule(data_context) == {"cron": "0 6 1,15 * *", "quartz": "0 0 6 1,15 * ?"}
+def schedules(tables: list[Table], name: str) -> dict[str, str]:
+    """The cron schedule of an SLA of the tables, by table name."""
+    found = {table.name: table_sla(table, name) for table in tables}
+    return {table: cron_schedule(sla[0]) or "" for table, sla in found.items() if sla is not None}
 
 
-def test_the_alerts_check_the_error_rate_and_the_latency(data_context: DataContext) -> None:
-    alerts = {alert["name"]: alert for alert in manifest.build(data_context)["alerts"]}
-    tables = sorted(table.name for table in data_context.get_data_product(manifest.DATA_PRODUCT).tables)
+def test_the_job_runs_on_the_frequency_of_the_tables(data_context: DataContext, data_product: DataProduct) -> None:
+    crons = set(schedules(data_product.tables, "frequency").values())
 
-    assert sorted(alerts) == ["error-rate", "latency"]
-    # The error rate after each load, the latency every day.
-    assert (alerts["error-rate"]["cron"], alerts["error-rate"]["quartz"]) == ("0 12 1,15 * *", "0 0 12 1,15 * ?")
-    assert (alerts["latency"]["cron"], alerts["latency"]["quartz"]) == ("0 7 * * *", "0 0 7 * * ?")
-    for alert in alerts.values():
-        assert all(f"'{table}' AS table_name" in alert["query"] for table in tables)
-        assert "END AS exceeded" in alert["query"]
-    error_rate = alerts["error-rate"]["query"]
-    assert error_rate.count("1.0 AS threshold") == len(tables)
-    assert "count_if(coalesce(size(`_errors`), 0) > 0)" in error_rate
-    assert "FROM `${environment}`.`donnees_qc_req`.`entreprise`" in error_rate
-    latency = alerts["latency"]["query"]
-    assert latency.count("current_timestamp() - INTERVAL '18' DAY") == len(tables)
-    assert "FROM `${environment}`.`information_schema`.`tables` WHERE table_schema = 'donnees_qc_req'" in latency
+    if not crons:
+        assert manifest.schedule(data_context) is None
+        return
+    [cron] = crons
+    assert manifest.schedule(data_context) == {"cron": cron, "quartz": quartz_cron(cron)}
 
 
-def test_the_alerts_are_sent_to_the_support_channel(data_context: DataContext) -> None:
-    assert manifest.recipients(data_context) == ["donnees-qc-req@example.com"]
+def test_the_alerts_check_the_sla_of_the_tables(data_context: DataContext, data_product: DataProduct) -> None:
+    alerts = manifest.build(data_context)["alerts"]
+    slas = {sla: schedules(data_product.tables, sla) for sla in ("errorRate", "latency")}
+
+    assert {alert["sla"] for alert in alerts} == {sla for sla, found in slas.items() if found}
+    for alert in alerts:
+        found = slas[alert["sla"]]
+        [cron] = set(found.values())
+        assert (alert["cron"], alert["quartz"]) == (cron, quartz_cron(cron))
+        # A row per table with the SLA.
+        assert all(f"'{table}' AS table_name" in alert["query"] for table in found)
+        assert f"END AS {manifest.EXCEEDED}" in alert["query"]
+        assert "${environment}" in alert["query"]
+
+
+def test_the_alerts_are_sent_to_the_support_channels(data_context: DataContext, data_product: DataProduct) -> None:
+    addresses = {
+        address
+        for contract in data_product.contracts
+        if contract.document
+        for address in support_emails(contract.document)
+    }
+
+    assert set(manifest.recipients(data_context)) == addresses
 
 
 SLA_CONTRACT = """
