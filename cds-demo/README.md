@@ -15,11 +15,10 @@ products/                                   root folder of the data products
     ├── donnees_qc_config.py                naming conventions, history table names, metadata
     ├── donnees_qc.odcs.yaml                contract defaults of the group: tenant, tags
     └── req/                                data product
-        ├── req_config.py                   history settings, Genie space, quality dashboard
+        ├── req_config.py                   quality and history settings, Genie space, quality dashboard
         ├── req.odps.yaml                   ODPS document: description, domain, status, support, usage
         ├── req.odcs.yaml                   contract defaults: service levels
         ├── sources.py                      reading of the CSV files, shared by the contracts
-        ├── domains.py                      checks of the codes against the value domains
         ├── questions.py                    instructions and questions of the Genie space
         ├── entreprise/
         │   ├── entreprise.yaml             ODCS data contract
@@ -83,10 +82,12 @@ The tables with a primary key have a history table, `<table>_historique`: the
 - **Quality**: the checks are inferred from the contracts: required columns, primary
   keys, foreign keys to `entreprise`, allowed values (`enum`), the format of the
   enterprise number and of the value domains, and custom DQX rules, as warnings, on the
-  consistency of the dates and of the relations. The contract configurations add checks
-  computed at run time: the codes of activities and laws must exist in
-  `domaine_valeur`, and `entreprise` must have at least a million rows (a hundred with
-  the synthetic data set).
+  consistency of the dates and of the relations. The codes of activities and laws must
+  exist in their value domain of `domaine_valeur`: their `allowedValues` custom property
+  names it, and the quality service reads its codes at run time. The register uses
+  codes missing from its value domains: the `req` configuration reports them as
+  warnings. The configuration of `entreprise` adds a check: it must have at least a
+  million rows (a hundred with the synthetic data set).
 - **SCD**: the history uses the primary key of each contract. The register publishes a
   few rows sharing the same key, which the quality service reports: the `req`
   configuration keeps one row per key in the history instead of failing. The history

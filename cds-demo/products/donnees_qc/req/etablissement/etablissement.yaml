@@ -73,6 +73,9 @@ schema:
         description: Code de la première activité économique de l'établissement (domaine de valeur ACT_ECON). Colonne source COD_ACT_ECON.
         logicalType: string
         physicalType: STRING
+        customProperties:
+          - property: allowedValues
+            value: { reference: domaine_valeur.code, filter: "domaine = 'ACT_ECON'" }
       - name: description_premiere_activite
         description: Description de la première activité économique de l'établissement. Colonne source DESC_ACT_ECON_ETAB.
         logicalType: string
@@ -85,6 +88,9 @@ schema:
         description: Code de la deuxième activité économique de l'établissement (domaine de valeur ACT_ECON). Colonne source COD_ACT_ECON2.
         logicalType: string
         physicalType: STRING
+        customProperties:
+          - property: allowedValues
+            value: { reference: domaine_valeur.code, filter: "domaine = 'ACT_ECON'" }
       - name: description_deuxieme_activite
         description: Description de la deuxième activité économique de l'établissement. Colonne source DESC_ACT_ECON_ETAB2.
         logicalType: string

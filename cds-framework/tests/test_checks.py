@@ -5,7 +5,8 @@ from conftest import CUSTOMER, ORDER, MakeProject
 from fakes import FakeDataFrame, FakeSpark, Row
 
 from cds import ConfigurationError, ContractError, DataContext, ServiceContext
-from cds.services.checks import CheckSet, build_checks, literal_values, make_check
+from cds.services import checks as checks_module
+from cds.services.checks import CheckSet, build_checks, checked_tables, literal_values, make_check
 
 RULES = """
     apiVersion: v3.2.0
@@ -288,6 +289,179 @@ def test_configured_checks(make_project: MakeProject, spark: FakeSpark) -> None:
     configured = checks_of(context, "customer").checks[-1]
 
     assert configured["check"]["arguments"] == {"column": "name", "allowed": ["a"]}
+
+
+CODES = """
+    apiVersion: v3.2.0
+    kind: DataContract
+    id: s.d.code
+    version: 1.0.0
+    schema:
+      - name: code
+        properties:
+          - name: kind
+            physicalType: STRING
+          - name: value
+            physicalType: STRING
+"""
+
+CODES_TABLE = "dev.s_d.code"
+CODES_QUERY = r"^SELECT DISTINCT `value` AS value FROM `dev`\.`s_d`\.`code` WHERE `value` IS NOT NULL"
+
+
+def allowed_values(declaration: str, columns: tuple[str, ...] = ("name",)) -> str:
+    """The customer contract, whose columns declare the allowedValues custom property."""
+    contract = CUSTOMER
+    for column in columns:
+        contract = contract.replace(
+            f"          - name: {column}\n",
+            f"          - name: {column}\n            customProperties:\n"
+            f"              - property: allowedValues\n                value: {declaration}\n",
+        )
+    return contract
+
+
+def test_allowed_values_are_read_at_run_time(make_project: MakeProject, spark: FakeSpark) -> None:
+    contract = allowed_values("{reference: code.value, filter: \"kind = 'name'\"}", ("customer_id", "name"))
+    files = {"s/d/customer/customer.yaml": contract, "s/d/code/code.yaml": CODES}
+    spark.add_table(CODES_TABLE, ["kind", "value"])
+    spark.on(CODES_QUERY, [Row(value="b"), Row(value="0100")])
+    context = make_context(spark, files, make_project)
+
+    checks = {check["name"]: check for check in checks_of(context, "customer").checks}
+
+    # DQX reads bare strings as SQL: the values are passed as string literals.
+    assert checks["name_is_not_allowed"] == make_check(
+        "name_is_not_allowed", "error", "is_in_list", column="name", allowed=["'0100'", "'b'"]
+    )
+    assert checks["customer_id_is_not_allowed"]["check"]["arguments"]["allowed"] == ["'0100'", "'b'"]
+    # The columns sharing a reference and a filter read it once.
+    assert spark.statements_matching(CODES_QUERY) == [
+        "SELECT DISTINCT `value` AS value FROM `dev`.`s_d`.`code` WHERE `value` IS NOT NULL AND (kind = 'name') "
+        "LIMIT 10001"
+    ]
+    dqx = pytest.importorskip("databricks.labs.dqx.engine")
+    assert not dqx.DQEngine.validate_checks(list(checks.values())).has_errors
+
+
+def test_allowed_values_criticality(make_project: MakeProject, spark: FakeSpark) -> None:
+    files = {
+        "s/s_config.py": (
+            "from cds import GroupConfig, QualitySettings\n"
+            "config = GroupConfig(name='s', quality=QualitySettings(criticality={'allowed_values': 'warn'}))\n"
+        ),
+        "s/d/customer/customer.yaml": allowed_values("{reference: code.value}"),
+        "s/d/code/code.yaml": CODES,
+    }
+    spark.add_table(CODES_TABLE, ["kind", "value"])
+    spark.on(CODES_QUERY, [Row(value="a")])
+    context = make_context(spark, files, make_project)
+
+    [check] = [check for check in checks_of(context, "customer").checks if check["name"] == "name_is_not_allowed"]
+
+    assert check["criticality"] == "warn"
+    assert spark.statements_matching(CODES_QUERY) == [
+        "SELECT DISTINCT `value` AS value FROM `dev`.`s_d`.`code` WHERE `value` IS NOT NULL LIMIT 10001"
+    ]
+
+
+def test_allowed_values_without_reading_them(make_project: MakeProject, spark: FakeSpark) -> None:
+    files = {
+        "s/d/customer/customer.yaml": allowed_values("{reference: code.value, filter: \"kind = 'name'\"}"),
+        "s/d/code/code.yaml": CODES,
+    }
+    context = make_context(spark, files, make_project)
+
+    check_set = build_checks(context.data_context.get_table("customer"), context, read_values=False)
+
+    assert "name_is_not_allowed" not in {check["name"] for check in check_set.checks}
+    assert check_set.run_time == ["s.d.customer.name: allowedValues of s.d.code.value where kind = 'name'"]
+    assert spark.statements_matching(CODES_QUERY) == []
+
+
+def test_a_table_with_allowed_values_is_checked(make_project: MakeProject, spark: FakeSpark) -> None:
+    contract = CODES.replace(
+        "          - name: kind\n            physicalType: STRING\n",
+        "          - name: kind\n            physicalType: STRING\n            customProperties:\n"
+        "              - {property: allowedValues, value: {reference: code.value}}\n",
+    )
+    context = make_context(spark, {"s/d/code/code.yaml": contract}, make_project)
+
+    tables = checked_tables(context.get_data_product("s.d"), context)
+
+    # Its only check is computed at run time, without reading the values now.
+    assert [table.name for table in tables] == ["code"]
+    assert spark.statements_matching("SELECT DISTINCT") == []
+
+
+@pytest.mark.parametrize(
+    ("exists", "values", "note"),
+    [
+        (False, [], "the table dev.s_d.code does not exist"),
+        # An empty reference would reject every value.
+        (True, [], "no value in s.d.code.value"),
+        (True, ["a", "b", "c"], "more than 2 values in s.d.code.value, declare a foreignKey relationship instead"),
+    ],
+)
+def test_allowed_values_that_cannot_be_checked(
+    make_project: MakeProject,
+    spark: FakeSpark,
+    monkeypatch: pytest.MonkeyPatch,
+    exists: bool,
+    values: list[str],
+    note: str,
+) -> None:
+    monkeypatch.setattr(checks_module, "MAX_ALLOWED_VALUES", 2)
+    files = {"s/d/customer/customer.yaml": allowed_values("{reference: code.value}"), "s/d/code/code.yaml": CODES}
+    if exists:
+        spark.add_table(CODES_TABLE, ["kind", "value"])
+    spark.on(CODES_QUERY, [Row(value=value) for value in values])
+    context = make_context(spark, files, make_project)
+
+    check_set = checks_of(context, "customer")
+
+    assert "name_is_not_allowed" not in {check["name"] for check in check_set.checks}
+    assert check_set.unsupported == [f"s.d.customer.name: allowedValues: {note}"]
+    # A missing table is not read; otherwise at most one more value than allowed is.
+    assert [statement.rsplit(" ", 2)[1:] for statement in spark.statements_matching(CODES_QUERY)] == (
+        [["LIMIT", "3"]] if exists else []
+    )
+
+
+@pytest.mark.parametrize(
+    ("declaration", "message"),
+    [
+        ("code.value", "must be a mapping with a 'reference'"),
+        ("{filter: \"kind = 'name'\"}", "must be a mapping with a 'reference'"),
+        ("{reference: code.value, where: x}", r"unknown key\(s\) where"),
+        ("{reference: code.value, filter: ''}", "filter must be a non-empty SQL expression"),
+        ("{reference: code.missing}", "has no property 'missing'"),
+        ("{reference: code.value, filter: \"kind = 'a') OR (1 = 1\"}", "has unbalanced parentheses"),
+        ("{reference: code.value, filter: \"(kind = 'a'\"}", "has unbalanced parentheses"),
+        ("{reference: code.value, filter: \"kind = 'a' -- x\"}", "must not hold comments or ';'"),
+        ("{reference: code.value, filter: \"kind = 'a' /* x */\"}", "must not hold comments or ';'"),
+        ("{reference: code.value, filter: \"kind = 'a'; SELECT 1\"}", "must not hold comments or ';'"),
+        ('{reference: code.value, filter: "kind = \'a"}', "has an unterminated quote"),
+    ],
+)
+def test_invalid_allowed_values(make_project: MakeProject, spark: FakeSpark, declaration: str, message: str) -> None:
+    files = {"s/d/customer/customer.yaml": allowed_values(declaration), "s/d/code/code.yaml": CODES}
+    context = make_context(spark, files, make_project)
+
+    with pytest.raises(ContractError, match=message):
+        checks_of(context, "customer")
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "kind = 'a'",
+        r"kind IN ('a)', 'l''eau', 'x\'--') AND (`value` <> ';')",
+        "upper(\"kind\") = 'A' OR `a--b` = 1",
+    ],
+)
+def test_filters_may_hold_parentheses_and_comment_marks_in_literals(expression: str) -> None:
+    assert checks_module._filter_problem(expression) is None
 
 
 def test_literal_values() -> None:

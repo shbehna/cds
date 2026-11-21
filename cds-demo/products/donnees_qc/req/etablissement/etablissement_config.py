@@ -1,13 +1,10 @@
 """Configuration of the etablissement contract (source file Etablissements.csv)."""
 
-from typing import Any
-
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col
 
-from cds import ContractConfig, DataProduct, RuntimeConfiguration, ServiceContext
+from cds import ContractConfig, RuntimeConfiguration
 
-from ..domains import domain_checks
 from ..sources import indicator, read_source
 
 
@@ -35,16 +32,4 @@ def transform(spark: SparkSession, runtime_configuration: RuntimeConfiguration) 
     )
 
 
-def quality_checks(
-    spark: SparkSession, service_context: ServiceContext, data_product: DataProduct
-) -> list[dict[str, Any]]:
-    """Checks the activity codes of the establishments against the value domains of the register."""
-    return domain_checks(
-        spark,
-        service_context,
-        data_product,
-        {"code_premiere_activite": "ACT_ECON", "code_deuxieme_activite": "ACT_ECON"},
-    )
-
-
-config = ContractConfig(name="etablissement", transform=transform, quality_checks=quality_checks)
+config = ContractConfig(name="etablissement", transform=transform)

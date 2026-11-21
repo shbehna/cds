@@ -223,7 +223,8 @@ Contracts are ODCS v3 documents (`apiVersion: v3.0.0` to `v3.2.0`). CDS reads:
 - their `properties` as columns, with their `physicalType` (a Databricks SQL type), or
   a type inferred from their `logicalType`, `description`, `required`, `unique`,
   `primaryKey` and `primaryKeyPosition`, `partitioned` and `partitionKeyPosition`,
-  `enum` and `logicalTypeOptions`;
+  `enum` and `logicalTypeOptions`, and the `allowedValues` custom property (see the
+  quality service);
 - `relationships` of type `foreignKey`, with the shorthand notation
   `[[<group>.]<data_product>.]<table>.<property>`, or `schema/<id>/properties/<id>` in
   the same contract;
@@ -284,6 +285,7 @@ The quality service infers checks from the contracts:
 | `required: true`, primary key columns | `is_not_null` |
 | primary key, `unique: true` | `is_unique` |
 | `enum` | `is_in_list` |
+| `allowedValues` custom property | `is_in_list`, with values read at run time |
 | `logicalTypeOptions` `pattern` | `regex_match` |
 | `logicalTypeOptions` `minimum`, `maximum` | `is_in_range`, `is_not_less_than`, `is_not_greater_than` |
 | `logicalTypeOptions` `exclusiveMinimum`, `exclusiveMaximum`, bounds of dates | `sql_expression` |
@@ -309,6 +311,32 @@ checks them. The
 rules and options no check implements, such as the `format` of a DATE column, a
 `timezone` or a misspelled option, are listed by `cds validate`, and logged as
 warnings by the quality service.
+
+When the allowed values of a column are kept in another table, such as a table of
+codes, the `allowedValues` custom property of the property names its column
+(`reference`, with the notation of the relationships), and optionally a SQL expression
+filtering its rows (`filter`):
+
+```yaml
+- name: activity_code
+  physicalType: STRING
+  customProperties:
+    - property: allowedValues
+      value: { reference: code.value, filter: "domain = 'ACTIVITY'" }
+```
+
+The quality service reads the distinct values, nulls excluded, when it checks the table,
+and inlines them in an `is_in_list` check, whose criticality is that of the
+`allowed_values` kind. The column is not checked, and the service logs a warning, when
+the referenced table does not exist (it is loaded before the quality service runs), has
+no value, or has more than 10,000: `allowedValues` suits code tables, and a
+`foreignKey` relationship checks larger references. The table still gets the result
+columns of the quality service.
+
+`cds validate` checks the declaration, without reading the values, and lists these
+checks as computed at run time, as `cds checks` does. The filter must not hold comments
+or `;`, and its parentheses and quotes must be balanced. Its columns are only resolved
+when the values are read: an unknown column fails the quality of the table.
 
 The `quality_checks` of a contract configuration add DQX checks. They can be a
 function, called with injected parameters, to compute checks at run time, for example
