@@ -43,6 +43,12 @@ pulumi.runtime.set_mocks(Mocks(), preview=False)
 import pipeline  # noqa: E402
 from delay import Delay  # noqa: E402
 
+# What the program reads of the contracts: the tests take their expectations from it, so
+# that changing a contract (and regenerating the manifest) does not need changing them.
+MANIFEST = pipeline.load_manifest(pipeline.MANIFEST)
+DOMAIN_TAGS = [domain["tag"] for domain in MANIFEST["domains"]]
+CLASSIFICATION_TAG = MANIFEST["classification"]["tag"]
+
 
 def value(item: object, name: str) -> Any:
     """Reads an attribute of a nested output: a typed object, or a dict with camelCase keys under the mocks."""
@@ -103,7 +109,7 @@ def test_job(settings: pipeline.Settings) -> pulumi.Output[None]:
         assert {value(parameter, "name"): value(parameter, "default") for parameter in parameters} == {
             "environment": "nprod",
             "roots": "/Workspace/Shared/cds-demo/nprod/products",
-            "data_product": "donnees_qc.req",
+            "data_product": MANIFEST["data_product"],
             "source_path": "/Volumes/ext/donnees_qc/req",
             "max_workers": "4",
             "synthetic_data": "false",
@@ -123,14 +129,16 @@ def test_files(settings: pipeline.Settings) -> pulumi.Output[None]:
 
     def check(_: str) -> None:
         paths = {args.inputs["path"] for args in CREATED if args.typ == "databricks:index/workspaceFile:WorkspaceFile"}
-        root = "/Shared/cds-demo/nprod/products/donnees_qc"
-        assert f"{root}/donnees_qc_config.py" in paths
-        assert f"{root}/donnees_qc.odcs.yaml" in paths
-        assert f"{root}/req/req.odcs.yaml" in paths
-        assert f"{root}/req/req.odps.yaml" in paths
-        assert f"{root}/req/sources.py" in paths
-        assert f"{root}/req/entreprise/entreprise.yaml" in paths
-        assert f"{root}/req/entreprise/entreprise_config.py" in paths
+        # The contracts, their partial documents and their configurations.
+        sources = [
+            path
+            for pattern in ("*.py", "*.yaml")
+            for path in pipeline.PRODUCTS.rglob(pattern)
+            if "__pycache__" not in path.parts
+        ]
+        assert sources
+        root = "/Shared/cds-demo/nprod/products"
+        assert {f"{root}/{path.relative_to(pipeline.PRODUCTS).as_posix()}" for path in sources} <= paths
         assert not any("__pycache__" in path for path in paths)
         notebooks = {args.inputs["path"] for args in CREATED if args.typ == "databricks:index/notebook:Notebook"}
         assert notebooks == {f"/Shared/cds-demo/nprod/notebooks/{service}" for service in pipeline.TASKS}
@@ -172,7 +180,7 @@ def test_synthetic_data(settings: pipeline.Settings) -> pulumi.Output[None]:
     def check(parameters: Sequence[Any] | None) -> None:
         uploads = {args.inputs["path"]: args.inputs["source"] for args in created("databricks:index/file:File")}
         names = sorted(path.name for path in pipeline.TESTDATA.glob("*.csv"))
-        assert len(names) == 6
+        assert names
         assert sorted(uploads) == [f"/Volumes/ext/donnees_qc/req/{name}" for name in names]
         assert all(Path(source).parent == pipeline.TESTDATA for source in uploads.values())
         values = {value(parameter, "name"): value(parameter, "default") for parameter in parameters or []}
@@ -260,20 +268,20 @@ DYNAMIC = "pulumi-python:dynamic:Resource"
 @pulumi.runtime.test
 def test_masking(settings: pipeline.Settings) -> pulumi.Output[None]:
     CREATED.clear()
-    masked = dataclasses.replace(
+    masked_settings = dataclasses.replace(
         settings, masking=True, create_tag_policies=True, masking_exempt_principals=("data-stewards",)
     )
-    job = pipeline.deploy(masked)
+    job = pipeline.deploy(masked_settings)
 
     def check(_: str) -> None:
         [tag_policy] = created("databricks:index/tagPolicy:TagPolicy")
-        assert tag_policy.inputs["tagKey"] == "classification"
+        assert tag_policy.inputs["tagKey"] == CLASSIFICATION_TAG
         # The policies wait for the new governed tag to propagate.
-        [delay] = created(DYNAMIC, "tag-policy-propagation:classification")
+        [delay] = created(DYNAMIC, f"tag-policy-propagation:{CLASSIFICATION_TAG}")
         assert delay.inputs["seconds"] == pipeline.TAG_POLICY_PROPAGATION_SECONDS
-        assert delay.inputs["trigger"] == "tag-policy:classification-id"
+        assert delay.inputs["trigger"] == f"tag-policy:{CLASSIFICATION_TAG}-id"
         names = [value(item, "name") for item in tag_policy.inputs["values"]]
-        assert names == ["public", "internal", "confidential", "restricted"]
+        assert names == MANIFEST["classification"]["values"]
         [schema] = created("databricks:index/schema:Schema")
         assert (schema.inputs["catalogName"], schema.inputs["name"]) == ("nprod", "governance")
         [function] = created(DYNAMIC, "mask-function")
@@ -286,14 +294,15 @@ def test_masking(settings: pipeline.Settings) -> pulumi.Output[None]:
         assert value(function.inputs, "client_id") == "bf175dc4-c86b-4e88-83e9-9194c485a080"
         [policy] = created("databricks:index/policyInfo:PolicyInfo")
         inputs = policy.inputs
-        assert inputs["name"] == "mask_restricted"
+        [masked] = masked_settings.masked_classifications
+        assert inputs["name"] == f"mask_{masked}"
         assert (inputs["onSecurableType"], inputs["onSecurableFullname"]) == ("CATALOG", "nprod")
         assert (inputs["forSecurableType"], inputs["policyType"]) == ("TABLE", "POLICY_TYPE_COLUMN_MASK")
         assert inputs["toPrincipals"] == ["account users"]
         # The service principal running the job reads the data as it is.
         assert inputs["exceptPrincipals"] == ["bf175dc4-c86b-4e88-83e9-9194c485a080", "data-stewards"]
         [match] = inputs["matchColumns"]
-        assert value(match, "condition") == "has_tag_value('classification', 'restricted')"
+        assert value(match, "condition") == f"has_tag_value('{CLASSIFICATION_TAG}', '{masked}')"
         mask = inputs["columnMask"]
         assert value(mask, "function_name") == "nprod.governance.mask"
         assert value(mask, "on_column") == value(match, "alias")
@@ -376,29 +385,30 @@ def test_the_stacks_mask_the_classified_columns() -> None:
     assert (nprod["createTagPolicies"], prod["createTagPolicies"]) == ("true", "false")
 
 
-SUBDOMAIN = "Économie/Registraire des entreprises du Québec"
-
-
 @pulumi.runtime.test
 def test_discover_domains(settings: pipeline.Settings) -> pulumi.Output[None]:
     CREATED.clear()
     job = pipeline.deploy(dataclasses.replace(settings, create_domains=True))
 
     def check(_: str) -> None:
-        # The governed tags of the domain and of the subdomain of the register, without values.
+        # The governed tags of the domains of the manifest, without values.
         policies = {args.inputs["tagKey"]: args.inputs for args in created("databricks:index/tagPolicy:TagPolicy")}
-        assert sorted(policies) == ["Économie", SUBDOMAIN]
+        assert sorted(policies) == sorted(DOMAIN_TAGS)
         assert all("values" not in inputs for inputs in policies.values())
         [delay] = created(DYNAMIC, "tag-policy-propagation:domains")
         assert delay.inputs["seconds"] == pipeline.TAG_POLICY_PROPAGATION_SECONDS
-        assert delay.inputs["trigger"] == f"tag-policy:Économie-id,tag-policy:{SUBDOMAIN}-id"
+        assert delay.inputs["trigger"] == ",".join(f"tag-policy:{tag}-id" for tag in DOMAIN_TAGS)
         domains = {args.inputs["tagKey"]: args.inputs for args in created("databricks:index/domain:Domain")}
-        assert sorted(domains) == ["Économie", SUBDOMAIN]
-        # The subdomain is created under its parent; both are published.
-        assert "parentDomainId" not in domains["Économie"]
-        assert domains[SUBDOMAIN]["parentDomainId"] == "domain:Économie-domain-id"
+        assert sorted(domains) == sorted(DOMAIN_TAGS)
+        # A subdomain is created under its parent; all are published.
+        for domain in MANIFEST["domains"]:
+            inputs = domains[domain["tag"]]
+            if domain["parent"] is None:
+                assert "parentDomainId" not in inputs
+            else:
+                assert inputs["parentDomainId"] == f"domain:{domain['parent']}-domain-id"
+            assert inputs["subtitle"] == pipeline.DOMAINS[domain["tag"]].subtitle
         assert all(inputs["draft"] is False for inputs in domains.values())
-        assert domains[SUBDOMAIN]["subtitle"] == pipeline.DOMAINS[SUBDOMAIN].subtitle
         assert all(len(inputs["subtitle"]) <= 280 for inputs in domains.values())
 
     return job.id.apply(check)
@@ -424,7 +434,8 @@ def test_the_discover_domains_are_protected(settings: pipeline.Settings) -> None
 
     # The job waits for the governed tags it applies, after their propagation.
     names = [type(resource).__name__ for resource in resources]
-    assert names == ["TagPolicy", "TagPolicy", "Delay", "Domain", "Domain"]
+    count = len(MANIFEST["domains"])
+    assert names == ["TagPolicy"] * count + ["Delay"] + ["Domain"] * count
     account = [resource for resource in resources if not isinstance(resource, Delay)]
     assert all(isinstance(resource, pulumi.CustomResource) and resource._protect for resource in account)
 
@@ -433,9 +444,9 @@ def test_discover_domain_errors() -> None:
     CREATED.clear()
     with pytest.raises(ValueError, match="Describe the Discover domain"):
         pipeline.discover_domains({"domains": [{"tag": "Santé", "parent": None}]})
-    with pytest.raises(ValueError, match="needs its parent 'Économie' before it"):
+    with pytest.raises(ValueError, match="needs its parent 'Santé' before it"):
         pipeline.discover_domains(
-            {"domains": [{"tag": SUBDOMAIN, "parent": "Économie"}, {"tag": "Économie", "parent": None}]}
+            {"domains": [{"tag": "Santé/Hôpitaux", "parent": "Santé"}, {"tag": "Santé", "parent": None}]}
         )
     assert pipeline.discover_domains({}) == []
     # Nothing is created when the manifest is invalid.
@@ -443,10 +454,7 @@ def test_discover_domain_errors() -> None:
 
 
 def test_the_manifest_domains_are_described() -> None:
-    manifest = pipeline.load_manifest(pipeline.MANIFEST)
-
-    assert manifest["domains"] == [{"tag": "Économie", "parent": None}, {"tag": SUBDOMAIN, "parent": "Économie"}]
-    assert {domain["tag"] for domain in manifest["domains"]} <= set(pipeline.DOMAINS)
+    assert set(DOMAIN_TAGS) <= set(pipeline.DOMAINS)
 
 
 def test_the_stacks_create_the_discover_domains_in_nprod_only() -> None:
@@ -461,8 +469,8 @@ def test_the_job_runs_on_the_frequency_of_the_contracts(settings: pipeline.Setti
 
     def check(schedules: list[Any]) -> None:
         paused_schedule, running_schedule = schedules
-        # The register is published twice a month: the 1st and the 15th, at 6 am.
-        assert value(paused_schedule, "quartz_cron_expression") == "0 0 6 1,15 * ?"
+        # The frequency of the contracts.
+        assert value(paused_schedule, "quartz_cron_expression") == MANIFEST["schedule"]["quartz"]
         assert (value(paused_schedule, "timezone_id"), value(paused_schedule, "pause_status")) == (
             "America/Toronto",
             "PAUSED",
@@ -482,10 +490,10 @@ def test_alerts(settings: pipeline.Settings) -> pulumi.Output[None]:
         assert destination.inputs["displayName"] == "CDS demo alerts (nprod)"
         email = value(destination.inputs["config"], "email")
         # The email support channel of the contracts, and those of the stack.
-        assert value(email, "addresses") == ["donnees-qc-req@example.com", "data-team@example.org"]
+        assert value(email, "addresses") == [*MANIFEST["recipients"], "data-team@example.org"]
 
         alerts = {args.name: args.inputs for args in created("databricks:index/alertV2:AlertV2")}
-        assert sorted(alerts) == ["alert:error-rate", "alert:latency"]
+        assert sorted(alerts) == sorted(f"alert:{alert['name']}" for alert in MANIFEST["alerts"])
         for name, inputs in alerts.items():
             # As the API returns it: the provider sends it again with every update.
             assert inputs["parentPath"] == "/Workspace/Shared/cds-demo/nprod/alerts"
@@ -501,16 +509,16 @@ def test_alerts(settings: pipeline.Settings) -> pulumi.Output[None]:
             assert value(subscription, "destination_id") == "alert-destination-id"
             schedule = inputs["schedule"]
             assert (value(schedule, "timezone_id"), value(schedule, "pause_status")) == ("America/Toronto", "UNPAUSED")
-        # The error rate after each load, the latency every day.
-        assert value(alerts["alert:error-rate"]["schedule"], "quartz_cron_schedule") == "0 0 12 1,15 * ?"
-        assert value(alerts["alert:latency"]["schedule"], "quartz_cron_schedule") == "0 0 7 * * ?"
+        # The schedules and the queries of the manifest, in the environment.
+        for alert in MANIFEST["alerts"]:
+            inputs = alerts[f"alert:{alert['name']}"]
+            assert value(inputs["schedule"], "quartz_cron_schedule") == alert["quartz"]
+            assert inputs["queryText"] == pipeline.environment_query(alert["query"], "nprod")
+            assert inputs["displayName"] == f"REQ {alert['title']} SLA (nprod)"
         # The failed runs of the job email the same addresses.
         [job_args] = created("databricks:index/job:Job")
         failures = value(job_args.inputs["emailNotifications"], "on_failures")
-        assert failures == ["donnees-qc-req@example.com", "data-team@example.org"]
-        assert alerts["alert:error-rate"]["displayName"] == "REQ error rate SLA (nprod)"
-        assert "FROM `nprod`.`donnees_qc_req`.`entreprise`" in alerts["alert:error-rate"]["queryText"]
-        assert "FROM `nprod`.`information_schema`.`tables`" in alerts["alert:latency"]["queryText"]
+        assert failures == [*MANIFEST["recipients"], "data-team@example.org"]
         directories = {args.inputs["path"] for args in CREATED if args.typ == "databricks:index/directory:Directory"}
         assert "/Shared/cds-demo/nprod/alerts" in directories
 
@@ -527,7 +535,7 @@ def test_alerts_without_recipients(settings: pipeline.Settings, tmp_path: Path) 
     def check(_: str) -> None:
         assert not created("databricks:index/notificationDestination:NotificationDestination")
         alerts = created("databricks:index/alertV2:AlertV2")
-        assert len(alerts) == 2
+        assert len(alerts) == len(MANIFEST["alerts"])
         assert all(value(args.inputs["evaluation"], "notification") is None for args in alerts)
         [job_args] = created("databricks:index/job:Job")
         assert "emailNotifications" not in job_args.inputs
@@ -546,7 +554,7 @@ def test_no_schedule_nor_alerts_without_sla(settings: pipeline.Settings, tmp_pat
         assert schedule is None
         # The failed runs of the job still email the support channel.
         [job_args] = created("databricks:index/job:Job")
-        assert value(job_args.inputs["emailNotifications"], "on_failures") == ["donnees-qc-req@example.com"]
+        assert value(job_args.inputs["emailNotifications"], "on_failures") == MANIFEST["recipients"]
         assert not created("databricks:index/alertV2:AlertV2")
         assert not created("databricks:index/notificationDestination:NotificationDestination")
         directories = {args.inputs["path"] for args in CREATED if args.typ == "databricks:index/directory:Directory"}
