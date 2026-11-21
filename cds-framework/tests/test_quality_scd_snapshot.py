@@ -123,8 +123,48 @@ def test_quality_warns_of_options_not_checked(
     assert result.status is Status.SUCCESS
     assert "not checked: sales.orders.customer.name: logicalTypeOptions format: 'hostname'" in result.message
     assert [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING] == [
-        "quality: not checked, no check implements sales.orders.customer.name: logicalTypeOptions format: 'hostname'"
+        "quality: not checked: sales.orders.customer.name: logicalTypeOptions format: 'hostname'"
     ]
+
+
+CODES = """
+    apiVersion: v3.2.0
+    kind: DataContract
+    id: sales.orders.code
+    version: 1.0.0
+    schema:
+      - name: code
+        properties:
+          - name: value
+            physicalType: STRING
+"""
+
+
+def test_quality_adds_the_result_columns_when_no_check_remains_at_run_time(
+    make_project: MakeProject, spark: FakeSpark, engine: FakeEngine
+) -> None:
+    # The only check of the customers is on allowed values, whose reference is empty.
+    contract = CUSTOMER.replace(
+        "            required: true\n            primaryKey: true\n",
+        "            customProperties:\n              - {property: allowedValues, value: {reference: code.value}}\n",
+    )
+    root = make_project({"sales/orders/customer/customer.yaml": contract, "sales/orders/code/code.yaml": CODES})
+    context = ServiceContext(spark=spark.as_session(), environment="dev", data_context=DataContext.discover(root))
+    spark.add_table(CUSTOMER_TABLE, ["customer_id", "name", "created_on"])
+    spark.add_table("dev.sales_orders.code", ["value"])
+    spark.on(r"count_if", [Row(total=10, errors=0, warnings=0)])
+
+    [result] = run(quality_service(context, engine), context).results
+
+    assert result.status is Status.SUCCESS
+    assert result.message == (
+        "0 check(s) on 10 row(s): 0 row(s) with errors, 0 with warnings; not checked: "
+        "sales.orders.customer.customer_id: allowedValues: no value in sales.orders.code.value"
+    )
+    # DQX adds empty results, which the dashboard and the Genie space read.
+    [(_, checks)] = engine.calls
+    assert checks == []
+    assert spark.statements_matching(r"ALTER TABLE `dev`.`sales_orders`.`customer` ADD COLUMNS \(`_errors`")
 
 
 def test_quality_skips_missing_and_disabled_tables(

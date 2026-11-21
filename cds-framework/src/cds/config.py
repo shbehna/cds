@@ -35,7 +35,17 @@ SettingsT = TypeVar("SettingsT", bound=Settings)
 CRITICALITIES = ("error", "warn")
 
 # Kinds of quality checks inferred from the contracts, see QualitySettings.criticality.
-CHECK_KINDS = ("required", "primary_key", "unique", "foreign_key", "enum", "pattern", "format", "range")
+CHECK_KINDS = (
+    "required",
+    "primary_key",
+    "unique",
+    "foreign_key",
+    "enum",
+    "allowed_values",
+    "pattern",
+    "format",
+    "range",
+)
 
 
 def _check_choice(owner: object, name: str, choices: Sequence[str]) -> None:
@@ -90,8 +100,8 @@ class QualitySettings:
         enabled: Whether the tables are checked. Default: ``True``.
         criticality: DQX criticality (``error`` or ``warn``) of the checks inferred from
             the contracts, by kind: ``required``, ``primary_key``, ``unique``,
-            ``foreign_key``, ``enum``, ``pattern``, ``format`` and ``range``. Levels are merged kind
-            by kind. Default: ``error`` for every kind.
+            ``foreign_key``, ``enum``, ``allowed_values``, ``pattern``, ``format`` and ``range``.
+            Levels are merged kind by kind. Default: ``error`` for every kind.
         errors_column: Column holding the errors of each row. Default: ``_errors``.
         warnings_column: Column holding the warnings of each row. Default: ``_warnings``.
         info_column: Column holding the DQX information of each row. Default: ``_dq_info``.

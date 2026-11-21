@@ -73,13 +73,15 @@ def offline_checks(table: Table, context: ServiceContext) -> tuple[CheckSet, boo
     """Returns the checks of a table that can be built without Spark.
 
     Returns:
-        The checks, and whether the configuration also defines checks computed at run time.
+        The checks, and whether checks are computed at run time: by the ``quality_checks``
+        function of the configuration, or from the ``allowedValues`` of the contract
+        (described in ``CheckSet.run_time``).
     """
-    check_set = build_checks(table, context, include_configured=False)
-    dynamic = callable(getattr(table.contract.config, "quality_checks", None))
-    if not dynamic:
+    check_set = build_checks(table, context, include_configured=False, read_values=False)
+    configured = callable(getattr(table.contract.config, "quality_checks", None))
+    if not configured:
         check_set.checks.extend(configured_checks(table, context))
-    return check_set, dynamic
+    return check_set, configured or bool(check_set.run_time)
 
 
 def _validate(context: ServiceContext) -> int:
@@ -89,7 +91,7 @@ def _validate(context: ServiceContext) -> int:
         print(f"{data_product.qualified_name}: {len(data_product.contracts)} contract(s)")
         for table in data_product.tables:
             try:
-                check_set, dynamic = offline_checks(table, context)
+                check_set, run_time = offline_checks(table, context)
                 problems = validator(check_set.checks) if validator else []
             except CdsError as exc:
                 failed = True
@@ -97,8 +99,10 @@ def _validate(context: ServiceContext) -> int:
                 continue
             details = f"{len(table.columns)} column(s), key ({', '.join(table.primary_key) or 'none'}), "
             details += f"{len(check_set.checks)} check(s)"
-            if dynamic:
+            if run_time:
                 details += " + checks computed at run time"
+            for note in check_set.run_time:
+                details += f"\n      computed at run time: {note}"
             for note in check_set.unsupported:
                 details += f"\n      not checked: {note}"
             tags = tag_problems(table)
@@ -201,11 +205,12 @@ def _print_checks(context: ServiceContext, reference: str) -> int:
     data_product = context.get_data_product(reference)
     result: dict[str, Any] = {}
     for table in data_product.tables:
-        check_set, dynamic = offline_checks(table, context)
+        check_set, run_time = offline_checks(table, context)
         result[table.name] = {
             "checks": check_set.checks,
             "not_checked": check_set.unsupported,
-            "run_time_checks": dynamic,
+            "run_time_checks": run_time,
+            "computed_at_run_time": check_set.run_time,
         }
     print(json.dumps(result, indent=2, default=str))
     return 0

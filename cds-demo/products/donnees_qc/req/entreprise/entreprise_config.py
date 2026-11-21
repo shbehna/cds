@@ -5,9 +5,8 @@ from typing import Any
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col
 
-from cds import ContractConfig, DataProduct, RuntimeConfiguration, ServiceContext
+from cds import ContractConfig, RuntimeConfiguration
 
-from ..domains import domain_checks
 from ..sources import indicator, read_source, uses_synthetic_data
 
 # The register counts millions of enterprises: fewer rows reveal a truncated file. The
@@ -73,27 +72,9 @@ def row_count_check(runtime_configuration: RuntimeConfiguration) -> dict[str, An
     }
 
 
-def quality_checks(
-    spark: SparkSession,
-    service_context: ServiceContext,
-    data_product: DataProduct,
-    runtime_configuration: RuntimeConfiguration,
-) -> list[dict[str, Any]]:
-    """Checks the number of enterprises, and their codes against the value domains of the register."""
-    return [
-        row_count_check(runtime_configuration),
-        *domain_checks(
-            spark,
-            service_context,
-            data_product,
-            {
-                "code_regime_juridique": "REGIM_JURI",
-                "code_regime_juridique_constitution": "REGIM_JURI",
-                "code_premiere_activite": "ACT_ECON",
-                "code_deuxieme_activite": "ACT_ECON",
-            },
-        ),
-    ]
+def quality_checks(runtime_configuration: RuntimeConfiguration) -> list[dict[str, Any]]:
+    """Checks the number of enterprises."""
+    return [row_count_check(runtime_configuration)]
 
 
 config = ContractConfig(name="entreprise", transform=transform, quality_checks=quality_checks)

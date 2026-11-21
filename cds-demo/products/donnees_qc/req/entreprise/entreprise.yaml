@@ -51,6 +51,9 @@ schema:
         description: Code du régime juridique sous lequel l'entreprise est constituée (domaine de valeur REGIM_JURI). Colonne source COD_REGIM_JURI.
         logicalType: string
         physicalType: STRING
+        customProperties:
+          - property: allowedValues
+            value: { reference: domaine_valeur.code, filter: "domaine = 'REGIM_JURI'" }
       - name: code_intervalle_employes
         description: Intervalle du nombre d'employés de l'entreprise au Québec (domaine de valeur INTVAL_EMPLO_QUE). Colonne source COD_INTVAL_EMPLO_QUE.
         logicalType: string
@@ -118,6 +121,9 @@ schema:
         description: Code du régime juridique de l'entreprise lors de sa constitution (domaine de valeur REGIM_JURI). Colonne source COD_REGIM_JURI_CONSTI.
         logicalType: string
         physicalType: STRING
+        customProperties:
+          - property: allowedValues
+            value: { reference: domaine_valeur.code, filter: "domaine = 'REGIM_JURI'" }
       - name: date_depot_declaration
         description: Date du dépôt de la dernière déclaration de mise à jour annuelle. Colonne source DAT_DEPO_DECLR.
         logicalType: date
@@ -150,6 +156,9 @@ schema:
         description: Code de la première activité économique de l'entreprise (domaine de valeur ACT_ECON). Colonne source COD_ACT_ECON_CAE.
         logicalType: string
         physicalType: STRING
+        customProperties:
+          - property: allowedValues
+            value: { reference: domaine_valeur.code, filter: "domaine = 'ACT_ECON'" }
       - name: rang_premiere_activite
         description: Rang de la première activité économique de l'entreprise. Colonne source NO_ACT_ECON_ASSUJ.
         logicalType: integer
@@ -162,6 +171,9 @@ schema:
         description: Code de la deuxième activité économique de l'entreprise (domaine de valeur ACT_ECON). Colonne source COD_ACT_ECON_CAE2.
         logicalType: string
         physicalType: STRING
+        customProperties:
+          - property: allowedValues
+            value: { reference: domaine_valeur.code, filter: "domaine = 'ACT_ECON'" }
       - name: rang_deuxieme_activite
         description: Rang de la deuxième activité économique de l'entreprise. Colonne source NO_ACT_ECON_ASSUJ2.
         logicalType: integer
