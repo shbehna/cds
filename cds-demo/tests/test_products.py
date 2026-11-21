@@ -1,4 +1,8 @@
-"""Tests of the data products of the demo, without Spark: PySpark only builds the columns."""
+"""Tests of the data products of the demo, without Spark: PySpark only builds the columns.
+
+The tests read what they expect from the contracts and their configurations: changing a
+contract does not need changing the tests.
+"""
 
 from __future__ import annotations
 
@@ -15,16 +19,17 @@ import pytest
 from pyspark.sql import Column, SparkSession
 from pyspark.sql.connect.expressions import ColumnAlias, ColumnReference, Expression
 
-from cds import ContractInjection, DataContext, RuntimeConfiguration, ScdSettings, ServiceContext
+from cds import ContractInjection, DataContext, QualitySettings, RuntimeConfiguration, ServiceContext, Table
 from cds.cli import main
-from cds.services.checks import build_checks
+from cds.config import resolved
+from cds.odcs import DataContract
+from cds.services.checks import ALLOWED_VALUES, build_checks
 from cds.services.scd import history_table_name
 from cds.services.transformation import conform_to_contract, find_transformation
 
 PRODUCTS = Path(__file__).resolve().parents[1] / "products"
 # JSON schema of ODPS v1.1.0, which no Python package publishes (see schemas/README.md).
 ODPS_SCHEMA = Path(__file__).parent / "schemas" / "odps-json-schema-v1.1.0.json"
-
 # Header of each file of the REQ data set, as published (the files start with a byte order mark).
 SOURCE_HEADERS = {
     "Entreprise.csv": (
@@ -48,14 +53,14 @@ SOURCE_HEADERS = {
     "ContinuationsTransformations.csv": "NEQ,COD_TYP_CHANG,COD_REGIM_JURI,AUTR_REGIM_JURI,NOM_LOCLT,DAT_EFCTVT",
     "DomaineValeur.csv": "TYP_DOM_VAL,COD_DOM_VAL,VAL_DOM_FRAN",
 }
-TABLES = [
-    "continuation_transformation",
-    "domaine_valeur",
-    "entreprise",
-    "etablissement",
-    "fusion_scission",
-    "nom_entreprise",
-]
+TABLES = sorted(table.name for table in DataContext.discover(PRODUCTS).tables)
+# The codes the fake Spark session returns for every query of allowed values.
+CODES = ["0110", "0100"]
+# A query of the allowed values of a column (allowedValues custom property of the contracts).
+ALLOWED_VALUES_QUERY = re.compile(
+    r"SELECT DISTINCT `(?P<column>\w+)` AS value FROM `nprod`\.`\w+`\.`\w+` "
+    r"WHERE `(?P=column)` IS NOT NULL( AND \(.+\))? LIMIT \d+"
+)
 
 
 class Frame:
@@ -127,23 +132,23 @@ class Reader:
         assert options["header"] is True and options["encoding"] == "UTF-8"
         self.paths.append(path)
         # The files of the synthetic data set have the columns of those of the register.
-        columns = SOURCE_HEADERS[path.rsplit("/", 1)[1].replace("_testdata.", ".")].split(",")
+        columns = generate_testdata.HEADERS[path.rsplit("/", 1)[1].replace(f"{generate_testdata.SUFFIX}.", ".")]
+        # The files start with a byte order mark.
         return Frame(["\ufeff" + columns[0], *columns[1:]])
 
 
 class Spark:
-    def __init__(self, domains: Mapping[str, Sequence[str]] | None = None) -> None:
+    def __init__(self) -> None:
         self.read = Reader()
-        self.domains = domains or {}
         self.statements: list[str] = []
 
     def sql(self, statement: str) -> Frame | Tables:
-        """Lists the tables, or returns the codes of the value domain a query of allowed values filters."""
+        """Lists the tables, or returns the codes of a query of allowed values."""
         self.statements.append(statement)
         if statement.startswith("SHOW TABLES IN "):
-            return Tables(["domaine_valeur"])
-        [domain] = re.findall(r"\(domaine = '(\w+)'\) LIMIT \d+$", statement)
-        return Frame(["value"], rows=[{"value": code} for code in self.domains.get(domain, [])])
+            return Tables(TABLES)
+        assert ALLOWED_VALUES_QUERY.fullmatch(statement), f"unexpected query: {statement}"
+        return Frame(["value"], rows=[{"value": code} for code in CODES])
 
 
 class Tables:
@@ -175,11 +180,11 @@ def service_context(
 
 def test_layout(data_context: DataContext) -> None:
     [data_product] = data_context.data_products
-
-    assert data_product.qualified_name == "donnees_qc.req"
-    assert sorted(table.name for table in data_product.tables) == TABLES
     context = service_context(data_context)
-    assert context.full_table_name(data_product.get_table("entreprise")) == "nprod.donnees_qc_req.entreprise"
+
+    names = [context.full_table_name(table) for table in data_product.tables]
+    assert len(set(names)) == len(names) == len(TABLES)
+    assert all(name.startswith("nprod.") for name in names)
 
 
 @pytest.mark.parametrize("table_name", TABLES)
@@ -222,22 +227,27 @@ def test_the_synthetic_data_set_replaces_the_files_of_the_register(data_context:
 
 
 def test_the_synthetic_files_have_the_columns_of_the_register() -> None:
+    # The published files of the register: the transformations read their columns.
     assert {name: ",".join(columns) for name, columns in generate_testdata.HEADERS.items()} == SOURCE_HEADERS
 
 
-@pytest.mark.parametrize(("synthetic_data", "minimum"), [(False, 1_000_000), (True, 100)])
-def test_the_row_count_threshold_depends_on_the_data_set(
-    data_context: DataContext, synthetic_data: bool, minimum: int
-) -> None:
-    context = service_context(data_context, Spark(), synthetic_data=synthetic_data)
+def checks_by_name(table: Table, context: ServiceContext) -> dict[str, dict[str, Any]]:
+    return {check["name"]: check for check in build_checks(table, context).checks}
 
-    checks = {check["name"]: check for check in build_checks(data_context.get_table("entreprise"), context).checks}
 
-    assert checks["row_count_minimum"]["criticality"] == "warn"
-    assert checks["row_count_minimum"]["check"] == {
-        "function": "is_aggr_not_less_than",
-        "arguments": {"column": "*", "aggr_type": "count", "limit": minimum},
-    }
+@pytest.mark.parametrize("table_name", TABLES)
+def test_the_row_count_threshold_depends_on_the_data_set(data_context: DataContext, table_name: str) -> None:
+    table = data_context.get_table(table_name)
+    register = checks_by_name(table, service_context(data_context, synthetic_data=False))
+    synthetic = checks_by_name(table, service_context(data_context, synthetic_data=True))
+
+    # Same checks, whatever the data set; only the thresholds of the row counts differ.
+    assert register.keys() == synthetic.keys()
+    for name, check in register.items():
+        if check["check"]["function"] != "is_aggr_not_less_than":
+            continue
+        limits = (check["check"]["arguments"]["limit"], synthetic[name]["check"]["arguments"]["limit"])
+        assert limits[1] <= generate_testdata.ROWS < limits[0], f"{name}: {limits}"
 
 
 @pytest.mark.parametrize("table_name", TABLES)
@@ -252,78 +262,70 @@ def test_contracts_follow_the_odcs_schema(data_context: DataContext, table_name:
     assert not errors, [f"{list(error.absolute_path)}: {error.message}" for error in errors]
 
 
-def test_the_data_product_follows_the_odps_schema(data_context: DataContext) -> None:
+def test_the_data_products_follow_the_odps_schema(data_context: DataContext) -> None:
     jsonschema = pytest.importorskip("jsonschema")
     schema = json.loads(ODPS_SCHEMA.read_text(encoding="utf-8"))
-    document = data_context.get_data_product("donnees_qc.req").document
-    assert document is not None
 
-    errors = sorted(jsonschema.Draft201909Validator(schema).iter_errors(document.raw), key=str)
-
-    assert not errors, [f"{list(error.absolute_path)}: {error.message}" for error in errors]
-
-
-def test_the_odps_document_describes_the_data_product(data_context: DataContext) -> None:
-    data_product = data_context.get_data_product("donnees_qc.req")
-    document = data_context.get_table("entreprise").contract.document
-    assert document is not None
-
-    assert (data_product.description or "").startswith("Registre des entreprises du Québec : ")
-    assert (document.domain, document.status, document.custom_properties["subdomain"]) == (
-        "Économie",
-        "active",
-        "Registraire des entreprises du Québec",
-    )
-    assert [channel.channel for channel in document.support] == ["donnees-qc-req"]
-    assert [prop.property for prop in document.sla_properties] == ["frequency", "latency", "errorRate", "retention"]
+    for data_product in data_context.data_products:
+        document = data_product.document
+        assert document is not None
+        errors = sorted(jsonschema.Draft201909Validator(schema).iter_errors(document.raw), key=str)
+        assert not errors, [f"{list(error.absolute_path)}: {error.message}" for error in errors]
+        assert document.id == data_product.qualified_name
 
 
-def test_contract_defaults_are_applied(data_context: DataContext) -> None:
-    document = data_context.get_table("entreprise").contract.document
-    assert document is not None
+def inherited(defaults: Mapping[str, Any], own: Mapping[str, Any], merged: Mapping[str, Any]) -> list[str]:
+    """The defaults a merged document lacks: those its own document does not set, recursively in mappings."""
+    missing = []
+    for key, value in defaults.items():
+        if key not in own:
+            if merged.get(key) != value:
+                missing.append(key)
+        elif isinstance(value, Mapping) and isinstance(own[key], Mapping):
+            missing.extend(f"{key}.{name}" for name in inherited(value, own[key], merged.get(key, {})))
+    return missing
 
-    assert document.tenant == "cds-demo"
-    assert document.data_product == "donnees_qc.req"
-    assert document.description["purpose"].startswith("Informations générales")
-    assert "CC BY-NC-SA 4.0" in document.description["limitations"]
+
+def test_the_contracts_inherit_the_defaults_they_do_not_set(data_context: DataContext) -> None:
+    """The defaults of the group, the ODPS document and the partial contract of the data product."""
+    for contract in data_context.contracts:
+        document = contract.document
+        assert document is not None
+        own = DataContract.from_file(contract.document_path).raw
+
+        assert inherited(contract.data_product.contract_defaults, own, document.raw) == [], contract.name
+        assert document.data_product == contract.data_product.qualified_name
 
 
-def test_history_settings_combine_the_group_and_the_data_product(data_context: DataContext) -> None:
-    table = data_context.get_table("entreprise")
+def test_the_history_tables_do_not_replace_tables(data_context: DataContext) -> None:
+    names = {table.name for table in data_context.tables}
+    histories = [history_table_name(table) for table in data_context.tables if table.primary_key]
 
-    assert history_table_name(table) == "entreprise_historique"
-    assert table.settings(ScdSettings).on_duplicate_keys == "deduplicate"
+    assert len(set(histories)) == len(histories)
+    assert not names & set(histories)
 
 
 def test_the_codes_are_checked_against_their_value_domain(data_context: DataContext) -> None:
     dqx = pytest.importorskip("databricks.labs.dqx.engine")
-    spark = Spark({"ACT_ECON": ["0110", "0100"], "REGIM_JURI": ["024"]})
-    context = service_context(data_context, spark)
+    context = service_context(data_context)
 
     for table in data_context.tables:
-        checks = build_checks(table, context).checks
-        assert not dqx.DQEngine.validate_checks(checks).has_errors, table.name
-
-    entreprise = {check["name"]: check for check in build_checks(data_context.get_table("entreprise"), context).checks}
-    allowed = {
-        name.removesuffix("_is_not_allowed"): check["check"]["arguments"]["allowed"]
-        for name, check in entreprise.items()
-        if name.endswith("_is_not_allowed")
-    }
-    # DQX reads bare strings as SQL: the codes are passed as string literals, not as the numbers 100 and 110.
-    assert allowed == {
-        "code_regime_juridique": ["'024'"],
-        "code_regime_juridique_constitution": ["'024'"],
-        "code_premiere_activite": ["'0100'", "'0110'"],
-        "code_deuxieme_activite": ["'0100'", "'0110'"],
-    }
-    assert {entreprise[f"{column}_is_not_allowed"]["criticality"] for column in allowed} == {"warn"}
-    assert spark.statements[-1] == (
-        "SELECT DISTINCT `code` AS value FROM `nprod`.`donnees_qc_req`.`domaine_valeur` "
-        "WHERE `code` IS NOT NULL AND (domaine = 'ACT_ECON') LIMIT 10001"
-    )
+        checks = checks_by_name(table, context)
+        assert not dqx.DQEngine.validate_checks(list(checks.values())).has_errors, table.name
+        # The checks inferred from the contracts are errors, unless the settings say otherwise.
+        criticality = (resolved(table.settings(QualitySettings).criticality) or {}).get("allowed_values", "error")
+        for prop in table.columns:
+            if ALLOWED_VALUES not in prop.custom_properties:
+                continue
+            check = checks[f"{prop.column}_is_not_allowed"]
+            assert check["criticality"] == criticality, prop.column
+            # The values of a column of another table, read at run time. DQX reads bare
+            # strings as SQL: the codes read are passed as string literals, sorted.
+            assert check["check"]["arguments"]["allowed"] == [f"'{code}'" for code in sorted(CODES)], prop.column
 
 
-def test_cli_validates_the_products(capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_validates_the_products(data_context: DataContext, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["validate", str(PRODUCTS), "--environment", "nprod"]) == 0
-    assert "+ entreprise: 37 column(s)" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    for table in data_context.tables:
+        assert f"+ {table.name}: {len(table.columns)} column(s)" in output
