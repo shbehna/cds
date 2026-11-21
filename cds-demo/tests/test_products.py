@@ -7,6 +7,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from importlib.resources import files
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import generate_testdata
@@ -136,11 +137,23 @@ class Spark:
         self.domains = domains or {}
         self.statements: list[str] = []
 
-    def sql(self, statement: str) -> Frame:
-        """Returns the codes of the value domain that a query of allowed values filters."""
+    def sql(self, statement: str) -> Frame | Tables:
+        """Lists the tables, or returns the codes of the value domain a query of allowed values filters."""
         self.statements.append(statement)
-        [domain] = re.findall(r"\(domaine = '(\w+)'\)$", statement)
+        if statement.startswith("SHOW TABLES IN "):
+            return Tables(["domaine_valeur"])
+        [domain] = re.findall(r"\(domaine = '(\w+)'\) LIMIT \d+$", statement)
         return Frame(["value"], rows=[{"value": code} for code in self.domains.get(domain, [])])
+
+
+class Tables:
+    """The result of SHOW TABLES."""
+
+    def __init__(self, names: Iterable[str]) -> None:
+        self.names = list(names)
+
+    def collect(self) -> list[SimpleNamespace]:
+        return [SimpleNamespace(tableName=name) for name in self.names]
 
 
 @pytest.fixture(scope="module")
@@ -307,7 +320,7 @@ def test_the_codes_are_checked_against_their_value_domain(data_context: DataCont
     assert {entreprise[f"{column}_is_not_allowed"]["criticality"] for column in allowed} == {"warn"}
     assert spark.statements[-1] == (
         "SELECT DISTINCT `code` AS value FROM `nprod`.`donnees_qc_req`.`domaine_valeur` "
-        "WHERE `code` IS NOT NULL AND (domaine = 'ACT_ECON')"
+        "WHERE `code` IS NOT NULL AND (domaine = 'ACT_ECON') LIMIT 10001"
     )
 
 

@@ -325,11 +325,18 @@ filtering its rows (`filter`):
       value: { reference: code.value, filter: "domain = 'ACTIVITY'" }
 ```
 
-The quality service reads the distinct values, nulls excluded, when it checks the table:
-the referenced table must be loaded before. If there are none, the column is not
-checked, and the service logs a warning. Their criticality is that of the
-`allowed_values` kind. `cds validate` checks the declaration and lists these checks as
-computed at run time.
+The quality service reads the distinct values, nulls excluded, when it checks the table,
+and inlines them in an `is_in_list` check, whose criticality is that of the
+`allowed_values` kind. The column is not checked, and the service logs a warning, when
+the referenced table does not exist (it is loaded before the quality service runs), has
+no value, or has more than 10,000: `allowedValues` suits code tables, and a
+`foreignKey` relationship checks larger references. The table still gets the result
+columns of the quality service.
+
+`cds validate` checks the declaration, without reading the values, and lists these
+checks as computed at run time, as `cds checks` does. The filter must not hold comments
+or `;`, and its parentheses and quotes must be balanced. Its columns are only resolved
+when the values are read: an unknown column fails the quality of the table.
 
 The `quality_checks` of a contract configuration add DQX checks. They can be a
 function, called with injected parameters, to compute checks at run time, for example

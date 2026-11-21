@@ -10,7 +10,7 @@ from cds.config import QualitySettings
 from cds.data_context import DataProduct, Table
 from cds.errors import ConfigurationError
 from cds.services.base import Service, TableResult
-from cds.services.checks import build_checks, validate_with_dqx
+from cds.services.checks import build_checks, has_checks, validate_with_dqx
 from cds.services.tables import add_columns, column_definition, list_tables, overwrite
 from cds.sql import ddl_type, quote_identifier, quote_name
 
@@ -81,9 +81,12 @@ class QualityService(Service):
             return TableResult.skipped(table.qualified_name, f"{full_name} does not exist")
         check_set = build_checks(table, self.context)
         for note in check_set.unsupported:
-            logger.warning("quality: not checked, no check implements %s", note)
+            logger.warning("quality: not checked: %s", note)
         notes = f"; not checked: {'; '.join(check_set.unsupported)}" if check_set.unsupported else ""
-        if not check_set.checks:
+        # A table with checks computed at run time gets the result columns even if none
+        # remains, such as allowed values whose reference is empty: the dashboard and the
+        # Genie space read them (see checked_tables). DQX then adds empty results.
+        if not check_set.checks and not has_checks(table, self.context):
             return TableResult.skipped(table.qualified_name, f"no quality checks{notes}")
         problems = self._validator(check_set.checks)
         if problems:

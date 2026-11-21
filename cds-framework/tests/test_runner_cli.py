@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -79,6 +80,17 @@ def test_cli_validate_reports_the_checks_computed_at_run_time(
     output = capsys.readouterr().out
     assert "+ t: 1 column(s), key (none), 0 check(s) + checks computed at run time" in output
     assert "computed at run time: s.d.t.a: allowedValues of s.d.code.value" in output
+
+
+def test_cli_checks_lists_the_checks_computed_at_run_time(
+    make_project: MakeProject, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = make_project({"s/d/c/c.yaml": ALLOWED_VALUES})
+
+    assert main(["checks", str(root), "--data-product", "s.d"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["t"]["run_time_checks"] is True
+    assert result["t"]["computed_at_run_time"] == ["s.d.t.a: allowedValues of s.d.code.value"]
 
 
 TAGS_CONFIG = """

@@ -42,6 +42,7 @@ from cds.config import QualitySettings
 from cds.errors import ConfigurationError, ContractError
 from cds.injection import ContractInjection
 from cds.odcs import FOREIGN_KEY, QualityRule, Relationship, SchemaProperty
+from cds.services.tables import list_tables
 from cds.sql import quote_identifier, quote_name, string_literal
 
 if TYPE_CHECKING:
@@ -55,6 +56,9 @@ DQX_ENGINE = "dqx"
 # Custom property of a property whose values must exist in a column of another table.
 ALLOWED_VALUES = "allowedValues"
 ALLOWED_VALUES_KEYS = frozenset({"reference", "filter"})
+# Allowed values are inlined in an is_in_list check: a larger reference, such as a
+# business key, is checked by a foreignKey relationship.
+MAX_ALLOWED_VALUES = 10_000
 
 # DQX criticality of an ODCS quality rule, by severity.
 SEVERITIES: Mapping[str, str] = {
@@ -100,10 +104,12 @@ STRING_FORMATS: Mapping[str, str] = {
 
 @dataclass
 class CheckSet:
-    """The DQX checks of a table, and the contract rules DQX cannot check.
+    """The DQX checks of a table, and the contract rules that are not checked.
 
-    ``run_time`` describes the checks whose arguments are read at run time, when they
-    were not built (see ``build_checks``).
+    ``unsupported`` describes the rules no check implements, and the ``allowedValues``
+    that cannot be checked (missing, empty or too large reference). ``run_time``
+    describes the checks whose arguments are read at run time, when they were not built
+    (see ``build_checks``).
     """
 
     checks: list[dict[str, Any]] = field(default_factory=list)
@@ -156,15 +162,23 @@ def checked_tables(data_product: DataProduct, context: ServiceContext) -> list[T
     The service skips a table without checks, inferred or configured: it has no result
     columns. Checks computed at run time count as checks.
     """
-    checked = []
-    for table in sorted(data_product.tables, key=context.full_table_name):
-        if not table.settings(QualitySettings).enabled:
-            continue
-        dynamic = callable(getattr(table.contract.config, "quality_checks", None))
-        inferred = build_checks(table, context, include_configured=False, read_values=False)
-        if dynamic or inferred.checks or inferred.run_time or configured_checks(table, context):
-            checked.append(table)
-    return checked
+    return [
+        table
+        for table in sorted(data_product.tables, key=context.full_table_name)
+        if table.settings(QualitySettings).enabled and has_checks(table, context)
+    ]
+
+
+def has_checks(table: Table, context: ServiceContext) -> bool:
+    """Whether a table has checks, inferred or configured, without reading the values of ``allowedValues``.
+
+    Checks computed at run time count as checks, even if none remains at run time: the
+    quality service then still adds its result columns to the table.
+    """
+    if callable(getattr(table.contract.config, "quality_checks", None)):
+        return True
+    inferred = build_checks(table, context, include_configured=False, read_values=False)
+    return bool(inferred.checks or inferred.run_time or configured_checks(table, context))
 
 
 def configured_checks(table: Table, context: ServiceContext) -> list[dict[str, Any]]:
@@ -209,6 +223,8 @@ class _ContractChecks:
         self.criticality = table.settings(QualitySettings).criticality or {}
         # Allowed values by table, column and filter: several columns may share them.
         self._values: dict[tuple[str, str, str | None], list[Any]] = {}
+        # Lowercase names of the tables of the schemas of the references.
+        self._tables: dict[str, set[str]] = {}
 
     def build(self) -> None:
         keys = self.table.primary_key
@@ -257,16 +273,34 @@ class _ContractChecks:
         row_filter = declaration.get("filter")
         if row_filter is not None and (not isinstance(row_filter, str) or not row_filter.strip()):
             raise ContractError(f"{where}: filter must be a non-empty SQL expression.")
+        problem = _filter_problem(row_filter) if row_filter else None
+        if problem:
+            raise ContractError(f"{where}: the filter {row_filter!r} {problem}.")
         ref_table, ref_column = self.context.data_context.resolve_reference(declaration["reference"], self.table)
         source = f"{ref_table.qualified_name}.{ref_column}" + (f" where {row_filter}" if row_filter else "")
         if not self.read_values:
             self.check_set.run_time.append(f"{self._where(prop)}: {ALLOWED_VALUES} of {source}")
             return
-        values = self._reference_values(self.context.full_table_name(ref_table), ref_column, row_filter)
+        # The column is not checked, which the quality service logs as a warning, when the
+        # reference is missing (e.g. not loaded yet), empty (it would reject every value),
+        # or too large to be inlined in the check.
+        full_name = self.context.full_table_name(ref_table)
+        schema, _, name = full_name.rpartition(".")
+        if schema not in self._tables:
+            self._tables[schema] = list_tables(self.context.spark, schema)
+        if name.lower() not in self._tables[schema]:
+            self._not_checked(prop, f"{ALLOWED_VALUES}: the table {full_name} does not exist")
+            return
+        values = self._reference_values(full_name, ref_column, row_filter)
         if not values:
-            # An empty reference would reject every value: the column is not checked, which
-            # the quality service logs as a warning.
             self._not_checked(prop, f"{ALLOWED_VALUES}: no value in {source}")
+            return
+        if len(values) > MAX_ALLOWED_VALUES:
+            self._not_checked(
+                prop,
+                f"{ALLOWED_VALUES}: more than {MAX_ALLOWED_VALUES} values in {source}, declare a foreignKey "
+                "relationship instead",
+            )
             return
         self._add(
             f"{prop.column}_is_not_allowed",
@@ -277,12 +311,18 @@ class _ContractChecks:
         )
 
     def _reference_values(self, full_name: str, column: str, row_filter: str | None) -> list[Any]:
-        """Returns the distinct values of a column of a table, nulls excluded, sorted."""
+        """Returns the distinct values of a column of a table, nulls excluded, sorted.
+
+        At most ``MAX_ALLOWED_VALUES + 1`` values are read: more cannot be checked.
+        """
         key = (full_name, column, row_filter)
         if key not in self._values:
             quoted = quote_identifier(column)
             condition = f"{quoted} IS NOT NULL" + (f" AND ({row_filter})" if row_filter else "")
-            statement = f"SELECT DISTINCT {quoted} AS value FROM {quote_name(full_name)} WHERE {condition}"
+            statement = (
+                f"SELECT DISTINCT {quoted} AS value FROM {quote_name(full_name)} WHERE {condition} "
+                f"LIMIT {MAX_ALLOWED_VALUES + 1}"
+            )
             self._values[key] = sorted(row["value"] for row in self.context.spark.sql(statement).collect())
         return self._values[key]
 
@@ -405,7 +445,7 @@ class _ContractChecks:
         )
 
     def _not_checked(self, prop: SchemaProperty | None, note: str) -> None:
-        """Records a rule of the contract that no check implements."""
+        """Records a rule of the contract that is not checked."""
         self.check_set.unsupported.append(f"{self._where(prop)}: {note}")
 
     def _number(self, prop: SchemaProperty, options: Mapping[str, object], key: str) -> int | float:
@@ -567,6 +607,41 @@ class _ContractChecks:
 
     def _where(self, prop: SchemaProperty | None) -> str:
         return f"{self.table.qualified_name}.{prop.column}" if prop is not None else self.table.qualified_name
+
+
+def _filter_problem(expression: str) -> str | None:
+    """Returns why a SQL expression cannot be embedded in a WHERE clause, or None.
+
+    The expression must not end the clause: its parentheses must be balanced and its
+    quotes closed, and it must not hold comments or ``;``. Its columns are checked when
+    the values are read.
+    """
+    depth = 0
+    quote: str | None = None
+    index = 0
+    while index < len(expression):
+        char = expression[index]
+        if quote:
+            if char == "\\" and quote != "`":
+                index += 1
+            elif char == quote:
+                quote = None
+        elif char in "'\"`":
+            quote = char
+        elif char == ";" or expression.startswith(("--", "/*"), index):
+            return "must not hold comments or ';'"
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth < 0:
+                return "has unbalanced parentheses"
+        index += 1
+    if quote:
+        return "has an unterminated quote"
+    if depth:
+        return "has unbalanced parentheses"
+    return None
 
 
 def _is_number(value: object) -> bool:

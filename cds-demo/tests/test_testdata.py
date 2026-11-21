@@ -15,6 +15,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import generate_testdata
@@ -151,7 +152,7 @@ class Result:
 # The query of the allowed values of a column (allowedValues custom property of the contracts).
 ALLOWED_VALUES_QUERY = re.compile(
     r"SELECT DISTINCT `(?P<column>\w+)` AS value FROM `\w+`\.`\w+`\.`(?P<table>\w+)` "
-    r"WHERE `(?P=column)` IS NOT NULL AND \((?P<filtered>\w+) = '(?P<value>\w+)'\)"
+    r"WHERE `(?P=column)` IS NOT NULL AND \((?P<filtered>\w+) = '(?P<value>\w+)'\) LIMIT \d+"
 )
 
 
@@ -159,9 +160,9 @@ ALLOWED_VALUES_QUERY = re.compile(
 class Values:
     """The result of a query: its rows."""
 
-    rows: list[Row]
+    rows: list[Row] | list[SimpleNamespace]
 
-    def collect(self) -> list[Row]:
+    def collect(self) -> list[Row] | list[SimpleNamespace]:
         return self.rows
 
 
@@ -172,11 +173,14 @@ class Spark:
         self.tables = tables
 
     def sql(self, statement: str) -> Values:
+        if statement.startswith("SHOW TABLES IN "):
+            return Values([SimpleNamespace(tableName=name) for name in self.tables])
         match = ALLOWED_VALUES_QUERY.fullmatch(statement)
         assert match, f"unexpected query: {statement}"
         column, filtered, value = match["column"], match["filtered"], match["value"]
         found = {row[column] for row in self.tables[match["table"]] if row[filtered] == value}
-        return Values([{"value": code} for code in found if code is not None])
+        rows: list[Row] = [{"value": code} for code in found if code is not None]
+        return Values(rows)
 
 
 @pytest.fixture(scope="module")
