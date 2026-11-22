@@ -304,6 +304,15 @@ def source_path(settings: Settings, data_product: str) -> str:
     return f"{settings.source_root.rstrip('/')}/{data_product.replace('.', '/')}"
 
 
+def has_testdata(settings: Settings, data_product: str) -> bool:
+    """Whether a data product has a synthetic data set: a folder <group>/<data product> in the data set.
+
+    With syntheticData, the jobs of the data products without one load their published
+    files, as in prod.
+    """
+    return (settings.testdata_directory / data_product.replace(".", "/")).is_dir()
+
+
 def testdata_files(directory: Path) -> list[Path]:
     """Returns the files of the synthetic data set of a data product, in its folder.
 
@@ -807,8 +816,9 @@ def deploy(settings: Settings) -> dict[str, databricks.Job]:
         # The alerts, and the failed runs of the job, email the support channels and ALERT_EMAILS.
         recipients = [str(address) for address in product.get("recipients") or []]
         addresses = alert_addresses(recipients, settings.alert_emails)
-        # The job reads the files of its data product, or their synthetic versions.
-        uploads = testdata_uploads(settings, data_product) if settings.synthetic_data else []
+        # The job reads the files of its data product, or their synthetic versions when it has some.
+        synthetic_data = settings.synthetic_data and has_testdata(settings, data_product)
+        uploads = testdata_uploads(settings, data_product) if synthetic_data else []
         parameters: dict[str, pulumi.Input[str]] = {
             "environment": settings.environment,
             "roots": f"/Workspace{root}/products",
@@ -816,7 +826,7 @@ def deploy(settings: Settings) -> dict[str, databricks.Job]:
             "source_path": source_path(settings, data_product),
             "max_workers": str(settings.max_workers),
             # Read by the transformations of the demo (products/donnees_qc/sources.py).
-            "synthetic_data": "true" if settings.synthetic_data else "false",
+            "synthetic_data": "true" if synthetic_data else "false",
             # Read by the genie service: the warehouse of the space, and its folder.
             "genie_warehouse_id": warehouse.id,
             "genie_parent_path": f"/Workspace{genie_folder}",

@@ -218,15 +218,18 @@ def test_synthetic_data(settings: pipeline.Settings) -> pulumi.Output[None]:
             if Path(args.inputs["source"]).parent == pipeline.TESTDATA / data_product.replace(".", "/")
         )
         expected: dict[str, Path] = {}
-        for data_product in PRODUCTS:
+        # The data products of the synthetic data set: the others load their published files.
+        synthetic = [data_product for data_product in PRODUCTS if pipeline.has_testdata(settings, data_product)]
+        assert "donnees_qc.req" in synthetic
+        for data_product in synthetic:
             folder = pipeline.TESTDATA / data_product.replace(".", "/")
             names = sorted(path.name for path in folder.glob("*.csv"))
             assert names, data_product
             expected |= {f"/Volumes/ext/{data_product.replace('.', '/')}/{name}": folder / name for name in names}
         assert {path: Path(source) for path, source in uploads.items()} == expected
-        for job_parameters in parameters:
+        for data_product, job_parameters in zip(PRODUCTS, parameters, strict=True):
             values = {value(parameter, "name"): value(parameter, "default") for parameter in job_parameters or []}
-            assert values["synthetic_data"] == "true"
+            assert values["synthetic_data"] == ("true" if data_product in synthetic else "false"), data_product
 
     return pulumi.Output.all(*(job.parameters for job in jobs.values())).apply(check)
 
@@ -281,6 +284,16 @@ def test_the_stacks_load_synthetic_data_in_nprod_only() -> None:
     # The account uses Default Storage: the catalogs are created in Catalog Explorer.
     assert (prod["syntheticData"], prod["createCatalog"]) == ("false", "false")
     assert nprod["sourceRoot"] == prod["sourceRoot"]
+
+
+def test_a_data_product_without_synthetic_data_set_loads_its_published_files(
+    settings: pipeline.Settings, tmp_path: Path
+) -> None:
+    testdata = dataclasses.replace(settings, synthetic_data=True, testdata_directory=tmp_path)
+    (tmp_path / "donnees_qc" / "req").mkdir(parents=True)
+
+    assert pipeline.has_testdata(testdata, "donnees_qc.req")
+    assert not pipeline.has_testdata(testdata, "donnees_qc.other")
 
 
 def test_missing_testdata(tmp_path: Path) -> None:

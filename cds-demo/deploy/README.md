@@ -33,6 +33,11 @@ Each job reads the files of its data product in its folder under `cds-demo:sourc
 The sections below describe the job of `req`; that of `repertoire_municipalites` runs the
 same steps on its own tables, in the schema `donnees_qc_repertoire_municipalites`.
 
+With `cds-demo:syntheticData`, the jobs of the data products of the synthetic data set
+([cds-demo/csv/testdata](../csv/testdata), a folder `<group>/<data product>` each) load
+it; the others, such as `repertoire_municipalites`, load their published files, as in
+`prod`.
+
 The first deployment with several data products renames the job and the alerts of `req`
 (`pipeline` becomes `pipeline:donnees_qc.req`): their former names are Pulumi aliases, so
 that Pulumi renames them instead of replacing them.
@@ -176,7 +181,7 @@ step fails, the error rate of the tables cannot be measured: the failed run send
 email.
 
 In `nprod`, run the error rate alert after a run of the job (**Run now** on the alert):
-the error rate of the synthetic data set triggers it. As the schedules of the jobs are
+the error rate of the synthetic data set of `req` triggers it. As the schedules of the jobs are
 paused, the latency alerts trigger 18 days (`req`) and 2 days
 (`repertoire_municipalites`) after the last run.
 
@@ -244,14 +249,15 @@ and upload the files of its data set:
 | `req` | `Entreprise.csv`, `Etablissements.csv`, `Nom.csv`, `FusionScissions.csv`, `ContinuationsTransformations.csv`, `DomaineValeur.csv` | [Registraire des entreprises](https://www.donneesquebec.ca/) |
 | `repertoire_municipalites` | `MUN.csv`, `MRC_CM_Arg.csv`, `ARR.csv`, `ress.csv` | [Répertoire des municipalités](https://www.donneesquebec.ca/recherche/dataset/repertoire-des-municipalites-du-quebec) |
 
-The `prod` jobs load these files: upload them again to load a newer version. The
+The `prod` jobs load these files, and the `nprod` jobs of the data products without
+synthetic data set (`repertoire_municipalites`): upload them again to load a newer version. The
 directory of the municipalities is updated every day, and its job loads it every day: the
 tables are as recent as the files of the volume. If you use other volumes or folders, set
 `cds-demo:sourceRoot` in both stack files: the folder of each data product is
 `<sourceRoot>/<group>/<data product>`.
 
-The `nprod` deployment uploads the synthetic files (`*_testdata.csv`) to the same volumes:
-you do not upload them.
+The `nprod` deployment uploads the synthetic files (`*_testdata.csv`) of `req` to its
+volume: you do not upload them.
 
 ### Create a secret for the service principal
 
@@ -276,7 +282,6 @@ ALTER CATALOG prod OWNER TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
 GRANT USE CATALOG ON CATALOG ext TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
 GRANT USE SCHEMA, READ VOLUME ON SCHEMA ext.donnees_qc TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
 GRANT WRITE VOLUME ON VOLUME ext.donnees_qc.req TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
-GRANT WRITE VOLUME ON VOLUME ext.donnees_qc.repertoire_municipalites TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
 ```
 
 The service principal owns the `prod` catalog, and the schemas and tables it creates.
@@ -455,7 +460,7 @@ The stack files are the variables of the deployment.
 | `databricks:clientId` | Application id of the deployment service principal; the jobs run as it. |
 | `cds-demo:environment` | CDS environment id: `nprod` or `prod`. It is also the catalog of the tables. |
 | `cds-demo:sourceRoot` | Folder of the folders of the CSV files, one per data product: `<sourceRoot>/<group>/<data product>`. **Placeholder**: `/Volumes/ext`. |
-| `cds-demo:syntheticData` | `true`: the deployment uploads the synthetic data set to the folders of the data products and the jobs load it; `false`: the jobs load the published files. `true` in `nprod`, `false` in `prod`. |
+| `cds-demo:syntheticData` | `true`: the deployment uploads the synthetic data set to the folders of its data products and their jobs load it, the other jobs loading their published files; `false`: the jobs load the published files. `true` in `nprod`, `false` in `prod`. |
 | `cds-demo:createCatalog` | `true`: the deployment creates the catalog of the environment, which needs a storage location (see [Creating the catalog with Pulumi](#creating-the-catalog-with-pulumi)). `false` in both stacks: the account uses Default Storage. |
 | `cds-demo:catalogStorageRoot` | Optional. Storage location of the created catalog, when the metastore has none. |
 | `cds-demo:catalogReaders` | Optional. List of the users or groups granted read access to the created catalog. |
