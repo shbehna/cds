@@ -43,12 +43,20 @@ version renames the job, the alerts and the synthetic files of `req` (`pipeline`
 them instead of replacing them.
 
 ```text
-schema --> transformation --> metadata --> genie
-                          --> quality --> scd
-                                      --> dashboard
+load --> metadata --> publication
+     --> quality  --> publication
+                  --> scd
 ```
 
-A failed step fails the run, and the steps after it do not run. A failed run sends an
+The job has 5 tasks, each a notebook of the framework: Databricks Free Edition refuses a
+run of a job of more than 5 tasks, with the error "There are already 5 active runs
+(limit: 5)", even when nothing else runs. The `load` task runs the schema step, then the
+transformation step; the `publication` task runs the genie step, once the metadata step
+has set the comments of the tables, then the dashboard step, once the quality step has
+added its result columns.
+
+A failed step fails the run, and the steps after it do not run, in its task or in the
+tasks after it: a failed genie step leaves the dashboard as it was. A failed run sends an
 email to the addresses of the alerts (see
 [Alerts of the service levels](#alerts-of-the-service-levels)). The metadata step runs
 after the load: as it changes the tables on each run, a failed load leaves them

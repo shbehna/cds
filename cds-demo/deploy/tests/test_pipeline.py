@@ -100,21 +100,29 @@ def test_jobs(settings: pipeline.Settings) -> pulumi.Output[None]:
             for task in tasks
         ]
         assert dependencies == [
-            ("schema", []),
-            ("transformation", ["schema"]),
+            # The schema service, then the transformation service.
+            ("load", []),
             # After the load: a failed load leaves the tables unchanged, which the latency alert detects.
-            ("metadata", ["transformation"]),
-            ("quality", ["transformation"]),
+            ("metadata", ["load"]),
+            ("quality", ["load"]),
             ("scd", ["quality"]),
-            # Once the comments of the tables are set.
-            ("genie", ["metadata"]),
-            # Once the quality step has added its result columns.
-            ("dashboard", ["quality"]),
+            # The genie service once the comments of the tables are set, then the dashboard
+            # service once the quality step has added its result columns.
+            ("publication", ["metadata", "quality"]),
+        ]
+        # Databricks Free Edition refuses the runs of a job of more than 5 tasks.
+        assert len(tasks) <= pipeline.MAX_TASKS == 5
+        assert [value(task, "description") for task in tasks] == [
+            "CDS schema and transformation services",
+            "CDS metadata service",
+            "CDS quality service",
+            "CDS scd service",
+            "CDS genie and dashboard services",
         ]
         # A failed service fails the run, and the services after it do not run.
         assert all(value(task, "run_if") is None for task in tasks)
         assert {value(value(task, "notebook_task"), "notebook_path") for task in tasks} == {
-            f"/Shared/cds-demo/nprod/notebooks/{service}" for service in pipeline.TASKS
+            f"/Shared/cds-demo/nprod/notebooks/{task}" for task in pipeline.TASKS
         }
         assert all(value(task, "environment_key") == "cds" for task in tasks)
         [environment] = environments
@@ -153,13 +161,13 @@ def test_the_first_data_product_keeps_the_names_of_its_resources() -> None:
     assert not pipeline.renamed("donnees_qc.other", "pipeline").aliases
 
 
-def test_a_new_generation_replaces_the_job() -> None:
-    """The resources of the jobs of the first generation keep their names: deploying does not replace them."""
-    assert pipeline.job_resource_name("donnees_qc.req") == "pipeline:donnees_qc.req"
-    assert pipeline.job_resource_name("donnees_qc.repertoire_municipalites") == (
-        "pipeline:donnees_qc.repertoire_municipalites:2"
-    )
-    assert set(pipeline.JOB_GENERATIONS) <= set(PRODUCTS)
+def test_the_notebooks_of_the_tasks_run_their_services() -> None:
+    """Each task runs a notebook of the framework, which runs the services of the task, in their order."""
+    for task in pipeline.TASKS:
+        source = (pipeline.FRAMEWORK / "notebooks" / f"{task}.py").read_text(encoding="utf-8")
+        services = pipeline.TASK_SERVICES.get(task, [task])
+        calls = re.findall(r"^run_service\((\w+)Service,", source, flags=re.MULTILINE)
+        assert [call.lower() for call in calls] == services
 
 
 @pulumi.runtime.test
@@ -180,7 +188,7 @@ def test_files(settings: pipeline.Settings) -> pulumi.Output[None]:
         assert {f"{root}/{path.relative_to(pipeline.PRODUCTS).as_posix()}" for path in sources} <= paths
         assert not any("__pycache__" in path for path in paths)
         notebooks = {args.inputs["path"] for args in CREATED if args.typ == "databricks:index/notebook:Notebook"}
-        assert notebooks == {f"/Shared/cds-demo/nprod/notebooks/{service}" for service in pipeline.TASKS}
+        assert notebooks == {f"/Shared/cds-demo/nprod/notebooks/{task}" for task in pipeline.TASKS}
         directories = {args.inputs["path"] for args in CREATED if args.typ == "databricks:index/directory:Directory"}
         assert {path.rsplit("/", 1)[0] for path in paths | notebooks} <= directories
         assert "/Shared/cds-demo/nprod" in directories
@@ -605,9 +613,7 @@ def test_alerts(settings: pipeline.Settings) -> pulumi.Output[None]:
         # The failed runs of each job email the same addresses.
         jobs_args = {args.name: args for args in created("databricks:index/job:Job")}
         for data_product, product in PRODUCTS.items():
-            failures = value(
-                jobs_args[pipeline.job_resource_name(data_product)].inputs["emailNotifications"], "on_failures"
-            )
+            failures = value(jobs_args[f"pipeline:{data_product}"].inputs["emailNotifications"], "on_failures")
             assert failures == [*product["recipients"], "data-team@example.org"]
         directories = {args.inputs["path"] for args in CREATED if args.typ == "databricks:index/directory:Directory"}
         assert "/Shared/cds-demo/nprod/alerts" in directories
@@ -646,7 +652,7 @@ def test_no_schedule_nor_alerts_without_sla(settings: pipeline.Settings, tmp_pat
         # The failed runs of each job still email the support channel.
         jobs_args = {args.name: args for args in created("databricks:index/job:Job")}
         for data_product, product in PRODUCTS.items():
-            notifications = jobs_args[pipeline.job_resource_name(data_product)].inputs["emailNotifications"]
+            notifications = jobs_args[f"pipeline:{data_product}"].inputs["emailNotifications"]
             assert value(notifications, "on_failures") == product["recipients"]
         assert not created("databricks:index/alertV2:AlertV2")
         assert not created("databricks:index/notificationDestination:NotificationDestination")
