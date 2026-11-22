@@ -77,8 +77,8 @@ SOURCE_HEADERS = {
     ),
     "ress.csv": "rescode,resgroupe,rescodetitre,restitre,resentreefonction,resnom,resprenom,resestvacant",
 }
-# The source columns no table reads: nd of MUN.csv is not used by the publisher.
-UNUSED_SOURCE_COLUMNS = {"MUN.csv": {"nd"}}
+# The source columns no table reads, by file: those the publisher does not use.
+UNUSED_SOURCE_COLUMNS: dict[str, set[str]] = {"MUN.csv": {"nd"}}
 TABLES = sorted(table.name for table in DataContext.discover(PRODUCTS).tables)
 # The codes the fake Spark session returns for every query of allowed values.
 CODES = ["0110", "0100"]

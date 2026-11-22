@@ -226,7 +226,7 @@ The transformations read the synthetic files instead of the published ones when 
 runtime parameter `synthetic_data` is true ([sources.py](products/donnees_qc/sources.py)).
 The deployment uploads them next to the published files, and the `nprod` job of `req`
 loads them; the `prod` jobs load the published files. A data product without synthetic
-data set, such as `repertoire_municipalites`, loads its published files in `nprod` too.
+data set loads its published files in `nprod` too.
 
 [csv/generate_testdata.py](csv/generate_testdata.py) generates the files,
 deterministically. Regenerate them after changing it, and commit them: a test checks
