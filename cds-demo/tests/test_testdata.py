@@ -33,6 +33,17 @@ PRODUCTS = Path(__file__).resolve().parents[1] / "products"
 # The contracts document the source file of each table and the source column of each property.
 SOURCE_FILE = re.compile(r"fichier source (\w+\.csv)")
 SOURCE_COLUMN = re.compile(r"Colonne source (\w+)\.")
+# The values of the indicators of each data product, as their transformations read them:
+# sources.indicator of req (O, N) and sources.oui_non of repertoire_municipalites.
+INDICATORS = {
+    "donnees_qc.req": {"O": True, "N": False},
+    "donnees_qc.repertoire_municipalites": {"OUI": True, "NON": False},
+}
+# The tables of the seats of the councils, built from the columns con1, con2... of a file
+# (repertoire_municipalites/sources.councillors), and the column of the code of their council.
+SEAT_TABLES = {"conseiller_municipal": "mcode", "conseiller_arrondissement": "arrcod"}
+SEAT_COLUMN = re.compile(r"con(\d+)")
+VACANT = "poste vacant"
 
 Value = str | int | float | bool | None
 Row = dict[str, Value]
@@ -214,15 +225,48 @@ def has_synthetic_data(table: Table) -> bool:
     return table.data_product.qualified_name in generate_testdata.DATA_PRODUCTS
 
 
-# The tables of the synthetic data set.
-TABLES = sorted(table.name for table in DataContext.discover(PRODUCTS).tables if has_synthetic_data(table))
+# The tables of the synthetic data set: those of a file, and those of the seats of its councils.
+SYNTHETIC_TABLES = [table for table in DataContext.discover(PRODUCTS).tables if has_synthetic_data(table)]
+TABLES = sorted(table.name for table in SYNTHETIC_TABLES if table.name not in SEAT_TABLES)
+SEATS = sorted(table.name for table in SYNTHETIC_TABLES if table.name in SEAT_TABLES)
+
+
+def read_rows(path: Path) -> list[dict[str, str | None]]:
+    """Reads a file of the data set; the empty values are nulls.
+
+    Spark reads the empty values of a CSV file as nulls, and the transformations of
+    repertoire_municipalites turn its empty quoted values into nulls.
+    """
+    with path.open(encoding="utf-8-sig", newline="") as file:
+        return [{key: value or None for key, value in row.items()} for row in csv.DictReader(file)]
+
+
+def seat_rows(table: Table, path: Path) -> list[Row]:
+    """Reads the seats of the councils of a file as the transformation does: one row per seat with a councillor."""
+    rows: list[Row] = []
+    for values in read_rows(path):
+        for column, name in values.items():
+            match = SEAT_COLUMN.fullmatch(column)
+            if match and name is not None:
+                vacant = name.lower() == VACANT
+                rows.append(
+                    {
+                        "code_geographique": values[SEAT_TABLES[table.name]],
+                        "numero_siege": int(match.group(1)),
+                        "nom": None if vacant else name,
+                        "indicateur_poste_vacant": vacant,
+                    }
+                )
+    assert rows and set(rows[0]) == {prop.column for prop in table.columns}, table.name
+    return rows
 
 
 def contract_rows(table: Table, path: Path) -> list[Row]:
     """Reads a file of the data set as the transformation does: renamed and cast to the contract types."""
-    with path.open(encoding="utf-8-sig", newline="") as file:
-        # Spark reads the empty values of a CSV file as nulls.
-        source = [{key: value or None for key, value in row.items()} for row in csv.DictReader(file)]
+    if table.name in SEAT_TABLES:
+        return seat_rows(table, path)
+    source = read_rows(path)
+    indicators = INDICATORS[table.data_product.qualified_name]
     rows: list[Row] = [{} for _ in source]
     for prop in table.columns:
         match = SOURCE_COLUMN.search(prop.description or "")
@@ -232,9 +276,8 @@ def contract_rows(table: Table, path: Path) -> list[Row]:
             assert match.group(1) in values, f"{table.name}.{prop.column}: no source column {match.group(1)}"
             value = values[match.group(1)]
             if data_type == "BOOLEAN":
-                # sources.indicator: O and N become booleans, other values nulls.
-                indicator = (value or "").strip().upper()
-                row[prop.column] = {"O": True, "N": False}.get(indicator)
+                # The indicators become booleans, other values nulls.
+                row[prop.column] = indicators.get((value or "").strip().upper())
             elif data_type in INTEGER_TYPES and value is not None:
                 row[prop.column] = int(value)
             elif data_type.startswith(DECIMAL_TYPES) and value is not None:
@@ -334,11 +377,7 @@ def data_context() -> DataContext:
 
 @pytest.fixture(scope="module")
 def tables(data_context: DataContext) -> dict[str, list[Row]]:
-    return {
-        table.name: contract_rows(table, synthetic_path(table))
-        for table in data_context.tables
-        if has_synthetic_data(table)
-    }
+    return {table.name: contract_rows(table, synthetic_path(table)) for table in SYNTHETIC_TABLES}
 
 
 @pytest.fixture(scope="module")
@@ -349,9 +388,7 @@ def checks(data_context: DataContext, tables: dict[str, list[Row]]) -> dict[str,
         data_context=data_context,
         runtime_configuration=RuntimeConfiguration({"environment": "nprod", "synthetic_data": "true"}),
     )
-    return {
-        table.name: build_checks(table, context).checks for table in data_context.tables if has_synthetic_data(table)
-    }
+    return {table.name: build_checks(table, context).checks for table in SYNTHETIC_TABLES}
 
 
 @pytest.fixture(scope="module")
@@ -425,9 +462,18 @@ def test_the_distribution_of_the_rows(results: dict[str, list[Result]], table_na
 
 
 def test_the_rows_with_errors_illustrate_several_checks(results: dict[str, list[Result]]) -> None:
-    for table_name, found in results.items():
-        failed = set().union(*(result.errors for result in found))
+    for table_name in TABLES:
+        failed = set().union(*(result.errors for result in results[table_name]))
         assert len(failed) >= 4, f"{table_name}: {sorted(failed)}"
+
+
+@pytest.mark.parametrize("table_name", SEATS)
+def test_the_seats_of_the_councils_are_valid(results: dict[str, list[Result]], table_name: str) -> None:
+    """The municipalities and boroughs with errors have no councillors: all the seats are valid."""
+    found = results[table_name]
+
+    assert found
+    assert not [result for result in found if result.errors or result.warnings]
 
 
 def test_the_references_are_kept(
