@@ -29,8 +29,8 @@ the framework on serverless compute, on the schedule of the `frequency` of its c
 
 Each job reads the files of its data product in its folder under `cds-demo:sourceRoot`:
 `<sourceRoot>/<group>/<data product>`. The schedules are paused unless
-`cds-demo:pauseSchedule` is `false`, as in `prod`: in `nprod`, the jobs run after each
-deployment, and on demand.
+`cds-demo:pauseSchedule` is `false`, as in `prod`: in `nprod`, you run the jobs on
+demand, the job of `req` also running after each deployment.
 The sections below describe the job of `req`: the job of another data product runs the
 same steps on its own tables, in its own schema.
 
@@ -233,15 +233,17 @@ build --> deploy nprod --> deploy prod
 - **Build** runs the tests of the repository and of the deployment program, and builds
   the wheel of the framework.
 - **Deploy nprod** runs `pulumi up` on the `nprod` stack, with that wheel, then runs the
-  jobs of the data products of `nprod` and waits for their result.
+  job of `req` in `nprod` and waits for its result.
 - **Deploy prod** does the same on the `prod` stack, once `nprod` is deployed and its
-  jobs succeeded.
+  job succeeded.
 
-The jobs run one after the other, as Databricks Free Edition refuses a run while 5 tasks
-are active ([run_jobs.py](run_jobs.py)). Each run has 10 minutes to finish
-(`PIPELINE_TIMEOUT_MINUTES` in the workflow): a run still going is then canceled. A
-failed, skipped or canceled run fails the deployment, whose logs show the failed tasks
-and their message, after the other jobs have run. The script reads the jobs, the workspace
+The workflow runs the jobs of the data products of `PIPELINE_DATA_PRODUCTS`, separated
+by spaces: `donnees_qc.req` only, the other jobs running on their schedule or on demand
+([run_jobs.py](run_jobs.py)). Several jobs run one after the other, as Databricks Free
+Edition refuses a run while 5 tasks are active. Each run has 10 minutes to finish
+(`PIPELINE_TIMEOUT_MINUTES`): a run still going is then canceled. A failed, skipped or
+canceled run fails the deployment, whose logs show the failed tasks and their message,
+after the other jobs have run. The script reads the jobs, the workspace
 and the service principal in the outputs of the stack: `job_ids`, `databricks_host` and
 `service_principal`.
 
@@ -406,7 +408,7 @@ a paid GitHub plan.
 ## 4. Deploy
 
 Push to `master`, or open **Actions > Deploy demo > Run workflow**: the run deploys
-`nprod` and runs its jobs, then does the same for `prod`. If a job of the workflow fails,
+`nprod` and runs the job of `req`, then does the same for `prod`. If a job of the workflow fails,
 including a run of the jobs of the data products, the following ones do not run; fix the
 cause and run the workflow again.
 
@@ -416,8 +418,8 @@ the quality dashboards and the Genie spaces, in the `dashboards` and `genie` fol
 
 ## 5. Run the pipeline
 
-Each deployment runs the jobs of its environment (see
-[How the workflow runs](#how-the-workflow-runs)). To run one again, open **Jobs &
+Each deployment runs the job of `req` (see
+[How the workflow runs](#how-the-workflow-runs)). To run a job, open **Jobs &
 Pipelines > cds-demo-req-nprod** in Databricks and select **Run now**. The first run
 creates the tables of `nprod.donnees_qc_req`, and the first run of
 **cds-demo-repertoire_municipalites-nprod** those of

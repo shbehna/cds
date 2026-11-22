@@ -8,8 +8,8 @@
 #
 # build tests the repository and builds the wheel of the framework, which both
 # deployments install. The deployments are skipped until their secrets are configured.
-# Each deployment then runs the jobs of the data products of its environment and waits
-# for them (run_jobs.py): a failed run, or one not finished within
+# Each deployment then runs the jobs of the data products PIPELINE_DATA_PRODUCTS of its
+# environment and waits for them (run_jobs.py): a failed run, or one not finished within
 # PIPELINE_TIMEOUT_MINUTES, fails the deployment, and so skips prod after nprod.
 name: Deploy demo
 
@@ -40,7 +40,8 @@ env:
   DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
   # Optional: the addresses receiving the alerts of the service levels, separated by commas.
   ALERT_EMAILS: ${{ secrets.ALERT_EMAILS }}
-  # The time each run of a job of a data product has to finish, after a deployment.
+  # The data products whose job runs after a deployment, and the time each run has to finish.
+  PIPELINE_DATA_PRODUCTS: donnees_qc.req
   PIPELINE_TIMEOUT_MINUTES: "10"
 
 jobs:
@@ -123,7 +124,7 @@ jobs:
           work-dir: cds-demo/deploy
           upsert: true
 
-      # The jobs run one after the other; a failed run fails the deployment.
+      # The jobs of PIPELINE_DATA_PRODUCTS run one after the other; a failed run fails the deployment.
       - name: Run the data pipelines
         working-directory: cds-demo/deploy
         env:
@@ -131,7 +132,10 @@ jobs:
           JOB_IDS: ${{ steps.pulumi.outputs.job_ids }}
           DATABRICKS_HOST: ${{ steps.pulumi.outputs.databricks_host }}
           DATABRICKS_CLIENT_ID: ${{ steps.pulumi.outputs.service_principal }}
-        run: uv run python run_jobs.py --timeout-minutes "$PIPELINE_TIMEOUT_MINUTES"
+        run: |
+          arguments=()
+          for data_product in $PIPELINE_DATA_PRODUCTS; do arguments+=(--data-product "$data_product"); done
+          uv run python run_jobs.py "${arguments[@]}" --timeout-minutes "$PIPELINE_TIMEOUT_MINUTES"
 
   deploy-prod:
     name: Deploy prod
@@ -165,7 +169,7 @@ jobs:
           work-dir: cds-demo/deploy
           upsert: true
 
-      # The jobs run one after the other; a failed run fails the deployment.
+      # The jobs of PIPELINE_DATA_PRODUCTS run one after the other; a failed run fails the deployment.
       - name: Run the data pipelines
         working-directory: cds-demo/deploy
         env:
@@ -173,4 +177,7 @@ jobs:
           JOB_IDS: ${{ steps.pulumi.outputs.job_ids }}
           DATABRICKS_HOST: ${{ steps.pulumi.outputs.databricks_host }}
           DATABRICKS_CLIENT_ID: ${{ steps.pulumi.outputs.service_principal }}
-        run: uv run python run_jobs.py --timeout-minutes "$PIPELINE_TIMEOUT_MINUTES"
+        run: |
+          arguments=()
+          for data_product in $PIPELINE_DATA_PRODUCTS; do arguments+=(--data-product "$data_product"); done
+          uv run python run_jobs.py "${arguments[@]}" --timeout-minutes "$PIPELINE_TIMEOUT_MINUTES"

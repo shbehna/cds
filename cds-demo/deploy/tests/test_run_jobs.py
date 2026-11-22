@@ -135,9 +135,19 @@ def test_job_ids() -> None:
             run_jobs.job_ids(value)
 
 
+def test_selected() -> None:
+    assert run_jobs.selected(JOB_IDS, None) == JOB_IDS
+    assert run_jobs.selected(JOB_IDS, ["donnees_qc.req"]) == {"donnees_qc.req": 11}
+    with pytest.raises(ValueError, match=r"donnees_qc\.inconnu"):
+        run_jobs.selected(JOB_IDS, ["donnees_qc.req", "donnees_qc.inconnu"])
+
+
 def test_main(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setenv("JOB_IDS", json.dumps(JOB_IDS))
     monkeypatch.setattr(run_jobs, "POLL_SECONDS", 0)
     assert run_jobs.main([], FakeJobs({11: [SUCCESS], 22: [SUCCESS]})) == 0
     assert run_jobs.main(["--timeout-minutes", "5"], FakeJobs({11: [FAILED], 22: [SUCCESS]})) == 1
     assert "::error::The job of donnees_qc.req failed: FAILED; Task load failed." in capsys.readouterr().out
+    jobs = FakeJobs({11: [SUCCESS], 22: [FAILED]})
+    assert run_jobs.main(["--data-product", "donnees_qc.req"], jobs) == 0
+    assert jobs.started == [11]
