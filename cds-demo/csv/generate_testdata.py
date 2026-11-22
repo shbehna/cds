@@ -31,6 +31,8 @@ from datetime import date, timedelta
 from pathlib import Path
 
 TESTDATA = Path(__file__).with_name("testdata")
+# The data products of the data set: every table of each has a synthetic file.
+DATA_PRODUCTS = ("donnees_qc.req",)
 SUFFIX = "_testdata"
 SEED = 2026
 ROWS = 200

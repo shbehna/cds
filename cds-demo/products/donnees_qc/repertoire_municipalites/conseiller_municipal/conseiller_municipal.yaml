@@ -1,0 +1,44 @@
+apiVersion: v3.2.0
+kind: DataContract
+id: donnees_qc.repertoire_municipalites.conseiller_municipal
+version: 1.0.0
+name: Conseiller municipal
+description:
+  purpose: Membres des conseils municipaux, une ligne par siège occupé ou vacant.
+schema:
+  - name: conseiller_municipal
+    physicalType: table
+    businessName: Conseiller municipal
+    description: >-
+      Sièges des conseils municipaux et leurs conseillers (fichier source MUN.csv, colonnes
+      con1 à con75). Les sièges vides du fichier n'ont pas de ligne.
+    properties:
+      - name: code_geographique
+        businessName: Code géographique
+        description: Code géographique de la municipalité du conseil. Colonne source mcode.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 1
+        relationships:
+          - to: municipalite.code_geographique
+      - name: numero_siege
+        description: Numéro du siège au conseil, celui de sa colonne source (con1 à con75).
+        logicalType: integer
+        physicalType: INT
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 2
+        logicalTypeOptions:
+          minimum: 1
+      - name: nom
+        description: Nom du conseiller ; vide si le siège est vacant. Colonnes source con1 à con75.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: indicateur_poste_vacant
+        description: Indique si le siège est vacant (Poste vacant dans le fichier source).
+        logicalType: boolean
+        physicalType: BOOLEAN
+        required: true

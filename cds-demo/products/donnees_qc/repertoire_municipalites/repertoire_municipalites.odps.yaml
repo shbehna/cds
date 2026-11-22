@@ -1,0 +1,43 @@
+# Data product document (ODPS) of repertoire_municipalites. The framework copies its id (as
+# dataProduct), its domain, status, customProperties and support, and the usage and
+# limitations of its description into every contract of the data product. A contract
+# defining customProperties or support replaces the whole list: its customProperties must
+# then repeat the subdomain. The purpose of the description is the comment of the schema
+# of the data product.
+apiVersion: v1.1.0
+kind: DataProduct
+id: donnees_qc.repertoire_municipalites
+name: Répertoire des municipalités du Québec
+version: 1.0.0
+status: active
+type: sourceAligned
+# The Discover domain of the tables, and their subdomain in it: the publisher of the data
+# set. The metadata service tags them with the governed tag
+# "Gouvernement/Ministère des Affaires municipales et de l'Habitation".
+domain: Gouvernement
+customProperties:
+  - property: subdomain
+    value: Ministère des Affaires municipales et de l'Habitation
+description:
+  purpose: >-
+    Répertoire des municipalités du Québec : les municipalités, les MRC, les communautés
+    métropolitaines et l'Administration régionale Kativik, les arrondissements, les membres
+    de leurs conseils et les responsables de leur organisation, tirés du jeu de données
+    ouvertes du ministère des Affaires municipales et de l'Habitation.
+  usage: >-
+    Analyse de l'organisation municipale du Québec : désignation, population, superficie,
+    rattachement régional, élections et composition des conseils.
+  limitations: >-
+    Source : ministère des Affaires municipales et de l'Habitation, jeu de données ouvertes
+    publié sur Données Québec sous la licence CC BY 4.0. Le répertoire n'a pas de valeur
+    légale : les élus y sont présentés à titre informatif. Les données sont mises à jour en
+    continu, sauf la population, fixée chaque année par décret, et la superficie, mise à
+    jour une fois par année.
+# The alerts of the service levels are sent to the email channels. The address of the
+# repository is fictitious.
+support:
+  - channel: donnees-qc-repertoire-municipalites
+    tool: email
+    scope: notifications
+    url: "mailto:donnees-qc-repertoire-municipalites@example.com"
+    description: Alertes des niveaux de service du produit de données.

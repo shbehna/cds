@@ -1,0 +1,119 @@
+apiVersion: v3.2.0
+kind: DataContract
+id: donnees_qc.repertoire_municipalites.arrondissement
+version: 1.0.0
+name: Arrondissement
+description:
+  purpose: Arrondissements des municipalités du Québec, une ligne par arrondissement.
+schema:
+  - name: arrondissement
+    physicalType: table
+    businessName: Arrondissement
+    description: >-
+      Arrondissements des municipalités qui en comptent (fichier source ARR.csv). Les
+      conseillers d'arrondissement sont dans la table conseiller_arrondissement.
+    properties:
+      - name: code_geographique
+        businessName: Code géographique
+        description: Code géographique de l'arrondissement, par exemple REA01. Colonne source arrcod.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 1
+      - name: nom
+        description: Nom de l'arrondissement. Colonne source arrnom.
+        logicalType: string
+        physicalType: STRING
+        required: true
+      - name: nom_municipalite
+        description: Nom de la municipalité de l'arrondissement. Colonne source arrville.
+        logicalType: string
+        physicalType: STRING
+      - name: code_geographique_municipalite
+        description: Code géographique de la municipalité de l'arrondissement. Colonne source arrcode.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        relationships:
+          - to: municipalite.code_geographique
+      - name: adresse_physique_ligne_1
+        description: Adresse physique de l'arrondissement, ligne 1. Colonne source arradr1.
+        logicalType: string
+        physicalType: STRING
+      - name: adresse_physique_ligne_2
+        description: Adresse physique de l'arrondissement, ligne 2. Colonne source arradr2.
+        logicalType: string
+        physicalType: STRING
+      - name: adresse_postale_ligne_1
+        description: Adresse postale de l'arrondissement, ligne 1. Colonne source arradr3.
+        logicalType: string
+        physicalType: STRING
+      - name: adresse_postale_ligne_2
+        description: Adresse postale de l'arrondissement, ligne 2. Colonne source arradr4.
+        logicalType: string
+        physicalType: STRING
+      - name: code_postal
+        description: Code postal de l'arrondissement, au format A9A9A9. Colonne source arrcodp.
+        logicalType: string
+        physicalType: STRING
+        logicalTypeOptions:
+          pattern: "^[A-Z][0-9][A-Z][0-9][A-Z][0-9]$"
+      - name: telephone
+        description: Numéro de téléphone de l'arrondissement, à dix chiffres. Colonne source arrtel.
+        logicalType: string
+        physicalType: STRING
+        logicalTypeOptions:
+          pattern: "^[0-9]{10}$"
+      - name: telecopieur
+        description: Numéro de télécopieur de l'arrondissement, à dix chiffres ; 0000000000 s'il n'est pas renseigné. Colonne source arrfax.
+        logicalType: string
+        physicalType: STRING
+        logicalTypeOptions:
+          pattern: "^[0-9]{10}$"
+      - name: courriel
+        description: Adresse de courriel de l'arrondissement. Colonne source arrcourriel.
+        logicalType: string
+        physicalType: STRING
+      - name: region_administrative
+        description: Région administrative de l'arrondissement, suivie de son code à deux chiffres entre parenthèses. Colonne source arrregion.
+        logicalType: string
+        physicalType: STRING
+      - name: municipalite_regionale_comte
+        description: Municipalité régionale de comté (MRC) de l'arrondissement, suivie de son code à trois chiffres entre parenthèses. Colonne source arrmrc.
+        logicalType: string
+        physicalType: STRING
+      - name: indicateur_autochtone_hors_municipalite_regionale_comte
+        description: Indique si l'arrondissement est sur un territoire autochtone hors MRC. Colonne source arrhorsmrcautoch.
+        logicalType: boolean
+        physicalType: BOOLEAN
+      - name: communaute_metropolitaine
+        description: Communauté métropolitaine de l'arrondissement, suivie de son code entre parenthèses. Colonne source arrcm.
+        logicalType: string
+        physicalType: STRING
+      - name: gentile
+        description: Gentilé des habitants de l'arrondissement. Colonne source arrgentile.
+        logicalType: string
+        physicalType: STRING
+      - name: site_web
+        description: Adresse du site Web de l'arrondissement. Colonne source arradrinternet.
+        logicalType: string
+        physicalType: STRING
+      - name: date_constitution
+        description: Date de constitution de l'arrondissement. Colonne source arrdateconsti.
+        logicalType: date
+        physicalType: DATE
+      - name: date_prochaine_election
+        description: Date des prochaines élections de l'arrondissement. Colonne source arrdateproelec.
+        logicalType: date
+        physicalType: DATE
+      - name: president
+        description: Nom du président de l'arrondissement. Colonne source president.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: directeur
+        description: Nom du directeur de l'arrondissement. Colonne source directeur.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential

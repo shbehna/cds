@@ -758,7 +758,7 @@ def deploy(settings: Settings) -> databricks.Job:
         "data_product": settings.data_product,
         "source_path": settings.source_path,
         "max_workers": str(settings.max_workers),
-        # Read by the transformations of the demo (products/donnees_qc/req/sources.py).
+        # Read by the transformations of the demo (products/donnees_qc/sources.py).
         "synthetic_data": "true" if settings.synthetic_data else "false",
         # Read by the genie service: the warehouse of the space, and its folder.
         "genie_warehouse_id": warehouse.id,
