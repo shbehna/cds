@@ -203,9 +203,10 @@ also send an email.
 
 ## Synthetic data set
 
-[csv/testdata](csv/testdata) holds a synthetic version of each file of the register,
+[csv/testdata](csv/testdata) holds a synthetic version of each file of the data sets,
 named after it (`Entreprise_testdata.csv` for `Entreprise.csv`), in the folder of its
-data product (`donnees_qc/req`), to illustrate the quality service. Each file has 200 rows: 170 valid rows (85 %), 20 rows with a warning
+data product (`donnees_qc/req`, `donnees_qc/repertoire_municipalites`), to illustrate the
+quality service. Each file has 200 rows: 170 valid rows (85 %), 20 rows with a warning
 (10 %) and 10 rows with an error (5 %). Each of these rows fails a single check, chosen
 among the kinds of checks of its table:
 
@@ -217,16 +218,25 @@ among the kinds of checks of its table:
 | `fusion_scission` | unknown enterprise or linked enterprise, code out of its `enum`, missing date | enterprise linked to itself, date in the future |
 | `continuation_transformation` | unknown or missing enterprise, code out of its `enum`, missing date, duplicated key | law code out of its value domain, date in the future |
 | `domaine_valeur` | missing domain, code or description, duplicated key | code with spaces, domain not in capitals |
+| `municipalite` | code not matching its pattern, designation out of its `enum`, invalid postal code or phone number, negative population, duplicated key | land area larger than the total area, phone number or election date not filled in |
+| `organisme_supramunicipal` | code not matching its pattern, designation out of its `enum`, invalid postal code or fax number, negative population, duplicated key | land area larger than the total area, phone number not filled in |
+| `arrondissement` | unknown municipality, invalid postal code or phone number, missing name, duplicated key | phone number or election date not filled in |
+| `ressource` | group out of its `enum`, missing title code or organisation, invalid indicator, duplicated key | position held without holder, entry date not filled in |
 
-The other rows reference each other as in the register: the establishments, names,
-mergers and continuations belong to enterprises without errors, and their codes belong
-to the value domains of `DomaineValeur_testdata.csv`.
+The other rows reference each other as in the published files: the establishments,
+names, mergers and continuations belong to enterprises without errors, and their codes
+belong to the value domains of `DomaineValeur_testdata.csv`; the boroughs belong to
+municipalities without errors. The seats of the councils (`conseiller_municipal` and
+`conseiller_arrondissement`) are all valid: their code is that of their municipality or
+borough, and the municipalities and boroughs with errors have no councillors. The codes,
+names, addresses and phone numbers of the directory are fictitious: its municipalities
+are numbered from `00001`, and their addresses use the `example` domain.
 
 The transformations read the synthetic files instead of the published ones when the
 runtime parameter `synthetic_data` is true ([sources.py](products/donnees_qc/sources.py)).
-The deployment uploads them next to the published files, and the `nprod` job of `req`
-loads them; the `prod` jobs load the published files. A data product without synthetic
-data set loads its published files in `nprod` too.
+The deployment uploads them next to the published files, and the `nprod` jobs load them;
+the `prod` jobs load the published files. A data product without synthetic data set
+loads its published files in `nprod` too.
 
 [csv/generate_testdata.py](csv/generate_testdata.py) generates the files,
 deterministically. Regenerate them after changing it, and commit them: a test checks
@@ -345,8 +355,8 @@ The other services cover it as they cover `req`:
   alert every day at 9 am that at most 1 % of their rows have an error. The history keeps
   the replaced versions 10 years. In `prod`, the tables are as recent as the files of its
   volume, uploaded by hand.
-- **Synthetic data set**: none yet. Its `nprod` job loads the published files of its
-  volume, as in `prod`.
+- **Synthetic data set**: see [Synthetic data set](#synthetic-data-set). Its rows sharing
+  a key are reported by the quality service; the history keeps one row per key.
 - **Quality dashboard**: **Répertoire des municipalités data quality
   (&lt;environment&gt;)**.
 - **Genie space**: **Répertoire des municipalités du Québec (&lt;environment&gt;)**, with
