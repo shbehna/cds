@@ -30,16 +30,17 @@ the framework on serverless compute, on the schedule of the `frequency` of its c
 Each job reads the files of its data product in its folder under `cds-demo:sourceRoot`:
 `<sourceRoot>/<group>/<data product>`. The schedules are paused unless
 `cds-demo:pauseSchedule` is `false`, as in `prod`: in `nprod`, you run the jobs on demand.
-The sections below describe the job of `req`; that of `repertoire_municipalites` runs the
-same steps on its own tables, in the schema `donnees_qc_repertoire_municipalites`.
+The sections below describe the job of `req`: the job of another data product runs the
+same steps on its own tables, in its own schema.
 
 With `cds-demo:syntheticData`, the jobs of the data products of the synthetic data set
 ([cds-demo/csv/testdata](../csv/testdata), a folder `<group>/<data product>` each) load
 it; the others load their published files, as in `prod`.
 
-The first deployment with several data products renames the job and the alerts of `req`
-(`pipeline` becomes `pipeline:donnees_qc.req`): their former names are Pulumi aliases, so
-that Pulumi renames them instead of replacing them.
+The resources of a data product are named after it. The first deployment of this
+version renames the job, the alerts and the synthetic files of `req` (`pipeline` becomes
+`pipeline:donnees_qc.req`): their former names are Pulumi aliases, so that Pulumi renames
+them instead of replacing them.
 
 ```text
 schema --> transformation --> metadata --> genie
@@ -190,8 +191,8 @@ it to the notification destinations of both environments. The deployment reads i
 Pulumi secret, kept encrypted in the state of the stacks and hidden in their logs.
 
 The jobs run as the deployment service principal. The tables are created in the
-`<environment>` catalog, in the `donnees_qc_req` and `donnees_qc_repertoire_municipalites`
-schemas.
+`<environment>` catalog, in the schema of their data product: `donnees_qc_req` and
+`donnees_qc_repertoire_municipalites`.
 
 The two environments differ by their data and their catalog:
 
@@ -286,7 +287,7 @@ GRANT WRITE VOLUME ON VOLUME ext.donnees_qc.repertoire_municipalites TO `bf175dc
 The service principal owns the `prod` catalog, and the schemas and tables it creates.
 As a metastore administrator or the owner of the `nprod` catalog, you can query them. To
 let other users read the tables, grant them `USE CATALOG` on the catalog, and `USE
-SCHEMA` and `SELECT` on the schemas `donnees_qc_req` and
+SCHEMA` and `SELECT` on the schemas of the data products: `donnees_qc_req` and
 `donnees_qc_repertoire_municipalites`.
 
 #### Creating the catalog with Pulumi

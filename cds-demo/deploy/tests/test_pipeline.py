@@ -150,7 +150,7 @@ def test_the_first_data_product_keeps_the_names_of_its_resources() -> None:
         or []
     )
     assert isinstance(alias, pulumi.Alias) and alias.name == "pipeline"
-    assert not pipeline.renamed("donnees_qc.repertoire_municipalites", "pipeline").aliases
+    assert not pipeline.renamed("donnees_qc.other", "pipeline").aliases
 
 
 @pulumi.runtime.test
