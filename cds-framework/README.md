@@ -624,6 +624,11 @@ A typical pipeline runs `schema`, then `transformation`, then `metadata` and `qu
 then `scd`, `genie` after `metadata`, and `dashboard` after `quality`. Running `metadata` after the load keeps the time of the last change of the
 tables (`last_altered`) for the loads that succeeded.
 
+Two notebooks run two services each, to make a job of 5 tasks, the most that Databricks
+Free Edition runs: `load` runs `schema` then `transformation`, and `publication` runs
+`genie` then `dashboard`, after `metadata` and `quality`. A service in error stops the
+notebook: the second service does not run.
+
 ## Command line
 
 `cds validate <root>` loads the data products of a root folder, validates their

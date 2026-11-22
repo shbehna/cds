@@ -55,20 +55,25 @@ MANIFEST = REPOSITORY / "cds-demo" / "manifest" / "manifest.json"
 # Privileges of the readers of a catalog created by the deployment.
 READER_PRIVILEGES = ["USE_CATALOG", "USE_SCHEMA", "SELECT"]
 
-# Services run by the job, with the services they wait for. The metadata step updates the
-# tables on each run: after the load, so that the latency alert sees the failed loads. The
-# genie step updates the Genie space once the comments of the tables are set, and the
-# dashboard step the quality dashboard.
+# Tasks of the job, each a notebook of the framework, with the tasks they wait for. The
+# load task runs the schema service, then the transformation service. The metadata step
+# updates the tables on each run: after the load, so that the latency alert sees the
+# failed loads. The publication task runs the genie service, once the metadata step has
+# set the comments of the tables, then the dashboard service, once the quality step has
+# added its result columns.
 TASKS: dict[str, list[str]] = {
-    "schema": [],
-    "transformation": ["schema"],
-    "metadata": ["transformation"],
-    "quality": ["transformation"],
+    "load": [],
+    "metadata": ["load"],
+    "quality": ["load"],
     "scd": ["quality"],
-    "genie": ["metadata"],
-    # Once the quality step has added its result columns to the tables.
-    "dashboard": ["quality"],
+    "publication": ["metadata", "quality"],
 }
+# The services of the tasks that run several; the other tasks run the service of their name.
+TASK_SERVICES: dict[str, list[str]] = {"load": ["schema", "transformation"], "publication": ["genie", "dashboard"]}
+# Databricks Free Edition refuses a run of a job of more than 5 tasks ("There are already
+# 5 active runs (limit: 5)"), even when nothing else runs: hence the load and publication
+# tasks, which run two services each.
+MAX_TASKS = 5
 # Permission of the users of the Genie space on its folder, which the space inherits: they
 # can view the space and ask questions.
 GENIE_PERMISSION = "CAN_RUN"
@@ -91,13 +96,6 @@ TAG_POLICY_PROPAGATION_SECONDS = 120
 # data product ("pipeline"). They keep their former names as aliases, so that Pulumi
 # renames them instead of replacing them.
 FIRST_DATA_PRODUCT = "donnees_qc.req"
-# The generation of the job of a data product, in the name of its resource: changing it
-# makes Pulumi create a new job (a new job id) and delete the former one, on the next
-# deployment of every stack. The workspace refused every run of the first
-# repertoire_municipalites jobs, though no run was active ("There are already 5 active
-# runs (limit: 5)"), while the req jobs ran: generation 2 replaces them. (A replacement
-# trigger does not replace a resource when it is first set.)
-JOB_GENERATIONS: dict[str, int] = {"donnees_qc.repertoire_municipalites": 2}
 
 
 @dataclass(frozen=True)
@@ -454,10 +452,10 @@ def renamed(data_product: str, former: str) -> pulumi.ResourceOptions:
     return pulumi.ResourceOptions(aliases=[pulumi.Alias(name=former)] if data_product == FIRST_DATA_PRODUCT else None)
 
 
-def job_resource_name(data_product: str) -> str:
-    """The name of the resource of the job of a data product: with its generation, after the first one."""
-    generation = JOB_GENERATIONS.get(data_product)
-    return f"pipeline:{data_product}" + (f":{generation}" if generation else "")
+def task_description(task: str) -> str:
+    """The description of a task of the job: the services its notebook runs."""
+    services = TASK_SERVICES.get(task, [task])
+    return f"CDS {' and '.join(services)} service{'s' if len(services) > 1 else ''}"
 
 
 def alerts(
@@ -753,7 +751,7 @@ def deploy(settings: Settings) -> dict[str, databricks.Job]:
     # their dependencies, so a new build must get a new path to be installed.
     digest = hashlib.sha256(wheel.read_bytes()).hexdigest()[:16]
     wheel_path = f"{root}/wheels/{digest}/{wheel.name}"
-    notebook_paths = {service: f"{root}/notebooks/{service}" for service in TASKS}
+    notebook_paths = {task: f"{root}/notebooks/{task}" for task in TASKS}
     product_paths = {path: f"{root}/products/{path.relative_to(PRODUCTS).as_posix()}" for path in product_files()}
     # The jobs create the dashboards and the Genie spaces of the data products in these folders.
     dashboard_folder = f"{root}/dashboards"
@@ -802,14 +800,14 @@ def deploy(settings: Settings) -> dict[str, databricks.Job]:
     )
 
     notebooks = {
-        service: databricks.Notebook(
-            f"notebook-{service}",
+        task: databricks.Notebook(
+            f"notebook-{task}",
             path=path,
-            source=str(FRAMEWORK / "notebooks" / f"{service}.py"),
+            source=str(FRAMEWORK / "notebooks" / f"{task}.py"),
             language="PYTHON",
             opts=in_folder(path),
         )
-        for service, path in notebook_paths.items()
+        for task, path in notebook_paths.items()
     }
 
     products = [
@@ -849,7 +847,7 @@ def deploy(settings: Settings) -> dict[str, databricks.Job]:
         }
         title = product.get("title")
         jobs[data_product] = databricks.Job(
-            job_resource_name(data_product),
+            f"pipeline:{data_product}",
             name=f"cds-demo-{name}-{settings.environment}",
             description=(
                 f"CDS demo: builds the {data_product} data product{f' ({title})' if title else ''} "
@@ -870,17 +868,17 @@ def deploy(settings: Settings) -> dict[str, databricks.Job]:
             ],
             tasks=[
                 databricks.JobTaskArgs(
-                    task_key=service,
-                    description=f"CDS {service} service",
+                    task_key=task,
+                    description=task_description(task),
                     depends_ons=[databricks.JobTaskDependsOnArgs(task_key=upstream) for upstream in upstreams],
                     environment_key=ENVIRONMENT_KEY,
                     notebook_task=databricks.JobTaskNotebookTaskArgs(
-                        notebook_path=notebooks[service].path, source="WORKSPACE"
+                        notebook_path=notebooks[task].path, source="WORKSPACE"
                     ),
                     max_retries=0,
                     timeout_seconds=2 * 3600,
                 )
-                for service, upstreams in TASKS.items()
+                for task, upstreams in TASKS.items()
             ],
             max_concurrent_runs=1,
             schedule=job_schedule(settings, product),
