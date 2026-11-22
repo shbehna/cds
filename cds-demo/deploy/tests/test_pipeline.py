@@ -153,6 +153,13 @@ def test_the_first_data_product_keeps_the_names_of_its_resources() -> None:
     assert not pipeline.renamed("donnees_qc.other", "pipeline").aliases
 
 
+def test_a_new_generation_replaces_the_job() -> None:
+    """The jobs of the first generation have no replacement trigger: deploying does not replace them."""
+    assert pipeline.job_generation("donnees_qc.req") is None
+    assert pipeline.job_generation("donnees_qc.repertoire_municipalites") == "2"
+    assert set(pipeline.JOB_GENERATIONS) <= set(PRODUCTS)
+
+
 @pulumi.runtime.test
 def test_files(settings: pipeline.Settings) -> pulumi.Output[None]:
     jobs = pipeline.deploy(settings)

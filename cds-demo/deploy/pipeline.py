@@ -91,6 +91,11 @@ TAG_POLICY_PROPAGATION_SECONDS = 120
 # data product ("pipeline"). They keep their former names as aliases, so that Pulumi
 # renames them instead of replacing them.
 FIRST_DATA_PRODUCT = "donnees_qc.req"
+# The generation of the job of a data product: changing it makes Pulumi replace the job (a
+# new job id) on the next deployment of every stack. The workspace refused every run of
+# the first repertoire_municipalites jobs, though no run was active ("There are already 5
+# active runs (limit: 5)"), while the req jobs ran: generation 2 replaces them.
+JOB_GENERATIONS: dict[str, int] = {"donnees_qc.repertoire_municipalites": 2}
 
 
 @dataclass(frozen=True)
@@ -445,6 +450,12 @@ def alert_addresses(
 def renamed(data_product: str, former: str) -> pulumi.ResourceOptions:
     """The options of a resource of a data product: its former name, for the first data product of the demo."""
     return pulumi.ResourceOptions(aliases=[pulumi.Alias(name=former)] if data_product == FIRST_DATA_PRODUCT else None)
+
+
+def job_generation(data_product: str) -> str | None:
+    """The replacement trigger of the job of a data product: its generation, None for the first one."""
+    generation = JOB_GENERATIONS.get(data_product)
+    return str(generation) if generation else None
 
 
 def alerts(
@@ -881,13 +892,14 @@ def deploy(settings: Settings) -> dict[str, databricks.Job]:
             opts=pulumi.ResourceOptions.merge(
                 renamed(data_product, "pipeline"),
                 pulumi.ResourceOptions(
+                    replacement_trigger=job_generation(data_product),
                     depends_on=[
                         *products,
                         *prerequisites,
                         *uploads,
                         *(directories[path] for path in created_by_the_jobs),
                         *genie_access,
-                    ]
+                    ],
                 ),
             ),
         )
