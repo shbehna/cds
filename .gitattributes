@@ -1,2 +1,2 @@
 # The synthetic data set is compared byte for byte with its generator, which writes LF line endings.
-cds-demo/csv/testdata/*.csv text eol=lf
+cds-demo/csv/testdata/**/*.csv text eol=lf

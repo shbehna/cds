@@ -1,4 +1,4 @@
-"""Tests of the Genie space of req, generated from its contracts, without Spark nor workspace.
+"""Tests of the Genie spaces of the data products, generated from their contracts, without Spark nor workspace.
 
 The tests read what they expect from the contracts and their configurations: changing a
 contract does not need changing the tests.
@@ -15,7 +15,12 @@ from cds.config import resolved
 from cds.genie import build_space
 
 PRODUCTS = Path(__file__).resolve().parents[1] / "products"
-DATA_PRODUCT = "donnees_qc.req"
+# The data products with a Genie space.
+DATA_PRODUCTS = sorted(
+    data_product.qualified_name
+    for data_product in DataContext.discover(PRODUCTS).data_products
+    if data_product.settings(GenieSettings).enabled
+)
 # A condition of a join: `left`.`column` = `right`.`column`.
 JOIN_CONDITION = re.compile(r"`(\w+)`\.`(\w+)` = `(\w+)`\.`(\w+)`")
 
@@ -25,9 +30,9 @@ def data_context() -> DataContext:
     return DataContext.discover(PRODUCTS)
 
 
-@pytest.fixture(scope="module")
-def data_product(data_context: DataContext) -> DataProduct:
-    return data_context.get_data_product(DATA_PRODUCT)
+@pytest.fixture(scope="module", params=DATA_PRODUCTS)
+def data_product(data_context: DataContext, request: pytest.FixtureRequest) -> DataProduct:
+    return data_context.get_data_product(request.param)
 
 
 @pytest.fixture(scope="module")
@@ -56,7 +61,11 @@ def text(value: list[str]) -> str:
     return "".join(value)
 
 
-def test_req_has_a_genie_space(data_product: DataProduct, document: dict[str, Any]) -> None:
+def test_the_data_products_have_a_genie_space() -> None:
+    assert DATA_PRODUCTS == ["donnees_qc.repertoire_municipalites", "donnees_qc.req"]
+
+
+def test_the_title_of_the_space(data_product: DataProduct, document: dict[str, Any]) -> None:
     settings = data_product.settings(GenieSettings)
 
     assert settings.enabled

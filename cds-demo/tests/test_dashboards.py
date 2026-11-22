@@ -1,4 +1,4 @@
-"""Tests of the quality dashboard of req, generated from its contracts, without Spark nor workspace.
+"""Tests of the quality dashboards of the data products, generated from their contracts, without Spark nor workspace.
 
 The tests read what they expect from the contracts and their configurations: changing a
 contract does not need changing the tests.
@@ -15,7 +15,12 @@ from cds.config import resolved
 from cds.dashboard import build_dashboard
 
 PRODUCTS = Path(__file__).resolve().parents[1] / "products"
-DATA_PRODUCT = "donnees_qc.req"
+# The data products with a quality dashboard.
+DATA_PRODUCTS = sorted(
+    data_product.qualified_name
+    for data_product in DataContext.discover(PRODUCTS).data_products
+    if data_product.settings(DashboardSettings).enabled
+)
 # The rows of a table in the query of the occurrences: its name, then the key of its rows.
 ROW_KEY = re.compile(r"SELECT '(\w+)' AS table_name, to_json\(named_struct\((.*?)\), map\('ignoreNullFields'")
 
@@ -25,9 +30,9 @@ def data_context() -> DataContext:
     return DataContext.discover(PRODUCTS)
 
 
-@pytest.fixture(scope="module")
-def data_product(data_context: DataContext) -> DataProduct:
-    return data_context.get_data_product(DATA_PRODUCT)
+@pytest.fixture(scope="module", params=DATA_PRODUCTS)
+def data_product(data_context: DataContext, request: pytest.FixtureRequest) -> DataProduct:
+    return data_context.get_data_product(request.param)
 
 
 @pytest.fixture(scope="module")
@@ -46,7 +51,11 @@ def sql(dashboard: dict[str, Any], name: str) -> str:
     return "".join(dataset["queryLines"])
 
 
-def test_req_has_a_dashboard(data_product: DataProduct, dashboard: dict[str, Any]) -> None:
+def test_the_data_products_have_a_dashboard() -> None:
+    assert DATA_PRODUCTS == ["donnees_qc.repertoire_municipalites", "donnees_qc.req"]
+
+
+def test_the_title_of_the_dashboard(data_product: DataProduct, dashboard: dict[str, Any]) -> None:
     settings = data_product.settings(DashboardSettings)
     name = data_product.document.name if data_product.document else None
 

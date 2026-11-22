@@ -11,18 +11,31 @@ The Pulumi program ([pipeline.py](pipeline.py)) creates, in the workspace folder
 ```text
 /Shared/cds-demo/nprod/
 ├── alerts/          the SQL alerts of the service levels (cds-demo/manifest)
-├── dashboards/      the quality dashboard of the data product, created by the job
-├── genie/           the Genie space of the data product, created by the job
+├── dashboards/      the quality dashboards of the data products, created by their jobs
+├── genie/           the Genie spaces of the data products, created by their jobs
 ├── notebooks/       the service notebooks of the framework (cds-framework/notebooks)
 ├── products/        the data products of the demo (cds-demo/products)
 └── wheels/<hash>/   the wheel of the framework, built by the workflow
 ```
 
-It also creates the job `cds-demo-req-<environment>`, which runs the services of the
-framework on serverless compute. It runs on the schedule of the `frequency` of the
-contracts, the 1st and the 15th of each month at 6 am (`cds-demo:timezone`). The
-schedule is paused unless `cds-demo:pauseSchedule` is `false`, as in `prod`: in `nprod`,
-you run the job on demand.
+It also creates a job for each data product of the manifest, which runs the services of
+the framework on serverless compute, on the schedule of the `frequency` of its contracts
+(`cds-demo:timezone`):
+
+| Data product | Job | Schedule | Files |
+| --- | --- | --- | --- |
+| `donnees_qc.req` | `cds-demo-req-<environment>` | the 1st and the 15th of each month at 6 am | `/Volumes/ext/donnees_qc/req` |
+| `donnees_qc.repertoire_municipalites` | `cds-demo-repertoire_municipalites-<environment>` | every day at 5 am | `/Volumes/ext/donnees_qc/repertoire_municipalites` |
+
+Each job reads the files of its data product in its folder under `cds-demo:sourceRoot`:
+`<sourceRoot>/<group>/<data product>`. The schedules are paused unless
+`cds-demo:pauseSchedule` is `false`, as in `prod`: in `nprod`, you run the jobs on demand.
+The sections below describe the job of `req`; that of `repertoire_municipalites` runs the
+same steps on its own tables, in the schema `donnees_qc_repertoire_municipalites`.
+
+The first deployment with several data products renames the job and the alerts of `req`
+(`pipeline` becomes `pipeline:donnees_qc.req`): their former names are Pulumi aliases, so
+that Pulumi renames them instead of replacing them.
 
 ```text
 schema --> transformation --> metadata --> genie
@@ -40,7 +53,8 @@ unchanged, which the latency alert detects.
 
 The contracts classify their columns (`classification`): the addresses of `entreprise`,
 `etablissement` and `fusion_scission` are `restricted` (see
-[cds-demo/README.md](../README.md#classification-and-masking)). The job tags each column
+[cds-demo/README.md](../README.md#classification-and-masking)), and the names of the
+persons of the directory of the municipalities `confidential`, which is not masked. The job tags each column
 with its classification, before writing to it: the schema step tags the columns of the
 tables it creates, and the scd step those of the history tables. With `cds-demo:masking`, the deployment masks the
 columns of the classifications `cds-demo:maskedClassifications` (`restricted`):
@@ -60,22 +74,26 @@ The masking function takes and returns a string: only classify as `restricted` t
 type `STRING`, which a test of the demo checks (`cds-demo/tests/test_manifest.py`).
 
 The deployment reads the classifications in the manifest
-[cds-demo/manifest/req_manifest.json](../manifest/req_manifest.json), generated from the
+[cds-demo/manifest/manifest.json](../manifest/manifest.json), generated from the
 contracts: regenerate it after changing them (`uv run python cds-demo/manifest/manifest.py`).
+The data products share the classifications: the masking policy applies to the whole
+catalog.
 
 ### Discover domains
 
-In `prod`, the metadata step of the job tags each table with the governed tag of its
+In `prod`, the metadata step of the jobs tags each table with the governed tag of its
 Discover domain: the subdomain **Registraire des entreprises du Québec** of the domain
-**Économie** (see [cds-demo/README.md](../README.md#discover-domains)). The `genie` and
+**Économie** for `req`, the subdomain **Ministère des Affaires municipales et de
+l'Habitation** of the domain **Gouvernement** for `repertoire_municipalites` (see
+[cds-demo/README.md](../README.md#discover-domains)). The `genie` and
 `dashboard` steps tag the Genie space and the quality dashboard with it: the subdomain
 lists them with the tables. The `nprod` job does not, and removes the tags it applied
 before. With `cds-demo:createDomains`, the deployment creates them, from the manifest:
 
 | Resource | Name | Role |
 | --- | --- | --- |
-| Governed tags | `Économie`, `Économie/Registraire des entreprises du Québec` | Tags without values. The tag of a subdomain is its path under its domain. As for `classification`, the deployment waits 2 minutes after creating them, before creating the domains and the job that applies them. |
-| Discover domains | **Économie**, and its subdomain **Registraire des entreprises du Québec** | Built on the governed tags, and published. Their subtitles and descriptions, in French, are in `DOMAINS` ([pipeline.py](pipeline.py)): a domain of the contracts without a description fails the deployment. |
+| Governed tags | `Économie`, `Économie/Registraire des entreprises du Québec`, `Gouvernement`, `Gouvernement/Ministère des Affaires municipales et de l'Habitation` | Tags without values. The tag of a subdomain is its path under its domain. As for `classification`, the deployment waits 2 minutes after creating them, before creating the domains and the job that applies them. |
+| Discover domains | **Économie** and **Gouvernement**, and their subdomains | Built on the governed tags, and published. Their subtitles and descriptions, in French, are in `DOMAINS` ([pipeline.py](pipeline.py)): a domain of the contracts without a description fails the deployment. |
 
 The governed tags and the domains belong to the account: only the `nprod` stack creates
 them, protected, and the `prod` job applies them. Only the `prod` assets are in the
@@ -91,10 +109,11 @@ on the old tag and domain of the `nprod` stack, and deploy again.
 ### Quality dashboard
 
 The `dashboard` step of the job creates the quality dashboard of the data product, **REQ
-data quality (&lt;environment&gt;)**, in the `dashboards` folder, from the contracts (see
+data quality (&lt;environment&gt;)**, and **Répertoire des municipalités data quality
+(&lt;environment&gt;)** for `repertoire_municipalites`, in the `dashboards` folder, from the contracts (see
 [cds-demo/README.md](../README.md#quality-dashboard)), and publishes it. The next runs
 update it, and publish it again, when the contracts change. The job keeps its id in the
-`cds.dashboard_id` property of the schema `donnees_qc_req`. It receives two parameters
+`cds.dashboard_id` property of the schema of its data product (`donnees_qc_req`). It receives two parameters
 from the deployment: the SQL warehouse (`dashboard_warehouse_id`) and the folder
 (`dashboard_parent_path`). The deployment does not manage the dashboard: deleting the
 `dashboards` folder, as `pulumi destroy` does, deletes it.
@@ -109,10 +128,11 @@ which the deployment published: the next run of the job creates the new one, at 
 ### Genie space
 
 The `genie` step of the job creates the Genie space of the data product, **Registre des
-entreprises du Québec (&lt;environment&gt;)**, in the `genie` folder, from the contracts
+entreprises du Québec (&lt;environment&gt;)**, and **Répertoire des municipalités du Québec
+(&lt;environment&gt;)** for `repertoire_municipalites`, in the `genie` folder, from the contracts
 (see [cds-demo/README.md](../README.md#genie-space)). The next runs update it when the
 contracts change. The job keeps its id in the `cds.genie_space_id` property of the schema
-`donnees_qc_req`. It receives two parameters from the deployment: the SQL warehouse of the
+of its data product (`donnees_qc_req`). It receives two parameters from the deployment: the SQL warehouse of the
 dashboard (`genie_warehouse_id`), and the folder (`genie_parent_path`).
 
 | Resource | Name | Role |
@@ -134,18 +154,20 @@ addresses masked (`****`). The service principal owns the space.
 
 The contracts state service levels (see
 [cds-demo/README.md](../README.md#service-levels)), which the manifest turns into two SQL
-alerts, in the `alerts` folder:
+alerts for each data product, in the `alerts` folder:
 
 | Alert | Triggers when | Checked |
 | --- | --- | --- |
-| **REQ error rate SLA (&lt;environment&gt;)** | more than 1 % of the rows of a table have a quality error | after each load: the 1st and the 15th of each month at noon |
-| **REQ latency SLA (&lt;environment&gt;)** | a table has not changed for 18 days, as its load failed or the job did not run | every day at 7 am |
+| **donnees_qc.req error rate SLA (&lt;environment&gt;)** | more than 1 % of the rows of a table have a quality error | after each load: the 1st and the 15th of each month at noon |
+| **donnees_qc.req latency SLA (&lt;environment&gt;)** | a table has not changed for 18 days, as its load failed or the job did not run | every day at 7 am |
+| **donnees_qc.repertoire_municipalites error rate SLA (&lt;environment&gt;)** | more than 1 % of the rows of a table have a quality error | after each load: every day at 9 am |
+| **donnees_qc.repertoire_municipalites latency SLA (&lt;environment&gt;)** | a table has not changed for 2 days | every day at 8 am |
 
 Their queries run on the SQL warehouse of the dashboard, as the service principal, and
 return a row per table: the alert triggers when one of them breaks its service level. It
-then sends an email to a notification destination, **CDS demo alerts
-(&lt;environment&gt;)**, holding the address of the support channel of the contracts
-(fictitious) and those of the GitHub secret `ALERT_EMAILS`, and another one when it is back to
+then sends an email to the notification destination of its data product, **CDS demo
+alerts, &lt;data product&gt; (&lt;environment&gt;)**, holding the address of the support
+channel of its contracts (fictitious) and those of the GitHub secret `ALERT_EMAILS`, and another one when it is back to
 normal. Creating a notification destination requires a workspace administrator, which the
 service principal is.
 
@@ -154,27 +176,29 @@ step fails, the error rate of the tables cannot be measured: the failed run send
 email.
 
 In `nprod`, run the error rate alert after a run of the job (**Run now** on the alert):
-the error rate of the synthetic data set triggers it. As the schedule of the job is
-paused, the latency alert triggers 18 days after the last run.
+the error rate of the synthetic data set triggers it. As the schedules of the jobs are
+paused, the latency alerts trigger 18 days (`req`) and 2 days
+(`repertoire_municipalites`) after the last run.
 
 To receive the alerts, add your address to the GitHub secret `ALERT_EMAILS` (see
 [Add the secrets to GitHub](#3-add-the-secrets-to-github-once)): the next deployment adds
-it to the notification destination of both environments. The deployment reads it as a
+it to the notification destinations of both environments. The deployment reads it as a
 Pulumi secret, kept encrypted in the state of the stacks and hidden in their logs.
 
-The job runs as the deployment service principal. The tables are created in the
-`<environment>` catalog, in the `donnees_qc_req` schema.
+The jobs run as the deployment service principal. The tables are created in the
+`<environment>` catalog, in the `donnees_qc_req` and `donnees_qc_repertoire_municipalites`
+schemas.
 
 The two environments differ by their data and their catalog:
 
 | | `nprod` | `prod` |
 | --- | --- | --- |
-| Data loaded by the job | the synthetic data set ([cds-demo/csv/testdata](../csv/testdata)), uploaded by the deployment next to the files of the register | the files of the register |
+| Data loaded by the jobs | the synthetic data set ([cds-demo/csv/testdata](../csv/testdata)), uploaded by the deployment next to the published files | the published files |
 | Catalog | created by an administrator | created by an administrator with Default Storage, owned by the service principal |
 
 The synthetic data set illustrates the quality service: 85 % of valid rows, 10 % with
 warnings and 5 % with errors (see [cds-demo/README.md](../README.md#synthetic-data-set)).
-The job receives the choice as its `synthetic_data` parameter.
+The jobs receive the choice as their `synthetic_data` parameter.
 
 Pulumi keeps track of what it deployed in a *state*, stored by Pulumi Cloud, and
 updates the workspace to match the program on each deployment. Each environment is a
@@ -204,19 +228,29 @@ with a warning instead of failing.
 
 ### Upload the data
 
-Create a volume in the `ext` catalog and upload the six CSV files of the REQ data set
-(`Entreprise.csv`, `Etablissements.csv`, `Nom.csv`, `FusionScissions.csv`,
-`ContinuationsTransformations.csv` and `DomaineValeur.csv`), for example:
+Create a volume per data product in the `ext` catalog, named after it:
 
 ```sql
 CREATE SCHEMA IF NOT EXISTS ext.donnees_qc;
 CREATE VOLUME IF NOT EXISTS ext.donnees_qc.req;
+CREATE VOLUME IF NOT EXISTS ext.donnees_qc.repertoire_municipalites;
 ```
 
-Then, in **Catalog > ext > donnees_qc > req**, select **Upload to this volume**. If you use
-another volume or folder, set `cds-demo:sourcePath` in both stack files.
+Then, in **Catalog > ext > donnees_qc > &lt;volume&gt;**, select **Upload to this volume**
+and upload the files of its data set:
 
-The `nprod` deployment uploads the synthetic files (`*_testdata.csv`) to the same volume:
+| Volume | Files | Source |
+| --- | --- | --- |
+| `req` | `Entreprise.csv`, `Etablissements.csv`, `Nom.csv`, `FusionScissions.csv`, `ContinuationsTransformations.csv`, `DomaineValeur.csv` | [Registraire des entreprises](https://www.donneesquebec.ca/) |
+| `repertoire_municipalites` | `MUN.csv`, `MRC_CM_Arg.csv`, `ARR.csv`, `ress.csv` | [Répertoire des municipalités](https://www.donneesquebec.ca/recherche/dataset/repertoire-des-municipalites-du-quebec) |
+
+The `prod` jobs load these files: upload them again to load a newer version. The
+directory of the municipalities is updated every day, and its job loads it every day: the
+tables are as recent as the files of the volume. If you use other volumes or folders, set
+`cds-demo:sourceRoot` in both stack files: the folder of each data product is
+`<sourceRoot>/<group>/<data product>`.
+
+The `nprod` deployment uploads the synthetic files (`*_testdata.csv`) to the same volumes:
 you do not upload them.
 
 ### Create a secret for the service principal
@@ -238,16 +272,18 @@ CREATE CATALOG IF NOT EXISTS nprod;
 GRANT USE CATALOG, CREATE SCHEMA ON CATALOG nprod TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
 -- prod: the catalog created in Catalog Explorer is given to the service principal.
 ALTER CATALOG prod OWNER TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
--- The files of the register, and the synthetic files uploaded by the nprod deployment.
+-- The published files, and the synthetic files uploaded by the nprod deployment.
 GRANT USE CATALOG ON CATALOG ext TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
 GRANT USE SCHEMA, READ VOLUME ON SCHEMA ext.donnees_qc TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
 GRANT WRITE VOLUME ON VOLUME ext.donnees_qc.req TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
+GRANT WRITE VOLUME ON VOLUME ext.donnees_qc.repertoire_municipalites TO `bf175dc4-c86b-4e88-83e9-9194c485a080`;
 ```
 
 The service principal owns the `prod` catalog, and the schemas and tables it creates.
 As a metastore administrator or the owner of the `nprod` catalog, you can query them. To
 let other users read the tables, grant them `USE CATALOG` on the catalog, and `USE
-SCHEMA` and `SELECT` on the schema `donnees_qc_req`.
+SCHEMA` and `SELECT` on the schemas `donnees_qc_req` and
+`donnees_qc_repertoire_municipalites`.
 
 #### Creating the catalog with Pulumi
 
@@ -350,18 +386,20 @@ Push to `master`, or open **Actions > Deploy demo > Run workflow**: the run depl
 run the workflow again.
 
 In each deployment job, the logs of the **Deploy with Pulumi** step list the created
-resources and end with the URL of the job (`job_url`). The job creates the quality
-dashboard and the Genie space, in the `dashboards` and `genie` folders.
+resources and end with the URLs of the jobs, by data product (`job_urls`). The jobs create
+the quality dashboards and the Genie spaces, in the `dashboards` and `genie` folders.
 
 ## 5. Run the pipeline
 
 In Databricks, open **Jobs & Pipelines > cds-demo-req-nprod** and select **Run now**. The
-first run creates the tables of `nprod.donnees_qc_req`. Each run then:
+first run creates the tables of `nprod.donnees_qc_req`. Run
+**cds-demo-repertoire_municipalites-nprod** the same way: it creates those of
+`nprod.donnees_qc_repertoire_municipalites`. Each run then:
 
 1. creates or updates the tables from their contracts, with the tags of their columns
    (schema);
 2. loads them from the CSV files, with the names and types of their contracts
-   (transformation): the synthetic files in `nprod`, those of the register in `prod`;
+   (transformation): the synthetic files in `nprod`, the published ones in `prod`;
 3. documents and tags them, and their history tables, and in `prod` places them in their
    Discover domain (metadata);
 4. checks them with DQX: each row gets its `_errors` and `_warnings` (quality);
@@ -414,10 +452,10 @@ The stack files are the variables of the deployment.
 | Key | Description |
 | --- | --- |
 | `databricks:host` | URL of the workspace. |
-| `databricks:clientId` | Application id of the deployment service principal; the job runs as it. |
+| `databricks:clientId` | Application id of the deployment service principal; the jobs run as it. |
 | `cds-demo:environment` | CDS environment id: `nprod` or `prod`. It is also the catalog of the tables. |
-| `cds-demo:sourcePath` | Folder of the CSV files. **Placeholder**: `/Volumes/ext/donnees_qc/req`. |
-| `cds-demo:syntheticData` | `true`: the deployment uploads the synthetic data set to `sourcePath` and the job loads it; `false`: the job loads the register. `true` in `nprod`, `false` in `prod`. |
+| `cds-demo:sourceRoot` | Folder of the folders of the CSV files, one per data product: `<sourceRoot>/<group>/<data product>`. **Placeholder**: `/Volumes/ext`. |
+| `cds-demo:syntheticData` | `true`: the deployment uploads the synthetic data set to the folders of the data products and the jobs load it; `false`: the jobs load the published files. `true` in `nprod`, `false` in `prod`. |
 | `cds-demo:createCatalog` | `true`: the deployment creates the catalog of the environment, which needs a storage location (see [Creating the catalog with Pulumi](#creating-the-catalog-with-pulumi)). `false` in both stacks: the account uses Default Storage. |
 | `cds-demo:catalogStorageRoot` | Optional. Storage location of the created catalog, when the metastore has none. |
 | `cds-demo:catalogReaders` | Optional. List of the users or groups granted read access to the created catalog. |
@@ -432,8 +470,8 @@ The stack files are the variables of the deployment.
 | `cds-demo:createTagPolicies` | `true`: the deployment creates the governed tag `classification`. It belongs to the account: `true` in `nprod` only. |
 | `cds-demo:createDomains` | `true`: the deployment creates the Discover domains of the contracts and their governed tags (see [Discover domains](#discover-domains)). They belong to the account: `true` in `nprod` only. |
 | `cds-demo:genieUsers` | Optional. List of the users, groups or service principals (application ids) granted `CAN RUN` on the `genie` folder, and so on the Genie space: `["users"]` in both stacks. None by default: the folder then only has the permissions it inherits (see [Genie space](#genie-space)). |
-| `cds-demo:timezone` | Time zone of the schedules of the job and of the alerts: `America/Toronto`. |
-| `cds-demo:pauseSchedule` | `true`, the default: the schedule of the job is paused, and the job runs on demand. `true` in `nprod`, `false` in `prod`. |
+| `cds-demo:timezone` | Time zone of the schedules of the jobs and of the alerts: `America/Toronto`. |
+| `cds-demo:pauseSchedule` | `true`, the default: the schedules of the jobs are paused, and the jobs run on demand. `true` in `nprod`, `false` in `prod`. |
 
 ## Deploy from your computer (optional)
 

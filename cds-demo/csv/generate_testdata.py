@@ -1,4 +1,4 @@
-"""Generates the synthetic data set of the REQ data product.
+"""Generates the synthetic data set of the REQ and repertoire_municipalites data products.
 
 The data set illustrates the quality service. Each file has 200 rows: 170 valid rows,
 20 rows failing a warning check of the contracts and 10 rows failing an error check
@@ -6,12 +6,17 @@ The data set illustrates the quality service. Each file has 200 rows: 170 valid 
 kinds of checks: required columns, primary keys, enumerations, patterns, ranges,
 foreign keys, value domains and the custom rules of the contracts.
 
-The rows reference each other as in the register: the establishments, names, mergers
-and continuations belong to enterprises of the entreprise file, and the codes belong to
-the value domains of the domaine_valeur file, except in the rows illustrating the
-foreign key and value domain checks. The enterprises with errors are not referenced.
+The rows reference each other as in the published files. In REQ, the establishments,
+names, mergers and continuations belong to enterprises of the entreprise file, and the
+codes belong to the value domains of the domaine_valeur file, except in the rows
+illustrating the foreign key and value domain checks. In the directory of the
+municipalities, the boroughs belong to municipalities of the MUN file. The rows with
+errors are not referenced: the municipalities and boroughs with errors have no
+councillors, so that the seats of the councils (conseiller_municipal and
+conseiller_arrondissement, built from the columns con1 to con75) are all valid.
 
-The files are committed in cds-demo/csv/testdata, named after the files of the register
+The files are committed in cds-demo/csv/testdata, in a folder per data product
+(donnees_qc/req, donnees_qc/repertoire_municipalites), named after the published files
 (Entreprise_testdata.csv for Entreprise.csv). The transformations read them instead of
 the real files when the runtime parameter synthetic_data is true; the deployment uploads
 them next to the real files. The generation is deterministic: regenerate the files,
@@ -25,6 +30,7 @@ from __future__ import annotations
 import csv
 import io
 import random
+import unicodedata
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -32,9 +38,13 @@ from pathlib import Path
 
 TESTDATA = Path(__file__).with_name("testdata")
 # The data products of the data set: every table of each has a synthetic file.
-DATA_PRODUCTS = ("donnees_qc.req",)
+REQ = "donnees_qc.req"
+REPERTOIRE = "donnees_qc.repertoire_municipalites"
+DATA_PRODUCTS = (REQ, REPERTOIRE)
 SUFFIX = "_testdata"
 SEED = 2026
+# The seats of the councils: the columns con1 to con75 of MUN.csv, con01 to con75 of ARR.csv.
+SEATS = 75
 ROWS = 200
 # The last day of the data set: the dates of the rows are not after it.
 LAST_DAY = date(2025, 12, 31)
@@ -131,6 +141,114 @@ HEADERS: dict[str, tuple[str, ...]] = {
         "DAT_EFCTVT",
     ),
     "DomaineValeur.csv": ("TYP_DOM_VAL", "COD_DOM_VAL", "VAL_DOM_FRAN"),
+    # The files of the directory of the municipalities.
+    "MUN.csv": (
+        *[
+            "mcode",
+            "munnom",
+            "madr1",
+            "madr2",
+            "madr3",
+            "madr4",
+            "mcodpos",
+            "mcourriel",
+            "mweb",
+            "mtel",
+            "mfax",
+            "mcodedesi",
+            "mdes",
+            "mgentile",
+        ],
+        *[
+            "regadm",
+            "divrec",
+            "mrc",
+            "admregionale",
+            "horsmrcautoch",
+            "mdatcons",
+            "mdatregi",
+            "msuperf",
+            "mpopul",
+            "datelec",
+        ],
+        *["electype", "delectype", "elecmode", "delecmode", "divter", "mcm", "mcirc", "msupft", "maire"],
+        *(f"con{seat}" for seat in range(1, SEATS + 1)),
+        *[
+            "dirgen",
+            "dirsecpub",
+            "tres",
+            "gref",
+            "sectres",
+            "polic",
+            "incen",
+            "loisir",
+            "trvpub",
+            "mesurg",
+            "urban",
+            "communic",
+            "permis",
+            "batim",
+            "nd",
+        ],
+    ),
+    "MRC_CM_Arg.csv": (
+        *[
+            "mrccod",
+            "mrcnom",
+            "mrcadr1",
+            "mrcadr2",
+            "mrcadr3",
+            "mrcadr4",
+            "mrccodp",
+            "mrctel",
+            "mrcfax",
+            "mrccourriel",
+            "mrcweb",
+        ],
+        *["mrcdateconsti", "mrcpopul", "mrcregion", "mrccodedesi", "mrcdescdesi", "msupf", "msupft"],
+        *["president", "prefet", "tres", "sectres", "amenage", "urbanisme"],
+    ),
+    "ARR.csv": (
+        *[
+            "arrcod",
+            "arrnom",
+            "arrville",
+            "arrcode",
+            "arradr1",
+            "arradr2",
+            "arradr3",
+            "arradr4",
+            "arrcodp",
+            "arrtel",
+            "arrfax",
+            "arrcourriel",
+        ],
+        *[
+            "arrregion",
+            "arrmrc",
+            "arrhorsmrcautoch",
+            "arrcm",
+            "arrgentile",
+            "arradrinternet",
+            "arrdateconsti",
+            "arrdateproelec",
+        ],
+        "president",
+        "directeur",
+        *(f"con{seat:02d}" for seat in range(1, SEATS + 1)),
+    ),
+    "ress.csv": (
+        *[
+            "rescode",
+            "resgroupe",
+            "rescodetitre",
+            "restitre",
+            "resentreefonction",
+            "resnom",
+            "resprenom",
+            "resestvacant",
+        ],
+    ),
 }
 
 # Prefix of the enterprise numbers of the data set. The register does not use it (its
@@ -515,6 +633,10 @@ class SourceFile:
     """The rows of a file of the data set, and the checks each row is expected to fail."""
 
     name: str
+    # The data product of the file (<group>.<data product>): the file is in its folder.
+    data_product: str
+    # Whether every value is quoted, as in the files of the directory of the municipalities.
+    quote_all: bool = False
     rows: list[Row] = field(default_factory=list)
     # Names of the checks failed by each row.
     expected: list[set[str]] = field(default_factory=list)
@@ -526,6 +648,11 @@ class SourceFile:
         """Name of the file of the data set: the name of the file of the register, with a suffix."""
         stem, extension = self.name.rsplit(".", 1)
         return f"{stem}{SUFFIX}.{extension}"
+
+    @property
+    def path(self) -> str:
+        """Path of the file in the data set: the folder of its data product, <group>/<data product>."""
+        return f"{self.data_product.replace('.', '/')}/{self.file_name}"
 
     def add(self, values: Row) -> int:
         """Adds a valid row and returns its index; the columns not given are empty."""
@@ -552,9 +679,9 @@ class SourceFile:
         self.fail(source, PRIMARY_KEY, {})
 
     def render(self) -> str:
-        """Returns the content of the file: UTF-8 CSV with a byte order mark, as the register publishes it."""
+        """Returns the content of the file: UTF-8 CSV with a byte order mark, as the files are published."""
         buffer = io.StringIO()
-        writer = csv.writer(buffer, lineterminator="\n")
+        writer = csv.writer(buffer, lineterminator="\n", quoting=csv.QUOTE_ALL if self.quote_all else csv.QUOTE_MINIMAL)
         writer.writerow(HEADERS[self.name])
         writer.writerows([row[column] for column in HEADERS[self.name]] for row in self.rows)
         return "\ufeff" + buffer.getvalue()
@@ -742,7 +869,7 @@ def enterprise_row(rng: random.Random, enterprise: Enterprise) -> Row:
 
 
 def entreprise_file(rng: random.Random, found: Sequence[Enterprise]) -> SourceFile:
-    source = SourceFile("Entreprise.csv")
+    source = SourceFile("Entreprise.csv", REQ)
     for enterprise in found:
         source.add(enterprise_row(rng, enterprise))
     picker = Picker(rng, source)
@@ -802,7 +929,7 @@ def establishment_row(enterprise: Enterprise, number: int, place: Address, name:
 
 
 def etablissement_file(rng: random.Random, clean: Sequence[Enterprise]) -> SourceFile:
-    source = SourceFile("Etablissements.csv")
+    source = SourceFile("Etablissements.csv", REQ)
     counts = {enterprise.neq: 1 for enterprise in clean}
     for enterprise in clean:
         source.add(establishment_row(enterprise, 1, enterprise.address, enterprise.name))
@@ -840,7 +967,7 @@ NAME_KEY = ("NEQ", "NOM_ASSUJ", "NOM_ASSUJ_LANG_ETRNG", "TYP_NOM_ASSUJ", "DAT_IN
 
 
 def nom_file(rng: random.Random, clean: Sequence[Enterprise]) -> SourceFile:
-    source = SourceFile("Nom.csv")
+    source = SourceFile("Nom.csv", REQ)
     current: dict[str, int] = {}
     for enterprise in clean:
         current[enterprise.neq] = source.add(
@@ -913,7 +1040,7 @@ def nom_file(rng: random.Random, clean: Sequence[Enterprise]) -> SourceFile:
 
 
 def fusion_file(rng: random.Random, clean: Sequence[Enterprise]) -> SourceFile:
-    source = SourceFile("FusionScissions.csv")
+    source = SourceFile("FusionScissions.csv", REQ)
     companies = [enterprise for enterprise in clean if enterprise.form == "CIE"]
     while len(source.rows) < ROWS:
         resulting = rng.choice(companies)
@@ -960,7 +1087,7 @@ CHANGE_KEY = ("NEQ", "COD_TYP_CHANG", "COD_REGIM_JURI", "DAT_EFCTVT")
 
 
 def continuation_file(rng: random.Random, clean: Sequence[Enterprise]) -> SourceFile:
-    source = SourceFile("ContinuationsTransformations.csv")
+    source = SourceFile("ContinuationsTransformations.csv", REQ)
 
     def change(enterprise: Enterprise, kind: str, after: date) -> Row:
         return {
@@ -1004,7 +1131,7 @@ def continuation_file(rng: random.Random, clean: Sequence[Enterprise]) -> Source
 
 
 def domaine_file(rng: random.Random, files: Iterable[SourceFile]) -> SourceFile:
-    source = SourceFile("DomaineValeur.csv")
+    source = SourceFile("DomaineValeur.csv", REQ)
     for domain, code, description in DOMAINS:
         source.add({"TYP_DOM_VAL": domain, "COD_DOM_VAL": code, "VAL_DOM_FRAN": description})
     # The codes used by the other files remain in their domains: only the others are changed.
@@ -1039,6 +1166,403 @@ def domaine_file(rng: random.Random, files: Iterable[SourceFile]) -> SourceFile:
     return source
 
 
+# The directory of the municipalities.
+#
+# The codes of the data set are not those of the directory: its municipalities are numbered
+# from 00001 (the directory starts at 01023), its MRC end with 5 or 6 (those of the
+# directory with 0, 1 or 2), and its boroughs start with RZ (those of the directory with RE).
+# The addresses of the municipalities use the example domain, and their phone numbers the
+# fictitious 555 exchange.
+
+# Words of the names of the municipalities, the supra-municipal bodies and the boroughs.
+SAINTS = (
+    *("Adolphe", "Alban", "Anselme", "Aurèle", "Benoît", "Célestin", "Côme", "Damase", "Edmond"),
+    *("Eusèbe", "Fabien", "Fulgence", "Gédéon", "Hilarion", "Honoré", "Isidore", "Léandre", "Ludger"),
+    *("Magloire", "Narcisse", "Octave", "Pacôme", "Prosper", "Rosaire", "Sylvère", "Zénon"),
+)
+NATURES = (
+    *("Cèdres", "Brumes", "Outardes", "Huards", "Falaises", "Grèves", "Mélèzes", "Cascades", "Dunes"),
+    *("Battures", "Bouleaux", "Épinettes", "Érables", "Frênes", "Genévriers", "Hérons", "Îlots", "Lynx"),
+    *("Ormes", "Pruches", "Quenouilles", "Rapides", "Saules", "Sapins", "Trembles", "Vallons"),
+)
+REGIONAL_PREFIXES = (
+    *("La Vallée-des-", "Le Plateau-des-", "Les Rives-des-", "La Côte-des-"),
+    *("Les Monts-des-", "Le Pays-des-", "Les Terres-des-", "Le Haut-des-"),
+)
+BOROUGH_SUFFIXES = ("Nord", "Sud", "Est", "Ouest", "Centre", "du-Lac", "de-la-Gare", "du-Moulin")
+FIRST_NAMES = (
+    *("Alexandre", "Amélie", "Benoît", "Camille", "Chantal", "Danielle", "Éric", "Félix", "Geneviève"),
+    *("Guy", "Hélène", "Isabelle", "Jacques", "Julie", "Karine", "Louis", "Manon", "Martin", "Mélanie"),
+    *("Nathalie", "Olivier", "Pierre", "Renée", "Simon", "Sophie", "Sylvain", "Valérie", "Yves"),
+)
+LAST_NAMES = (
+    *("Arsenault", "Beaulieu", "Bélanger", "Bergeron", "Bouchard", "Boucher", "Caron", "Côté", "Dion"),
+    *("Dubé", "Fortin", "Gagné", "Gagnon", "Gauthier", "Girard", "Lavoie", "Leblanc", "Lévesque"),
+    *("Martel", "Morin", "Ouellet", "Paquette", "Pelletier", "Poirier", "Roy", "Simard", "Thibault"),
+)
+# The administrative regions of Québec, with their codes.
+REGIONS = (
+    *(("Bas-Saint-Laurent", "01"), ("Saguenay--Lac-Saint-Jean", "02"), ("Capitale-Nationale", "03")),
+    *(("Mauricie", "04"), ("Estrie", "05"), ("Montréal", "06"), ("Outaouais", "07")),
+    *(("Abitibi-Témiscamingue", "08"), ("Côte-Nord", "09"), ("Nord-du-Québec", "10")),
+    *(("Gaspésie--Îles-de-la-Madeleine", "11"), ("Chaudière-Appalaches", "12"), ("Laval", "13")),
+    *(("Lanaudière", "14"), ("Laurentides", "15"), ("Montérégie", "16"), ("Centre-du-Québec", "17")),
+)
+AREA_CODES = ("418", "450", "514", "819", "438", "581", "873")
+# Designations of the municipalities (enum of the municipalite contract), with their weights.
+MUNICIPAL_DESIGNATIONS = (
+    *(("05", "Municipalité", 50), ("10", "Ville", 22), ("04", "Paroisse", 10), ("01", "Canton", 4)),
+    *(("06", "Village", 4), ("25", "Territoire non organisé", 6), ("20", "Réserve indienne", 4)),
+)
+# The designations without elected council in the data set.
+WITHOUT_COUNCIL = ("25", "20")
+NEXT_ELECTION = "2029-11-04"
+# The value of the directory for an unknown phone number, election date or entry date.
+UNKNOWN_PHONE = "0000000000"
+UNKNOWN_ELECTION = "0001-01-01"
+UNKNOWN_ENTRY = "1900-01-01"
+VACANT = "Poste vacant"
+
+
+def slug(name: str) -> str:
+    """Returns a name in lowercase, without accents nor spaces: the domain names of the data set."""
+    ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    return "".join(character if character.isalnum() else "-" for character in ascii_name.lower()).strip("-")
+
+
+def phone(rng: random.Random) -> str:
+    return f"{rng.choice(AREA_CODES)}555{rng.randrange(10000):04d}"
+
+
+def postal_code(rng: random.Random) -> str:
+    letters, digit = POSTAL_LETTERS, rng.randrange
+    return f"{rng.choice('GHJ')}{digit(10)}{rng.choice(letters)}{digit(10)}{rng.choice(letters)}{digit(10)}"
+
+
+def person(rng: random.Random) -> str:
+    return f"{rng.choice(FIRST_NAMES)} {rng.choice(LAST_NAMES)}"
+
+
+def area(rng: random.Random, minimum: float, maximum: float) -> tuple[str, str]:
+    """Returns a total area and a land area not larger, in square kilometres."""
+    total = round(rng.uniform(minimum, maximum), 2)
+    return f"{total:.2f}", f"{total * rng.uniform(0.85, 1.0):.2f}"
+
+
+def seats(rng: random.Random, count: int) -> list[str]:
+    """Returns the councillors of the first seats of a council, a few of them vacant."""
+    return [VACANT if rng.random() < 0.05 else person(rng) for _ in range(count)]
+
+
+def clear_seats(source: SourceFile, columns: Sequence[str]) -> None:
+    """Empties the seats of the rows with errors: they have no councillors."""
+    for index in source.errors:
+        source.rows[index].update(dict.fromkeys(columns, ""))
+
+
+def clean_rows(source: SourceFile) -> list[Row]:
+    return [row for index, row in enumerate(source.rows) if index not in source.errors]
+
+
+def organisme_file(rng: random.Random) -> SourceFile:
+    source = SourceFile("MRC_CM_Arg.csv", REPERTOIRE, quote_all=True)
+    numbers = [f"{number:03d}" for last in (5, 6) for number in range(last, 1000, 10)]
+    names = [f"{prefix}{nature}" for prefix in REGIONAL_PREFIXES for nature in NATURES]
+    rng.shuffle(names)
+    for index, number in enumerate(numbers[:ROWS]):
+        region, region_code = rng.choice(REGIONS)
+        if index < 6:
+            values = {
+                "mrccod": f"CM{number}",
+                "mrcnom": f"Communauté métropolitaine des {NATURES[index]}",
+                "mrccodedesi": "33",
+                "mrcdescdesi": "Communauté métropolitaine",
+                "mrcdateconsti": "2001-01-01",
+                "president": person(rng),
+            }
+        elif index < 8:
+            values = {
+                "mrccod": f"AR{number}",
+                "mrcnom": f"Administration régionale des {NATURES[index]}",
+                "mrccodedesi": "30",
+                "mrcdescdesi": "Administration régionale",
+                "mrcdateconsti": "1978-06-23",
+                "mrcregion": f"{region} ({region_code})",
+                "president": person(rng),
+            }
+        else:
+            values = {
+                "mrccod": f"AR{number}",
+                "mrcnom": names[index],
+                "mrccodedesi": "35",
+                "mrcdescdesi": "Municipalité régionale de comté",
+                "mrcdateconsti": iso(date(1979, 1, 1) + timedelta(days=rng.randrange(5 * 365))),
+                "mrcregion": f"{region} ({region_code})",
+                "prefet": person(rng),
+                "amenage": person(rng) if rng.random() < 0.7 else "",
+            }
+        place = address(rng)
+        total, land = area(rng, 300, 15000)
+        values |= {
+            "mrcadr1": place.line_1,
+            "mrcadr2": place.city,
+            "mrcadr3": place.line_1,
+            "mrcadr4": place.city,
+            "mrccodp": postal_code(rng),
+            "mrctel": phone(rng),
+            "mrcfax": phone(rng) if rng.random() < 0.8 else "",
+            "mrccourriel": f"info@{slug(values['mrcnom'])}.example",
+            "mrcweb": f"www.{slug(values['mrcnom'])}.example",
+            "mrcpopul": str(rng.randrange(5000, 300000)),
+            "msupf": total,
+            "msupft": land,
+            "sectres": person(rng),
+        }
+        source.add(values)
+    picker = Picker(rng, source)
+    # Errors.
+    for index, code in zip(picker.take(2), ("AR05", "MRC15"), strict=True):
+        source.fail(index, "code_geographique_does_not_match_pattern", {"mrccod": code})
+    for index, code in zip(picker.take(2), ("10", "36"), strict=True):
+        source.fail(index, "code_designation_is_not_in_enum", {"mrccodedesi": code})
+    for index in picker.take(2):
+        source.fail(index, "code_postal_does_not_match_pattern", {"mrccodp": "G0A 1B2"})
+    [index] = picker.take(1)
+    source.fail(index, "telecopieur_does_not_match_pattern", {"mrcfax": "418555012"})
+    [index] = picker.take(1)
+    source.fail(index, "population_is_out_of_range", {"mrcpopul": "-500"})
+    source.duplicate_key(*picker.pair(), ["mrccod"])
+    # Warnings.
+    for index in picker.take(10):
+        larger = float(source.rows[index]["msupf"]) + rng.uniform(1, 50)
+        source.warn(index, "superficie_terrestre_dans_superficie", {"msupft": f"{larger:.2f}"})
+    for index in picker.take(10):
+        source.warn(index, "telephone_renseigne", {"mrctel": UNKNOWN_PHONE})
+    return source
+
+
+def municipal_row(rng: random.Random, number: int, name: str, mrc: Row) -> Row:
+    designation, label = rng.choices(
+        [(code, label) for code, label, _ in MUNICIPAL_DESIGNATIONS],
+        weights=[weight for _, _, weight in MUNICIPAL_DESIGNATIONS],
+    )[0]
+    region = mrc["mrcregion"]
+    population = {"10": (5000, 150000), "25": (0, 50), "20": (100, 3000)}.get(designation, (100, 8000))
+    total, land = area(rng, 500, 9000) if designation == "25" else area(rng, 10, 400)
+    place = f"{rng.randrange(1, 2000)}, {rng.choice(STREETS)}"
+    values = {
+        "mcode": f"{number:05d}",
+        "munnom": name,
+        "madr1": place,
+        "madr2": name,
+        "madr3": place if rng.random() < 0.8 else f"C.P. {rng.randrange(1, 500)}",
+        "madr4": name,
+        "mcodpos": postal_code(rng),
+        "mcourriel": f"info@{slug(name)}.example",
+        "mweb": f"www.{slug(name)}.example",
+        "mtel": phone(rng),
+        "mfax": phone(rng) if rng.random() < 0.7 else "",
+        "mcodedesi": designation,
+        "mdes": label,
+        "mgentile": f"{name.split('-')[1]}ois, oise",
+        "regadm": region,
+        "divrec": f"{mrc['mrcnom']} ({mrc['mrccod'][2:4]})",
+        "mdatcons": iso(date(1845, 1, 1) + timedelta(days=rng.randrange(160 * 365))),
+        "msuperf": total,
+        "mpopul": str(rng.randrange(*population)),
+        "msupft": land,
+    }
+    if designation == "20":
+        # A reserve is outside of the MRC.
+        return values | {"horsmrcautoch": "oui", "mgentile": ""}
+    values["mrc"] = f"MRC {mrc['mrcnom']} ({mrc['mrccod'][2:]})"
+    if designation in WITHOUT_COUNCIL:
+        return values | {"mgentile": ""}
+    council = seats(rng, 8 if designation == "10" else 6)
+    values |= {
+        "datelec": NEXT_ELECTION,
+        "electype": "B",
+        "delectype": "En bloc / tout le conseil",
+        "elecmode": "E",
+        "delecmode": "Élection",
+        "divter": "District" if designation == "10" else "Sans division",
+        "maire": person(rng),
+        "dirgen": person(rng),
+        **{f"con{seat}": councillor for seat, councillor in enumerate(council, start=1)},
+    }
+    if rng.random() < 0.3:
+        values["mdatregi"] = iso(later(rng, date.fromisoformat(values["mdatcons"]), 365, 30 * 365))
+    if designation == "10":
+        values |= {"tres": person(rng), "gref": person(rng), "trvpub": person(rng), "incen": person(rng)}
+    else:
+        values["sectres"] = values["dirgen"]
+    return values
+
+
+def municipalite_file(rng: random.Random, organismes: SourceFile) -> SourceFile:
+    source = SourceFile("MUN.csv", REPERTOIRE, quote_all=True)
+    mrcs = [row for row in clean_rows(organismes) if row["mrccodedesi"] == "35"]
+    names = [f"Saint-{saint}-des-{nature}" for saint in SAINTS for nature in NATURES]
+    rng.shuffle(names)
+    for number in range(1, ROWS + 1):
+        source.add(municipal_row(rng, number, names[number], rng.choice(mrcs)))
+    picker = Picker(rng, source)
+    # Errors.
+    for index in picker.take(2):
+        code = source.rows[index]["mcode"]
+        source.fail(index, "code_geographique_does_not_match_pattern", {"mcode": f"{code[:4]}X"})
+    for index, code in zip(picker.take(2), ("15", "99"), strict=True):
+        source.fail(index, "code_designation_is_not_in_enum", {"mcodedesi": code})
+    for index in picker.take(2):
+        source.fail(index, "code_postal_does_not_match_pattern", {"mcodpos": source.rows[index]["mcodpos"].lower()})
+    [index] = picker.take(1)
+    source.fail(index, "telephone_does_not_match_pattern", {"mtel": "418-555-0123"})
+    [index] = picker.take(1)
+    source.fail(index, "population_is_out_of_range", {"mpopul": "-120"})
+    source.duplicate_key(*picker.pair(), ["mcode"])
+    # Warnings.
+    for index in picker.take(6):
+        larger = float(source.rows[index]["msuperf"]) + rng.uniform(0.5, 20)
+        source.warn(index, "superficie_terrestre_dans_superficie", {"msupft": f"{larger:.2f}"})
+    for index in picker.take(8):
+        source.warn(index, "telephone_renseigne", {"mtel": UNKNOWN_PHONE})
+    for index in picker.take(6, lambda row: row["datelec"] != ""):
+        source.warn(index, "date_prochaine_election_renseignee", {"datelec": UNKNOWN_ELECTION})
+    clear_seats(source, [f"con{seat}" for seat in range(1, SEATS + 1)])
+    return source
+
+
+def arrondissement_file(rng: random.Random, municipalites: SourceFile) -> SourceFile:
+    source = SourceFile("ARR.csv", REPERTOIRE, quote_all=True)
+    # The cities divided into boroughs.
+    cities = rng.sample([row for row in clean_rows(municipalites) if row["mcodedesi"] == "10"], 10)
+    names = [f"Quartier-des-{nature}-{suffix}" for nature in NATURES for suffix in BOROUGH_SUFFIXES]
+    rng.shuffle(names)
+    for number in range(1, ROWS + 1):
+        city = cities[(number - 1) % len(cities)]
+        name = names[number]
+        place = f"{rng.randrange(1, 9000)}, {rng.choice(STREETS)}"
+        council = seats(rng, rng.randrange(3, 7))
+        source.add(
+            {
+                "arrcod": f"RZ{number:03d}",
+                "arrnom": name,
+                "arrville": city["munnom"],
+                "arrcode": city["mcode"],
+                "arradr1": place,
+                "arradr2": city["munnom"],
+                "arradr3": place,
+                "arradr4": city["munnom"],
+                "arrcodp": postal_code(rng),
+                "arrtel": phone(rng),
+                "arrfax": phone(rng) if rng.random() < 0.8 else "",
+                "arrcourriel": f"{slug(name)}@{slug(city['munnom'])}.example",
+                "arrregion": city["regadm"],
+                "arrhorsmrcautoch": "non",
+                "arrgentile": city["mgentile"],
+                "arradrinternet": f"www.{slug(city['munnom'])}.example/{slug(name)}",
+                "arrdateconsti": "2002-01-01",
+                "arrdateproelec": NEXT_ELECTION,
+                "president": person(rng),
+                "directeur": person(rng) if rng.random() < 0.2 else "",
+                **{f"con{seat:02d}": councillor for seat, councillor in enumerate(council, start=1)},
+            }
+        )
+    picker = Picker(rng, source)
+    # Errors.
+    for index, code in zip(picker.take(3), ("00901", "00902", "00903"), strict=True):
+        source.fail(index, "code_geographique_municipalite_not_in_municipalite", {"arrcode": code})
+    for index in picker.take(2):
+        source.fail(index, "code_postal_does_not_match_pattern", {"arrcodp": "H2X1Y"})
+    for index in picker.take(2):
+        source.fail(index, "telephone_does_not_match_pattern", {"arrtel": "(514) 555-0100"})
+    [index] = picker.take(1)
+    source.fail(index, "nom_is_null", {"arrnom": ""})
+    source.duplicate_key(*picker.pair(), ["arrcod"])
+    # Warnings.
+    for index in picker.take(10):
+        source.warn(index, "telephone_renseigne", {"arrtel": UNKNOWN_PHONE})
+    for index in picker.take(10):
+        source.warn(index, "date_prochaine_election_renseignee", {"arrdateproelec": UNKNOWN_ELECTION})
+    clear_seats(source, [f"con{seat:02d}" for seat in range(1, SEATS + 1)])
+    return source
+
+
+# The positions of the ressource file: group, code and title.
+MUNICIPAL_POSITIONS = (
+    ("Mairie", "000X", "Mairie"),
+    *(("Conseiller", f"00{seat}X", f"Membre du conseil municipal n° {seat}") for seat in range(1, 7)),
+    ("Direction", "209B", "Directrice générale"),
+    ("Responsable", "205A", "Greffier-trésorier"),
+)
+REGIONAL_POSITIONS = (("Présidence", "112X", "Présidence"), ("Direction", "209A", "Directeur général"))
+
+
+def ressource_file(
+    rng: random.Random, municipalites: SourceFile, organismes: SourceFile, arrondissements: SourceFile
+) -> SourceFile:
+    source = SourceFile("ress.csv", REPERTOIRE, quote_all=True)
+    councils = [row for row in clean_rows(municipalites) if row["mcodedesi"] not in WITHOUT_COUNCIL]
+    # The positions of municipalities, supra-municipal bodies, boroughs and an agglomeration.
+    holders = [
+        # The municipalities with a council: the others have no mayor nor councillors in MUN.csv.
+        *((row["mcode"], MUNICIPAL_POSITIONS) for row in rng.sample(councils, 20)),
+        *((row["mrccod"], REGIONAL_POSITIONS) for row in rng.sample(clean_rows(organismes), 8)),
+        *((row["arrcod"], REGIONAL_POSITIONS[:1]) for row in rng.sample(clean_rows(arrondissements), 2)),
+        ("AG005", REGIONAL_POSITIONS),
+    ]
+    for code, positions in holders:
+        for group, title_code, title in positions:
+            vacant = rng.random() < 0.05
+            first, last = ("", "") if vacant else (rng.choice(FIRST_NAMES), rng.choice(LAST_NAMES))
+            source.add(
+                {
+                    "rescode": code,
+                    "resgroupe": group,
+                    "rescodetitre": title_code,
+                    "restitre": title,
+                    "resentreefonction": iso(date(2005, 1, 1) + timedelta(days=rng.randrange(20 * 365))),
+                    "resnom": last,
+                    "resprenom": first,
+                    "resestvacant": "oui" if vacant else "non",
+                }
+            )
+    if len(source.rows) != ROWS:
+        raise ValueError(f"ress.csv has {len(source.rows)} rows instead of {ROWS}.")
+
+    def occupied(row: Row) -> bool:
+        return row["resestvacant"] == "non"
+
+    picker = Picker(rng, source)
+    # Errors.
+    for index, group in zip(picker.take(2), ("Maire", "Conseil"), strict=True):
+        source.fail(index, "groupe_titre_is_not_in_enum", {"resgroupe": group})
+    for index in picker.take(2):
+        source.fail(index, "code_titre_is_null", {"rescodetitre": ""})
+    for index in picker.take(2):
+        source.fail(index, "code_organisation_is_null", {"rescode": ""})
+    for index in picker.take(2, occupied):
+        # An indicator neither oui nor non: the transformation makes it null.
+        source.fail(index, "indicateur_poste_vacant_is_null", {"resestvacant": "inconnu"})
+    source.duplicate_key(*picker.pair(), ["rescode", "rescodetitre"])
+    # Warnings.
+    for index in picker.take(10, occupied):
+        source.warn(index, "poste_occupe_avec_titulaire", {"resnom": "", "resprenom": ""})
+    for index in picker.take(10):
+        source.warn(index, "date_entree_fonction_renseignee", {"resentreefonction": UNKNOWN_ENTRY})
+    return source
+
+
+def repertoire_files() -> list[SourceFile]:
+    """Returns the files of the directory of the municipalities."""
+    # A random generator of its own: changing the files of REQ does not change these ones.
+    rng = random.Random(SEED + 1)
+    organismes = organisme_file(rng)
+    municipalites = municipalite_file(rng, organismes)
+    arrondissements = arrondissement_file(rng, municipalites)
+    return [municipalites, organismes, arrondissements, ressource_file(rng, municipalites, organismes, arrondissements)]
+
+
 def generate() -> list[SourceFile]:
     """Returns the files of the data set."""
     rng = random.Random(SEED)
@@ -1053,18 +1577,18 @@ def generate() -> list[SourceFile]:
         fusion_file(rng, clean),
         continuation_file(rng, clean),
     ]
-    return [*files, domaine_file(rng, files)]
+    return [*files, domaine_file(rng, files), *repertoire_files()]
 
 
 def render() -> dict[str, str]:
-    """Returns the content of each file of the data set, by file name."""
-    return {source.file_name: source.render() for source in generate()}
+    """Returns the content of each file of the data set, by path in the data set."""
+    return {source.path: source.render() for source in generate()}
 
 
 def main() -> None:
-    TESTDATA.mkdir(exist_ok=True)
     for name, content in render().items():
         path = TESTDATA / name
+        path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8", newline="") as file:
             file.write(content)
         print(f"Wrote {path}")

@@ -27,6 +27,17 @@ schema:
             arguments:
               expression: superficie_terrestre <= superficie
               msg: La superficie terrestre dépasse la superficie totale.
+      - type: custom
+        engine: dqx
+        name: telephone_renseigne
+        description: Le numéro de téléphone est renseigné, et non 0000000000.
+        severity: warning
+        implementation:
+          check:
+            function: sql_expression
+            arguments:
+              expression: telephone <> '0000000000'
+              msg: Le numéro de téléphone n'est pas renseigné (0000000000).
     properties:
       - name: code_geographique
         businessName: Code géographique

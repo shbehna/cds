@@ -12,6 +12,29 @@ schema:
     description: >-
       Arrondissements des municipalités qui en comptent (fichier source ARR.csv). Les
       conseillers d'arrondissement sont dans la table conseiller_arrondissement.
+    quality:
+      - type: custom
+        engine: dqx
+        name: telephone_renseigne
+        description: Le numéro de téléphone est renseigné, et non 0000000000.
+        severity: warning
+        implementation:
+          check:
+            function: sql_expression
+            arguments:
+              expression: telephone <> '0000000000'
+              msg: Le numéro de téléphone n'est pas renseigné (0000000000).
+      - type: custom
+        engine: dqx
+        name: date_prochaine_election_renseignee
+        description: La date des prochaines élections est une vraie date, et non 0001-01-01.
+        severity: warning
+        implementation:
+          check:
+            function: sql_expression
+            arguments:
+              expression: date_prochaine_election > '1900-01-01'
+              msg: La date des prochaines élections n'est pas renseignée (0001-01-01).
     properties:
       - name: code_geographique
         businessName: Code géographique
@@ -60,7 +83,7 @@ schema:
         logicalTypeOptions:
           pattern: "^[A-Z][0-9][A-Z][0-9][A-Z][0-9]$"
       - name: telephone
-        description: Numéro de téléphone de l'arrondissement, à dix chiffres. Colonne source arrtel.
+        description: Numéro de téléphone de l'arrondissement, à dix chiffres ; 0000000000 s'il n'est pas renseigné. Colonne source arrtel.
         logicalType: string
         physicalType: STRING
         logicalTypeOptions:
@@ -104,7 +127,7 @@ schema:
         logicalType: date
         physicalType: DATE
       - name: date_prochaine_election
-        description: Date des prochaines élections de l'arrondissement. Colonne source arrdateproelec.
+        description: Date des prochaines élections de l'arrondissement ; 0001-01-01 si elle n'est pas connue. Colonne source arrdateproelec.
         logicalType: date
         physicalType: DATE
       - name: president
