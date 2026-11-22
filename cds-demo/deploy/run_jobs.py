@@ -3,14 +3,15 @@
 The deployment workflow (.github/workflows/deploy-demo.yml) runs it after ``pulumi up``,
 so that a deployment whose data pipeline fails is a failed deployment:
 
-    python run_jobs.py [--timeout-minutes 10]
+    python run_jobs.py [--data-product donnees_qc.req ...] [--timeout-minutes 10]
 
 It reads the ids of the jobs, by data product, in the ``JOB_IDS`` environment variable: the
 ``job_ids`` output of the stack, as JSON. The Databricks SDK authenticates as the
 deployment service principal, with the ``DATABRICKS_HOST``, ``DATABRICKS_CLIENT_ID`` and
 ``DATABRICKS_CLIENT_SECRET`` environment variables.
 
-The jobs run one after the other: Databricks Free Edition refuses a run while 5 tasks are
+It runs the jobs of the data products given by ``--data-product``, or of all of them
+without it. The jobs run one after the other: Databricks Free Edition refuses a run while 5 tasks are
 active, and each job has 5 tasks. Each run has at most ``--timeout-minutes`` to finish: a
 run still going is then canceled, and counts as failed. The script runs every job, even
 after a failed one, then exits with an error if one of them did not succeed.
@@ -117,6 +118,16 @@ def run_job(
             jobs.cancel_run(run_id=run_id)
 
 
+def selected(ids: Mapping[str, int], data_products: Sequence[str] | None) -> dict[str, int]:
+    """The jobs of the given data products, in their order, or all the jobs when none is given."""
+    if not data_products:
+        return dict(ids)
+    unknown = [data_product for data_product in data_products if data_product not in ids]
+    if unknown:
+        raise ValueError(f"No job for the data products {', '.join(unknown)}: the jobs are those of {', '.join(ids)}.")
+    return {data_product: ids[data_product] for data_product in data_products}
+
+
 def run_jobs(
     jobs: Jobs,
     ids: Mapping[str, int],
@@ -138,13 +149,19 @@ def run_jobs(
 def main(argv: Sequence[str] | None = None, jobs: Jobs | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     parser.add_argument(
+        "--data-product",
+        action="append",
+        dest="data_products",
+        help="Qualified name of a data product whose job runs, such as donnees_qc.req; repeatable (default: all).",
+    )
+    parser.add_argument(
         "--timeout-minutes",
         type=float,
         default=DEFAULT_TIMEOUT_MINUTES,
         help=f"Time each run has to finish before it is canceled (default: {DEFAULT_TIMEOUT_MINUTES}).",
     )
     arguments = parser.parse_args(argv)
-    ids = job_ids(os.environ.get(JOB_IDS_VARIABLE))
+    ids = selected(job_ids(os.environ.get(JOB_IDS_VARIABLE)), arguments.data_products)
     if jobs is None:
         from databricks.sdk import WorkspaceClient
 
