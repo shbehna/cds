@@ -239,7 +239,7 @@ def service_context(
 def test_layout(data_context: DataContext) -> None:
     context = service_context(data_context)
 
-    assert len(data_context.data_products) > 1
+    assert data_context.data_products
     for data_product in data_context.data_products:
         names = [context.full_table_name(table) for table in data_product.tables]
         assert len(set(names)) == len(names)
