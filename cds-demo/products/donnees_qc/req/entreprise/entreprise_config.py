@@ -7,7 +7,8 @@ from pyspark.sql.functions import col
 
 from cds import ContractConfig, RuntimeConfiguration
 
-from ..sources import indicator, read_source, uses_synthetic_data
+from ...sources import read_source, uses_synthetic_data
+from ..sources import indicator
 
 # The register counts millions of enterprises: fewer rows reveal a truncated file. The
 # synthetic data set has a few hundred rows, checked against a lower threshold.
