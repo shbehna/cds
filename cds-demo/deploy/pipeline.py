@@ -905,5 +905,9 @@ def deploy(settings: Settings) -> dict[str, databricks.Job]:
         if product.get("alerts"):
             alerts(settings, product, alerts_folder, directories[alerts_folder], warehouse.id, addresses)
     pulumi.export("job_urls", {data_product: job.url for data_product, job in jobs.items()})
+    # Read by the deployment workflow, which runs the jobs once deployed (run_jobs.py).
+    pulumi.export("job_ids", {data_product: job.id for data_product, job in jobs.items()})
+    pulumi.export("databricks_host", settings.host)
+    pulumi.export("service_principal", settings.service_principal)
     pulumi.export("workspace_root", root)
     return jobs

@@ -8,6 +8,9 @@
 #
 # build tests the repository and builds the wheel of the framework, which both
 # deployments install. The deployments are skipped until their secrets are configured.
+# Each deployment then runs the jobs of the data products of its environment and waits
+# for them (run_jobs.py): a failed run, or one not finished within
+# PIPELINE_TIMEOUT_MINUTES, fails the deployment, and so skips prod after nprod.
 name: Deploy demo
 
 on:
@@ -37,6 +40,8 @@ env:
   DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
   # Optional: the addresses receiving the alerts of the service levels, separated by commas.
   ALERT_EMAILS: ${{ secrets.ALERT_EMAILS }}
+  # The time each run of a job of a data product has to finish, after a deployment.
+  PIPELINE_TIMEOUT_MINUTES: "10"
 
 jobs:
   build:
@@ -110,6 +115,7 @@ jobs:
         run: uv sync --locked
 
       - name: Deploy with Pulumi
+        id: pulumi
         uses: pulumi/actions@v6
         with:
           command: up
@@ -117,9 +123,20 @@ jobs:
           work-dir: cds-demo/deploy
           upsert: true
 
+      # The jobs run one after the other; a failed run fails the deployment.
+      - name: Run the data pipelines
+        working-directory: cds-demo/deploy
+        env:
+          # Outputs of the stack: the jobs, the workspace and the service principal.
+          JOB_IDS: ${{ steps.pulumi.outputs.job_ids }}
+          DATABRICKS_HOST: ${{ steps.pulumi.outputs.databricks_host }}
+          DATABRICKS_CLIENT_ID: ${{ steps.pulumi.outputs.service_principal }}
+        run: uv run python run_jobs.py --timeout-minutes "$PIPELINE_TIMEOUT_MINUTES"
+
   deploy-prod:
     name: Deploy prod
-    # Runs only once nprod is deployed: a skipped or failed nprod deployment skips it.
+    # Runs only once nprod is deployed and its data pipelines succeeded: a skipped or
+    # failed nprod deployment, or a failed run of its jobs, skips it.
     needs: deploy-nprod
     runs-on: ubuntu-latest
     steps:
@@ -140,9 +157,20 @@ jobs:
         run: uv sync --locked
 
       - name: Deploy with Pulumi
+        id: pulumi
         uses: pulumi/actions@v6
         with:
           command: up
           stack-name: prod
           work-dir: cds-demo/deploy
           upsert: true
+
+      # The jobs run one after the other; a failed run fails the deployment.
+      - name: Run the data pipelines
+        working-directory: cds-demo/deploy
+        env:
+          # Outputs of the stack: the jobs, the workspace and the service principal.
+          JOB_IDS: ${{ steps.pulumi.outputs.job_ids }}
+          DATABRICKS_HOST: ${{ steps.pulumi.outputs.databricks_host }}
+          DATABRICKS_CLIENT_ID: ${{ steps.pulumi.outputs.service_principal }}
+        run: uv run python run_jobs.py --timeout-minutes "$PIPELINE_TIMEOUT_MINUTES"
