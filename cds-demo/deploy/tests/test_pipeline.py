@@ -154,9 +154,11 @@ def test_the_first_data_product_keeps_the_names_of_its_resources() -> None:
 
 
 def test_a_new_generation_replaces_the_job() -> None:
-    """The jobs of the first generation have no replacement trigger: deploying does not replace them."""
-    assert pipeline.job_generation("donnees_qc.req") is None
-    assert pipeline.job_generation("donnees_qc.repertoire_municipalites") == "2"
+    """The resources of the jobs of the first generation keep their names: deploying does not replace them."""
+    assert pipeline.job_resource_name("donnees_qc.req") == "pipeline:donnees_qc.req"
+    assert pipeline.job_resource_name("donnees_qc.repertoire_municipalites") == (
+        "pipeline:donnees_qc.repertoire_municipalites:2"
+    )
     assert set(pipeline.JOB_GENERATIONS) <= set(PRODUCTS)
 
 
@@ -603,7 +605,9 @@ def test_alerts(settings: pipeline.Settings) -> pulumi.Output[None]:
         # The failed runs of each job email the same addresses.
         jobs_args = {args.name: args for args in created("databricks:index/job:Job")}
         for data_product, product in PRODUCTS.items():
-            failures = value(jobs_args[f"pipeline:{data_product}"].inputs["emailNotifications"], "on_failures")
+            failures = value(
+                jobs_args[pipeline.job_resource_name(data_product)].inputs["emailNotifications"], "on_failures"
+            )
             assert failures == [*product["recipients"], "data-team@example.org"]
         directories = {args.inputs["path"] for args in CREATED if args.typ == "databricks:index/directory:Directory"}
         assert "/Shared/cds-demo/nprod/alerts" in directories
@@ -642,7 +646,7 @@ def test_no_schedule_nor_alerts_without_sla(settings: pipeline.Settings, tmp_pat
         # The failed runs of each job still email the support channel.
         jobs_args = {args.name: args for args in created("databricks:index/job:Job")}
         for data_product, product in PRODUCTS.items():
-            notifications = jobs_args[f"pipeline:{data_product}"].inputs["emailNotifications"]
+            notifications = jobs_args[pipeline.job_resource_name(data_product)].inputs["emailNotifications"]
             assert value(notifications, "on_failures") == product["recipients"]
         assert not created("databricks:index/alertV2:AlertV2")
         assert not created("databricks:index/notificationDestination:NotificationDestination")
