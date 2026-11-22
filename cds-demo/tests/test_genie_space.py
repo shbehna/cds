@@ -62,7 +62,7 @@ def text(value: list[str]) -> str:
 
 
 def test_the_data_products_have_a_genie_space() -> None:
-    assert DATA_PRODUCTS == ["donnees_qc.req"]
+    assert DATA_PRODUCTS == ["donnees_qc.repertoire_municipalites", "donnees_qc.req"]
 
 
 def test_the_title_of_the_space(data_product: DataProduct, document: dict[str, Any]) -> None:

@@ -1,11 +1,17 @@
-# CDS demo: the enterprise register of Québec
+# CDS demo: open data of Québec
 
 This project uses the [CDS framework](../cds-framework/README.md) as a library to build
-a data product from the open data of the
-[Registraire des entreprises du Québec](https://www.donneesquebec.ca/) (REQ).
+data products from the open data of [Données Québec](https://www.donneesquebec.ca/):
 
-The CSV files of the REQ are the raw data. The data product turns them into clean
+- `req`: the enterprise register of the Registraire des entreprises du Québec (REQ);
+- `repertoire_municipalites`: the
+  [directory of the municipalities](https://www.donneesquebec.ca/recherche/dataset/repertoire-des-municipalites-du-quebec)
+  of the ministère des Affaires municipales et de l'Habitation (see
+  [The directory of the municipalities](#the-directory-of-the-municipalities)).
+
+The CSV files of the data sets are the raw data. The data products turn them into clean
 tables, with names and types defined by data contracts, quality checks and history.
+Unless stated otherwise, the sections below describe `req`.
 
 ## Layout
 
@@ -15,20 +21,32 @@ products/                                   root folder of the data products
     ├── donnees_qc_config.py                naming conventions, history table names, metadata
     ├── donnees_qc.odcs.yaml                contract defaults of the group: tenant, tags
     ├── sources.py                          reading of the CSV files, shared by the data products
-    └── req/                                data product
-        ├── req_config.py                   quality and history settings, Genie space, quality dashboard
-        ├── req.odps.yaml                   ODPS document: description, domain, status, support, usage
-        ├── req.odcs.yaml                   contract defaults: service levels
-        ├── sources.py                      conversions of the values, shared by the contracts
+    ├── req/                                data product
+    │   ├── req_config.py                   quality and history settings, Genie space, quality dashboard
+    │   ├── req.odps.yaml                   ODPS document: description, domain, status, support, usage
+    │   ├── req.odcs.yaml                   contract defaults: service levels
+    │   ├── sources.py                      conversions of the values, shared by the contracts
+    │   ├── questions.py                    instructions and questions of the Genie space
+    │   ├── entreprise/
+    │   │   ├── entreprise.yaml             ODCS data contract
+    │   │   └── entreprise_config.py        transformation and additional checks
+    │   ├── etablissement/
+    │   ├── nom_entreprise/
+    │   ├── fusion_scission/
+    │   ├── continuation_transformation/
+    │   └── domaine_valeur/
+    └── repertoire_municipalites/           data product
+        ├── repertoire_municipalites_config.py  history settings, Genie space, quality dashboard
+        ├── repertoire_municipalites.odps.yaml  ODPS document
+        ├── repertoire_municipalites.odcs.yaml  contract defaults: service levels
+        ├── sources.py                      conversions of the values and of the seats of the councils
         ├── questions.py                    instructions and questions of the Genie space
-        ├── entreprise/
-        │   ├── entreprise.yaml             ODCS data contract
-        │   └── entreprise_config.py        transformation and additional checks
-        ├── etablissement/
-        ├── nom_entreprise/
-        ├── fusion_scission/
-        ├── continuation_transformation/
-        └── domaine_valeur/
+        ├── municipalite/
+        ├── conseiller_municipal/
+        ├── organisme_supramunicipal/
+        ├── arrondissement/
+        ├── conseiller_arrondissement/
+        └── ressource/
 csv/                                        synthetic data set and its generator
 manifest/                                   what the deployment needs of the contracts, generated from them
 deploy/                                     deployment with Pulumi
@@ -274,6 +292,68 @@ each user: the addresses are masked. To see the space without deploying it:
 ```bash
 uv run cds genie cds-demo/products --data-product donnees_qc.req --environment nprod
 ```
+
+## The directory of the municipalities
+
+The data product `repertoire_municipalites` is built from the four CSV files of the
+[Répertoire des municipalités du Québec](https://www.donneesquebec.ca/recherche/dataset/repertoire-des-municipalites-du-quebec),
+published under the CC BY 4.0 license. It is in the subdomain **Ministère des Affaires
+municipales et de l'Habitation** of the Discover domain **Gouvernement**. Its tables are
+published in the `<environment>.donnees_qc_repertoire_municipalites` schema.
+
+| Table | Source file | Primary key |
+| --- | --- | --- |
+| `municipalite` | `MUN.csv` | `code_geographique` |
+| `conseiller_municipal` | `MUN.csv`, columns `con1` to `con75` | `code_geographique`, `numero_siege` |
+| `organisme_supramunicipal` | `MRC_CM_Arg.csv`: the MRC, the metropolitan communities and the Kativik Regional Government | `code_geographique` |
+| `arrondissement` | `ARR.csv` | `code_geographique` |
+| `conseiller_arrondissement` | `ARR.csv`, columns `con01` to `con75` | `code_geographique`, `numero_siege` |
+| `ressource` | `ress.csv`: the elected officials and the officers, one row per position | `code_organisation`, `code_titre` |
+
+The contracts and their transformations follow those of `req`, with these differences:
+
+- **Values**: every value of the files is quoted, so Spark reads the empty ones as empty
+  strings. The transformations trim the values and turn the empty ones into nulls, which
+  the casts to dates and numbers need. The indicators (`oui`/`non`) become booleans.
+- **Councils**: `MUN.csv` and `ARR.csv` have a column per seat of the council, mostly
+  empty. The seats become the rows of `conseiller_municipal` and
+  `conseiller_arrondissement`, one per seat with a councillor. The number of the seat is
+  that of its column. A vacant seat (`Poste vacant`) has a row without name, with
+  `indicateur_poste_vacant`.
+- **Unused column**: `nd` of `MUN.csv`, which the publisher does not use, is not loaded.
+- **Classification**: the names of persons (mayors, councillors, officers) are
+  `confidential`. They are tagged, but not masked: the deployment only masks `restricted`.
+- **Quality**: primary keys, foreign keys to `municipalite` and `arrondissement`, the
+  formats of the codes, postal codes and phone numbers, and the codes of the designations
+  (`enum`). Warnings report the values the directory uses for unknown values: the phone
+  number `0000000000`, the election date `0001-01-01` and the entry dates of 1900. The
+  configuration of `municipalite` adds a check: it must have at least a thousand rows.
+  On the files of November 2026, the checks find no error, 155 phone numbers and 2
+  election dates not filled in, and 131 positions without entry date.
+
+`ressource` has no foreign key: its positions belong to municipalities, supra-municipal
+bodies, boroughs or agglomerations (`AG` codes), which the files do not describe.
+
+The other services cover it as they cover `req`:
+
+- **Deployment**: its job, `cds-demo-repertoire_municipalites-<environment>`, reads its
+  files in `/Volumes/ext/donnees_qc/repertoire_municipalites` (see
+  [deploy/README.md](deploy/README.md)).
+- **Service levels**: its partial data contract (`repertoire_municipalites.odcs.yaml`)
+  loads the tables every day at 5 am, as the directory is updated every day. The latency
+  alert checks every day at 8 am that they changed in the last 2 days, and the error rate
+  alert every day at 9 am that at most 1 % of their rows have an error. The history keeps
+  the replaced versions 10 years. In `prod`, the tables are as recent as the files of its
+  volume, uploaded by hand.
+- **Synthetic data set**: none yet. Its `nprod` job loads the published files of its
+  volume, as in `prod`.
+- **Quality dashboard**: **Répertoire des municipalités data quality
+  (&lt;environment&gt;)**.
+- **Genie space**: **Répertoire des municipalités du Québec (&lt;environment&gt;)**, with
+  the joins of the foreign keys, and instructions in French
+  ([questions.py](products/donnees_qc/repertoire_municipalites/questions.py)) on the
+  vacant seats, the organisations of the positions, the codes in parentheses and the
+  unknown values. The `confidential` names are not masked.
 
 ## Run locally
 

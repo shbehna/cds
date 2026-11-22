@@ -1,0 +1,38 @@
+# Partial data contract of the data product, merged under every contract of
+# repertoire_municipalites, over the fields of its data product document
+# (repertoire_municipalites.odps.yaml) and the partial data contract of the group
+# (donnees_qc.odcs.yaml). It holds what ODPS does not describe: the service levels of the
+# contracts. A contract defining slaProperties replaces the whole list.
+
+# The service levels (cds.sla): the deployment schedules the job with the frequency, and
+# alerts on the latency and the error rate (cds-demo/manifest); the scd service applies the
+# retention to the history tables.
+slaProperties:
+  - property: frequency
+    value: 1
+    unit: d
+    scheduler: cron
+    schedule: "0 5 * * *"
+    description: >-
+      Le répertoire est mis à jour chaque jour : les tables sont chargées chaque jour, à 5 h.
+  - property: latency
+    value: 2
+    unit: d
+    scheduler: cron
+    schedule: "0 8 * * *"
+    description: >-
+      Le dernier chargement des tables date de moins de 2 jours : un chargement manqué est
+      toléré. Vérifié chaque jour à 8 h.
+  - property: errorRate
+    value: 1
+    unit: percent
+    scheduler: cron
+    # After the load of 5 am: the error rate only changes when the tables are loaded.
+    schedule: "0 9 * * *"
+    description: >-
+      Au plus 1 % des lignes de chaque table ont une erreur de qualité. Vérifié après chaque
+      chargement, chaque jour à 9 h.
+  - property: retention
+    value: 10
+    unit: y
+    description: L'historique garde les versions remplacées pendant 10 ans.

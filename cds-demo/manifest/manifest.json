@@ -10,8 +10,16 @@
   },
   "domains": [
     {
+      "tag": "Gouvernement",
+      "parent": null
+    },
+    {
       "tag": "Économie",
       "parent": null
+    },
+    {
+      "tag": "Gouvernement/Ministère des Affaires municipales et de l'Habitation",
+      "parent": "Gouvernement"
     },
     {
       "tag": "Économie/Registraire des entreprises du Québec",
@@ -19,6 +27,35 @@
     }
   ],
   "data_products": [
+    {
+      "data_product": "donnees_qc.repertoire_municipalites",
+      "title": "Répertoire des municipalités du Québec",
+      "schedule": {
+        "cron": "0 5 * * *",
+        "quartz": "0 0 5 * * ?"
+      },
+      "alerts": [
+        {
+          "name": "error-rate",
+          "title": "error rate",
+          "sla": "errorRate",
+          "cron": "0 9 * * *",
+          "quartz": "0 0 9 * * ?",
+          "query": "SELECT table_name, round(error_rate, 2) AS error_rate, threshold,\n  CASE WHEN error_rate > threshold THEN 1 ELSE 0 END AS exceeded\nFROM (\n  SELECT 'arrondissement' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_repertoire_municipalites`.`arrondissement`\n  UNION ALL\n  SELECT 'conseiller_arrondissement' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_repertoire_municipalites`.`conseiller_arrondissement`\n  UNION ALL\n  SELECT 'conseiller_municipal' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_repertoire_municipalites`.`conseiller_municipal`\n  UNION ALL\n  SELECT 'municipalite' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_repertoire_municipalites`.`municipalite`\n  UNION ALL\n  SELECT 'organisme_supramunicipal' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_repertoire_municipalites`.`organisme_supramunicipal`\n  UNION ALL\n  SELECT 'ressource' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_repertoire_municipalites`.`ressource`\n) AS rates\nORDER BY table_name"
+        },
+        {
+          "name": "latency",
+          "title": "latency",
+          "sla": "latency",
+          "cron": "0 8 * * *",
+          "quartz": "0 0 8 * * ?",
+          "query": "SELECT * FROM (\n  SELECT 'arrondissement' AS table_name, '2 days' AS latency, updated_at,\n    CASE WHEN updated_at >= current_timestamp() - INTERVAL '2' DAY THEN 0 ELSE 1 END AS exceeded\n  FROM (SELECT max(last_altered) AS updated_at FROM `${environment}`.`information_schema`.`tables` WHERE table_schema = 'donnees_qc_repertoire_municipalites' AND table_name = 'arrondissement') AS t\n  UNION ALL\n  SELECT 'conseiller_arrondissement' AS table_name, '2 days' AS latency, updated_at,\n    CASE WHEN updated_at >= current_timestamp() - INTERVAL '2' DAY THEN 0 ELSE 1 END AS exceeded\n  FROM (SELECT max(last_altered) AS updated_at FROM `${environment}`.`information_schema`.`tables` WHERE table_schema = 'donnees_qc_repertoire_municipalites' AND table_name = 'conseiller_arrondissement') AS t\n  UNION ALL\n  SELECT 'conseiller_municipal' AS table_name, '2 days' AS latency, updated_at,\n    CASE WHEN updated_at >= current_timestamp() - INTERVAL '2' DAY THEN 0 ELSE 1 END AS exceeded\n  FROM (SELECT max(last_altered) AS updated_at FROM `${environment}`.`information_schema`.`tables` WHERE table_schema = 'donnees_qc_repertoire_municipalites' AND table_name = 'conseiller_municipal') AS t\n  UNION ALL\n  SELECT 'municipalite' AS table_name, '2 days' AS latency, updated_at,\n    CASE WHEN updated_at >= current_timestamp() - INTERVAL '2' DAY THEN 0 ELSE 1 END AS exceeded\n  FROM (SELECT max(last_altered) AS updated_at FROM `${environment}`.`information_schema`.`tables` WHERE table_schema = 'donnees_qc_repertoire_municipalites' AND table_name = 'municipalite') AS t\n  UNION ALL\n  SELECT 'organisme_supramunicipal' AS table_name, '2 days' AS latency, updated_at,\n    CASE WHEN updated_at >= current_timestamp() - INTERVAL '2' DAY THEN 0 ELSE 1 END AS exceeded\n  FROM (SELECT max(last_altered) AS updated_at FROM `${environment}`.`information_schema`.`tables` WHERE table_schema = 'donnees_qc_repertoire_municipalites' AND table_name = 'organisme_supramunicipal') AS t\n  UNION ALL\n  SELECT 'ressource' AS table_name, '2 days' AS latency, updated_at,\n    CASE WHEN updated_at >= current_timestamp() - INTERVAL '2' DAY THEN 0 ELSE 1 END AS exceeded\n  FROM (SELECT max(last_altered) AS updated_at FROM `${environment}`.`information_schema`.`tables` WHERE table_schema = 'donnees_qc_repertoire_municipalites' AND table_name = 'ressource') AS t\n) AS freshness\nORDER BY table_name"
+        }
+      ],
+      "recipients": [
+        "donnees-qc-repertoire-municipalites@example.com"
+      ]
+    },
     {
       "data_product": "donnees_qc.req",
       "title": "Registre des entreprises du Québec",

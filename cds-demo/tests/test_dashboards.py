@@ -52,7 +52,7 @@ def sql(dashboard: dict[str, Any], name: str) -> str:
 
 
 def test_the_data_products_have_a_dashboard() -> None:
-    assert DATA_PRODUCTS == ["donnees_qc.req"]
+    assert DATA_PRODUCTS == ["donnees_qc.repertoire_municipalites", "donnees_qc.req"]
 
 
 def test_the_title_of_the_dashboard(data_product: DataProduct, dashboard: dict[str, Any]) -> None:

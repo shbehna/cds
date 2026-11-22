@@ -1,0 +1,174 @@
+apiVersion: v3.2.0
+kind: DataContract
+id: donnees_qc.repertoire_municipalites.organisme_supramunicipal
+version: 1.0.0
+name: Organisme supramunicipal
+description:
+  purpose: >-
+    Organismes qui regroupent des municipalités : les municipalités régionales de comté
+    (MRC), les communautés métropolitaines et l'Administration régionale Kativik, une ligne
+    par organisme.
+schema:
+  - name: organisme_supramunicipal
+    physicalType: table
+    businessName: Organisme supramunicipal
+    description: >-
+      MRC, communautés métropolitaines et administration régionale du Québec (fichier
+      source MRC_CM_Arg.csv).
+    quality:
+      - type: custom
+        engine: dqx
+        name: superficie_terrestre_dans_superficie
+        description: La superficie terrestre ne dépasse pas la superficie totale.
+        severity: warning
+        implementation:
+          check:
+            function: sql_expression
+            arguments:
+              expression: superficie_terrestre <= superficie
+              msg: La superficie terrestre dépasse la superficie totale.
+      - type: custom
+        engine: dqx
+        name: telephone_renseigne
+        description: Le numéro de téléphone est renseigné, et non 0000000000.
+        severity: warning
+        implementation:
+          check:
+            function: sql_expression
+            arguments:
+              expression: telephone <> '0000000000'
+              msg: Le numéro de téléphone n'est pas renseigné (0000000000).
+    properties:
+      - name: code_geographique
+        businessName: Code géographique
+        description: >-
+          Code géographique de l'organisme : AR suivi du code de la MRC ou de l'administration
+          régionale, ou CM suivi du code de la communauté métropolitaine. Colonne source mrccod.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 1
+        logicalTypeOptions:
+          pattern: "^(AR|CM)[0-9]{3}$"
+      - name: nom
+        description: Nom de l'organisme. Colonne source mrcnom.
+        logicalType: string
+        physicalType: STRING
+        required: true
+      - name: adresse_physique_ligne_1
+        description: Adresse physique de l'organisme, ligne 1. Colonne source mrcadr1.
+        logicalType: string
+        physicalType: STRING
+      - name: adresse_physique_ligne_2
+        description: Adresse physique de l'organisme, ligne 2. Colonne source mrcadr2.
+        logicalType: string
+        physicalType: STRING
+      - name: adresse_postale_ligne_1
+        description: Adresse postale de l'organisme, ligne 1. Colonne source mrcadr3.
+        logicalType: string
+        physicalType: STRING
+      - name: adresse_postale_ligne_2
+        description: Adresse postale de l'organisme, ligne 2. Colonne source mrcadr4.
+        logicalType: string
+        physicalType: STRING
+      - name: code_postal
+        description: Code postal de l'organisme, au format A9A9A9. Colonne source mrccodp.
+        logicalType: string
+        physicalType: STRING
+        logicalTypeOptions:
+          pattern: "^[A-Z][0-9][A-Z][0-9][A-Z][0-9]$"
+      - name: telephone
+        description: Numéro de téléphone de l'organisme, à dix chiffres ; 0000000000 s'il n'est pas renseigné. Colonne source mrctel.
+        logicalType: string
+        physicalType: STRING
+        logicalTypeOptions:
+          pattern: "^[0-9]{10}$"
+      - name: telecopieur
+        description: Numéro de télécopieur de l'organisme, à dix chiffres ; 0000000000 s'il n'est pas renseigné. Colonne source mrcfax.
+        logicalType: string
+        physicalType: STRING
+        logicalTypeOptions:
+          pattern: "^[0-9]{10}$"
+      - name: courriel
+        description: Adresse de courriel de l'organisme. Colonne source mrccourriel.
+        logicalType: string
+        physicalType: STRING
+      - name: site_web
+        description: Adresse du site Web de l'organisme. Colonne source mrcweb.
+        logicalType: string
+        physicalType: STRING
+      - name: date_constitution
+        description: Date de constitution de l'organisme. Colonne source mrcdateconsti.
+        logicalType: date
+        physicalType: DATE
+      - name: population
+        description: Population de l'organisme. Colonne source mrcpopul.
+        logicalType: integer
+        physicalType: INT
+        logicalTypeOptions:
+          minimum: 0
+      - name: region_administrative
+        description: >-
+          Région administrative de l'organisme, suivie de son code à deux chiffres entre
+          parenthèses ; vide pour les communautés métropolitaines. Colonne source mrcregion.
+        logicalType: string
+        physicalType: STRING
+      - name: code_designation
+        description: Code de la désignation de l'organisme. Colonne source mrccodedesi.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        enum:
+          - { value: "30", label: "Administration régionale" }
+          - { value: "31", label: "Communauté régionale" }
+          - { value: "32", label: "Communauté urbaine" }
+          - { value: "33", label: "Communauté métropolitaine" }
+          - { value: "34", label: "Agglomération" }
+          - { value: "35", label: "Municipalité régionale de comté" }
+      - name: designation
+        description: Désignation de l'organisme, par exemple Municipalité régionale de comté. Colonne source mrcdescdesi.
+        logicalType: string
+        physicalType: STRING
+      - name: superficie
+        description: Superficie totale de l'organisme, en kilomètres carrés. Colonne source msupf.
+        logicalType: number
+        physicalType: DECIMAL(12,3)
+        logicalTypeOptions:
+          minimum: 0
+      - name: superficie_terrestre
+        description: Superficie terrestre de l'organisme, en kilomètres carrés. Colonne source msupft.
+        logicalType: number
+        physicalType: DECIMAL(12,3)
+        logicalTypeOptions:
+          minimum: 0
+      - name: president
+        description: Nom du président. Colonne source president.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: prefet
+        description: Nom du préfet. Colonne source prefet.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: tresorier
+        description: Nom du trésorier. Colonne source tres.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: secretaire_tresorier
+        description: Nom du secrétaire-trésorier. Colonne source sectres.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: responsable_amenagement
+        description: Nom du responsable de l'aménagement du territoire. Colonne source amenage.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: responsable_urbanisme
+        description: Nom du responsable de l'urbanisme. Colonne source urbanisme.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential

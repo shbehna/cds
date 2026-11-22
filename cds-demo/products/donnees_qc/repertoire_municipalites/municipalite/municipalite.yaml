@@ -1,0 +1,294 @@
+apiVersion: v3.2.0
+kind: DataContract
+id: donnees_qc.repertoire_municipalites.municipalite
+version: 1.0.0
+name: Municipalité
+description:
+  purpose: >-
+    Municipalités du Québec, une ligne par municipalité : coordonnées, renseignements
+    généraux, élections et responsables de l'organisation municipale.
+schema:
+  - name: municipalite
+    physicalType: table
+    businessName: Municipalité
+    description: >-
+      Municipalités locales, territoires non organisés et territoires autochtones du Québec
+      (fichier source MUN.csv). Les conseillers municipaux sont dans la table
+      conseiller_municipal.
+    quality:
+      - type: custom
+        engine: dqx
+        name: superficie_terrestre_dans_superficie
+        description: La superficie terrestre ne dépasse pas la superficie totale.
+        severity: warning
+        implementation:
+          check:
+            function: sql_expression
+            arguments:
+              expression: superficie_terrestre <= superficie
+              msg: La superficie terrestre dépasse la superficie totale.
+      - type: custom
+        engine: dqx
+        name: telephone_renseigne
+        description: Le numéro de téléphone est renseigné, et non 0000000000.
+        severity: warning
+        implementation:
+          check:
+            function: sql_expression
+            arguments:
+              expression: telephone <> '0000000000'
+              msg: Le numéro de téléphone n'est pas renseigné (0000000000).
+      - type: custom
+        engine: dqx
+        name: date_prochaine_election_renseignee
+        description: La date des prochaines élections est une vraie date, et non 0001-01-01.
+        severity: warning
+        implementation:
+          check:
+            function: sql_expression
+            arguments:
+              expression: date_prochaine_election > '1900-01-01'
+              msg: La date des prochaines élections n'est pas renseignée (0001-01-01).
+    properties:
+      - name: code_geographique
+        businessName: Code géographique
+        description: Code géographique de la municipalité, à cinq chiffres. Colonne source mcode.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 1
+        logicalTypeOptions:
+          pattern: "^[0-9]{5}$"
+      - name: nom
+        description: Nom de la municipalité. Colonne source munnom.
+        logicalType: string
+        physicalType: STRING
+        required: true
+      - name: adresse_physique_ligne_1
+        description: Adresse physique de la municipalité, ligne 1. Colonne source madr1.
+        logicalType: string
+        physicalType: STRING
+      - name: adresse_physique_ligne_2
+        description: Adresse physique de la municipalité, ligne 2. Colonne source madr2.
+        logicalType: string
+        physicalType: STRING
+      - name: adresse_postale_ligne_1
+        description: Adresse postale de la municipalité, ligne 1. Colonne source madr3.
+        logicalType: string
+        physicalType: STRING
+      - name: adresse_postale_ligne_2
+        description: Adresse postale de la municipalité, ligne 2. Colonne source madr4.
+        logicalType: string
+        physicalType: STRING
+      - name: code_postal
+        description: Code postal de la municipalité, au format A9A9A9. Colonne source mcodpos.
+        logicalType: string
+        physicalType: STRING
+        logicalTypeOptions:
+          pattern: "^[A-Z][0-9][A-Z][0-9][A-Z][0-9]$"
+      - name: courriel
+        description: Adresse de courriel de la municipalité. Colonne source mcourriel.
+        logicalType: string
+        physicalType: STRING
+      - name: site_web
+        description: Adresse du site Web de la municipalité. Colonne source mweb.
+        logicalType: string
+        physicalType: STRING
+      - name: telephone
+        description: Numéro de téléphone de la municipalité, à dix chiffres ; 0000000000 s'il n'est pas renseigné. Colonne source mtel.
+        logicalType: string
+        physicalType: STRING
+        logicalTypeOptions:
+          pattern: "^[0-9]{10}$"
+      - name: telecopieur
+        description: Numéro de télécopieur de la municipalité, à dix chiffres ; 0000000000 s'il n'est pas renseigné. Colonne source mfax.
+        logicalType: string
+        physicalType: STRING
+        logicalTypeOptions:
+          pattern: "^[0-9]{10}$"
+      - name: code_designation
+        description: Code de la désignation de la municipalité. Colonne source mcodedesi.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        enum:
+          - { value: "01", label: "Canton" }
+          - { value: "02", label: "Cantons unis" }
+          - { value: "03", label: "Cité" }
+          - { value: "04", label: "Paroisse" }
+          - { value: "05", label: "Municipalité" }
+          - { value: "06", label: "Village" }
+          - { value: "07", label: "Village cri (Terre de la catégorie IB)" }
+          - { value: "08", label: "Village naskapi (Terre de la catégorie IB-N)" }
+          - { value: "09", label: "Village nordique" }
+          - { value: "10", label: "Ville" }
+          - { value: "16", label: "Établissement indien" }
+          - { value: "20", label: "Réserve indienne" }
+          - { value: "21", label: "Terre de la catégorie IA" }
+          - { value: "22", label: "Terre de la catégorie IA-N" }
+          - { value: "23", label: "Terre de la catégorie I" }
+          - { value: "25", label: "Territoire non organisé" }
+          - { value: "26", label: "Territoire non organisé regroupé" }
+          - { value: "40", label: "Gouvernement régional" }
+      - name: designation
+        description: Désignation de la municipalité, par exemple Ville ou Paroisse, abrégée à 35 caractères. Colonne source mdes.
+        logicalType: string
+        physicalType: STRING
+      - name: gentile
+        description: Gentilé des habitants de la municipalité. Colonne source mgentile.
+        logicalType: string
+        physicalType: STRING
+      - name: region_administrative
+        description: Région administrative de la municipalité, suivie de son code à deux chiffres entre parenthèses, par exemple Estrie (05). Colonne source regadm.
+        logicalType: string
+        physicalType: STRING
+      - name: division_recensement
+        description: Division de recensement de Statistique Canada, suivie de son code à deux chiffres entre parenthèses. Colonne source divrec.
+        logicalType: string
+        physicalType: STRING
+      - name: municipalite_regionale_comte
+        description: Municipalité régionale de comté (MRC) de la municipalité, suivie de son code à trois chiffres entre parenthèses, par exemple MRC Acton (480). Colonne source mrc.
+        logicalType: string
+        physicalType: STRING
+      - name: administration_regionale
+        description: Administration régionale de la municipalité, suivie de son code entre parenthèses, par exemple Administration régionale Kativik (992). Colonne source admregionale.
+        logicalType: string
+        physicalType: STRING
+      - name: indicateur_autochtone_hors_municipalite_regionale_comte
+        description: Indique si la municipalité est un territoire autochtone hors MRC. Colonne source horsmrcautoch.
+        logicalType: boolean
+        physicalType: BOOLEAN
+      - name: date_constitution
+        description: Date de constitution de la municipalité. Colonne source mdatcons.
+        logicalType: date
+        physicalType: DATE
+      - name: date_changement_regime
+        description: Date du changement de régime de la municipalité. Colonne source mdatregi.
+        logicalType: date
+        physicalType: DATE
+      - name: superficie
+        description: Superficie totale de la municipalité, en kilomètres carrés, mise à jour une fois par année. Colonne source msuperf.
+        logicalType: number
+        physicalType: DECIMAL(12,3)
+        logicalTypeOptions:
+          minimum: 0
+      - name: superficie_terrestre
+        description: Superficie terrestre de la municipalité, en kilomètres carrés. Colonne source msupft.
+        logicalType: number
+        physicalType: DECIMAL(12,3)
+        logicalTypeOptions:
+          minimum: 0
+      - name: population
+        description: Population de la municipalité, fixée chaque année par décret du gouvernement. Colonne source mpopul.
+        logicalType: integer
+        physicalType: INT
+        logicalTypeOptions:
+          minimum: 0
+      - name: date_prochaine_election
+        description: Date des prochaines élections municipales ; 0001-01-01 si elle n'est pas connue. Colonne source datelec.
+        logicalType: date
+        physicalType: DATE
+      - name: code_type_election
+        description: Code du type de l'élection du conseil, par exemple B pour une élection en bloc. Colonne source electype.
+        logicalType: string
+        physicalType: STRING
+      - name: type_election
+        description: Type de l'élection du conseil, par exemple En bloc / tout le conseil. Colonne source delectype.
+        logicalType: string
+        physicalType: STRING
+      - name: code_mode_election
+        description: Code du mode de désignation du conseil, par exemple E pour une élection. Colonne source elecmode.
+        logicalType: string
+        physicalType: STRING
+      - name: mode_election
+        description: Mode de désignation du conseil, par exemple Élection ou S.O. - Administrateur nommé. Colonne source delecmode.
+        logicalType: string
+        physicalType: STRING
+      - name: division_territoriale
+        description: Division du territoire de la municipalité pour les élections, par exemple District, Quartier ou Sans division. Colonne source divter.
+        logicalType: string
+        physicalType: STRING
+      - name: communaute_metropolitaine
+        description: Communauté métropolitaine de la municipalité, suivie de son code entre parenthèses. Colonne source mcm.
+        logicalType: string
+        physicalType: STRING
+      - name: circonscriptions_electorales
+        description: Circonscriptions électorales provinciales de la municipalité, chacune suivie de son code entre parenthèses, séparées par des points-virgules. Colonne source mcirc.
+        logicalType: string
+        physicalType: STRING
+      - name: maire
+        description: Nom du maire. Colonne source maire.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: directeur_general
+        description: Nom du directeur général. Colonne source dirgen.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: directeur_securite_publique
+        description: Nom du directeur de la sécurité publique. Colonne source dirsecpub.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: tresorier
+        description: Nom du trésorier. Colonne source tres.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: greffier
+        description: Nom du greffier. Colonne source gref.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: secretaire_tresorier
+        description: Nom du secrétaire-trésorier. Colonne source sectres.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: directeur_police
+        description: Nom du directeur ou du chef de police. Colonne source polic.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: directeur_incendie
+        description: Nom du directeur du service d'incendie. Colonne source incen.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: directeur_loisirs
+        description: Nom du directeur des loisirs. Colonne source loisir.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: directeur_travaux_publics
+        description: Nom du directeur des travaux publics. Colonne source trvpub.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: coordonnateur_mesures_urgence
+        description: Nom du coordonnateur des mesures d'urgence. Colonne source mesurg.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: responsable_urbanisme
+        description: Nom du responsable de l'urbanisme. Colonne source urban.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: directeur_communications
+        description: Nom du directeur des communications. Colonne source communic.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: responsable_permis
+        description: Nom du responsable de l'émission des permis et des certificats d'urbanisme. Colonne source permis.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: inspecteur_municipal
+        description: Nom de l'inspecteur municipal et de voirie. Colonne source batim.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential

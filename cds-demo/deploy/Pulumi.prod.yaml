@@ -8,7 +8,8 @@ config:
   # CDS environment id, which is also the Unity Catalog catalog of the data products.
   cds-demo:environment: prod
   # PLACEHOLDER: folder of the folders of the CSV files of the data products, one per data
-  # product in the ext catalog: /Volumes/ext/donnees_qc/req (Entreprise.csv, Nom.csv...).
+  # product in the ext catalog: /Volumes/ext/donnees_qc/req (Entreprise.csv, Nom.csv...) and
+  # /Volumes/ext/donnees_qc/repertoire_municipalites (MUN.csv, ARR.csv...).
   cds-demo:sourceRoot: /Volumes/ext
   # The jobs load the published files.
   cds-demo:syntheticData: "false"

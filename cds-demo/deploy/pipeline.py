@@ -119,6 +119,21 @@ DOMAINS: dict[str, DomainPresentation] = {
             "licence CC BY-NC-SA 4.0."
         ),
     ),
+    "Gouvernement": DomainPresentation(
+        subtitle="Organisation de l'État et des gouvernements locaux du Québec.",
+        description="Données sur les institutions publiques du Québec, dont les municipalités.",
+    ),
+    "Gouvernement/Ministère des Affaires municipales et de l'Habitation": DomainPresentation(
+        subtitle=(
+            "Répertoire des municipalités du Québec : municipalités, MRC, arrondissements, conseils et "
+            "responsables municipaux."
+        ),
+        description=(
+            "Tables du produit de données donnees_qc.repertoire_municipalites, construites à partir du "
+            "Répertoire des municipalités du Québec du ministère des Affaires municipales et de l'Habitation, "
+            "publié chaque jour sur Données Québec sous la licence CC BY 4.0."
+        ),
+    ),
 }
 
 # Placeholder of the environment in the queries of the manifest.

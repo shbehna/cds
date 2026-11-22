@@ -1,0 +1,44 @@
+apiVersion: v3.2.0
+kind: DataContract
+id: donnees_qc.repertoire_municipalites.conseiller_arrondissement
+version: 1.0.0
+name: Conseiller d'arrondissement
+description:
+  purpose: Membres des conseils d'arrondissement, une ligne par siège occupé ou vacant.
+schema:
+  - name: conseiller_arrondissement
+    physicalType: table
+    businessName: Conseiller d'arrondissement
+    description: >-
+      Sièges des conseils d'arrondissement et leurs conseillers (fichier source ARR.csv,
+      colonnes con01 à con75). Les sièges vides du fichier n'ont pas de ligne.
+    properties:
+      - name: code_geographique
+        businessName: Code géographique
+        description: Code géographique de l'arrondissement du conseil. Colonne source arrcod.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 1
+        relationships:
+          - to: arrondissement.code_geographique
+      - name: numero_siege
+        description: Numéro du siège au conseil, celui de sa colonne source (con01 à con75).
+        logicalType: integer
+        physicalType: INT
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 2
+        logicalTypeOptions:
+          minimum: 1
+      - name: nom
+        description: Nom du conseiller ; vide si le siège est vacant. Colonnes source con01 à con75.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: indicateur_poste_vacant
+        description: Indique si le siège est vacant (Poste vacant dans le fichier source).
+        logicalType: boolean
+        physicalType: BOOLEAN
+        required: true

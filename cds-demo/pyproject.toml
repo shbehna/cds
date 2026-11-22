@@ -1,7 +1,7 @@
 [project]
 name = "cds-demo"
 version = "0.1.0"
-description = "Demo of the CDS framework: the Registraire des entreprises du Québec (REQ) data product."
+description = "Demo of the CDS framework: data products built from the open data of Données Québec (REQ, Répertoire des municipalités)."
 readme = "README.md"
 requires-python = "==3.12.*"
 # The data products (products/) use the framework as a library. They are deployed as

@@ -52,9 +52,33 @@ SOURCE_HEADERS = {
     ),
     "ContinuationsTransformations.csv": "NEQ,COD_TYP_CHANG,COD_REGIM_JURI,AUTR_REGIM_JURI,NOM_LOCLT,DAT_EFCTVT",
     "DomaineValeur.csv": "TYP_DOM_VAL,COD_DOM_VAL,VAL_DOM_FRAN",
+    # The files of the directory of the municipalities. The seats of the councils are
+    # numbered con1 to con75 in MUN.csv, con01 to con75 in ARR.csv.
+    "MUN.csv": ",".join(
+        (
+            "mcode,munnom,madr1,madr2,madr3,madr4,mcodpos,mcourriel,mweb,mtel,mfax,mcodedesi,mdes,mgentile,regadm,"
+            "divrec,mrc,admregionale,horsmrcautoch,mdatcons,mdatregi,msuperf,mpopul,datelec,electype,delectype,"
+            "elecmode,delecmode,divter,mcm,mcirc,msupft,maire",
+            *(f"con{seat}" for seat in range(1, 76)),
+            "dirgen,dirsecpub,tres,gref,sectres,polic,incen,loisir,trvpub,mesurg,urban,communic,permis,batim,nd",
+        )
+    ),
+    "MRC_CM_Arg.csv": (
+        "mrccod,mrcnom,mrcadr1,mrcadr2,mrcadr3,mrcadr4,mrccodp,mrctel,mrcfax,mrccourriel,mrcweb,mrcdateconsti,"
+        "mrcpopul,mrcregion,mrccodedesi,mrcdescdesi,msupf,msupft,president,prefet,tres,sectres,amenage,urbanisme"
+    ),
+    "ARR.csv": ",".join(
+        (
+            "arrcod,arrnom,arrville,arrcode,arradr1,arradr2,arradr3,arradr4,arrcodp,arrtel,arrfax,arrcourriel,"
+            "arrregion,arrmrc,arrhorsmrcautoch,arrcm,arrgentile,arradrinternet,arrdateconsti,arrdateproelec,"
+            "president,directeur",
+            *(f"con{seat:02d}" for seat in range(1, 76)),
+        )
+    ),
+    "ress.csv": "rescode,resgroupe,rescodetitre,restitre,resentreefonction,resnom,resprenom,resestvacant",
 }
 # The source columns no table reads, by file: those the publisher does not use.
-UNUSED_SOURCE_COLUMNS: dict[str, set[str]] = {}
+UNUSED_SOURCE_COLUMNS: dict[str, set[str]] = {"MUN.csv": {"nd"}}
 TABLES = sorted(table.name for table in DataContext.discover(PRODUCTS).tables)
 # The codes the fake Spark session returns for every query of allowed values.
 CODES = ["0110", "0100"]

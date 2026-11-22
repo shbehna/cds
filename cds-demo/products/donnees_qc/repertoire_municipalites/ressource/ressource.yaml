@@ -1,0 +1,92 @@
+apiVersion: v3.2.0
+kind: DataContract
+id: donnees_qc.repertoire_municipalites.ressource
+version: 1.0.0
+name: Ressource
+description:
+  purpose: >-
+    Élus et responsables des municipalités, des organismes supramunicipaux, des
+    arrondissements et des agglomérations, une ligne par poste.
+schema:
+  - name: ressource
+    physicalType: table
+    businessName: Ressource
+    description: >-
+      Postes des élus et des responsables de l'organisation municipale, et leurs titulaires
+      (fichier source ress.csv).
+    quality:
+      - type: custom
+        engine: dqx
+        name: poste_occupe_avec_titulaire
+        description: Un poste qui n'est pas vacant a un titulaire.
+        severity: warning
+        implementation:
+          check:
+            function: sql_expression
+            arguments:
+              expression: indicateur_poste_vacant OR nom IS NOT NULL
+              msg: Le poste n'est pas vacant, mais n'a pas de titulaire.
+      - type: custom
+        engine: dqx
+        name: date_entree_fonction_renseignee
+        description: La date d'entrée en fonction est une vraie date, et non une date de 1900.
+        severity: warning
+        implementation:
+          check:
+            function: sql_expression
+            arguments:
+              expression: date_entree_fonction >= '1901-01-01'
+              msg: La date d'entrée en fonction n'est pas renseignée (1900).
+    properties:
+      - name: code_organisation
+        businessName: Code géographique
+        description: >-
+          Code géographique de l'organisation du poste : municipalité (table municipalite),
+          organisme supramunicipal (table organisme_supramunicipal), arrondissement (table
+          arrondissement) ou agglomération (code AG, sans table). Colonne source rescode.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 1
+      - name: groupe_titre
+        description: Groupe du titre du poste. Colonne source resgroupe.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        enum:
+          - { value: "Conseiller" }
+          - { value: "Direction" }
+          - { value: "Mairie" }
+          - { value: "Présidence" }
+          - { value: "Responsable" }
+      - name: code_titre
+        description: Code du titre du poste, par exemple 209B pour la direction générale. Colonne source rescodetitre.
+        logicalType: string
+        physicalType: STRING
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 2
+      - name: titre
+        description: Titre du poste, par exemple Directrice générale. Colonne source restitre.
+        logicalType: string
+        physicalType: STRING
+      - name: date_entree_fonction
+        description: Date d'entrée en fonction du titulaire ; une date de 1900 si elle n'est pas connue. Colonne source resentreefonction.
+        logicalType: date
+        physicalType: DATE
+      - name: nom
+        description: Nom de famille du titulaire ; vide si le poste est vacant. Colonne source resnom.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: prenom
+        description: Prénom du titulaire ; vide si le poste est vacant. Colonne source resprenom.
+        logicalType: string
+        physicalType: STRING
+        classification: confidential
+      - name: indicateur_poste_vacant
+        description: Indique si le poste est vacant. Colonne source resestvacant.
+        logicalType: boolean
+        physicalType: BOOLEAN
+        required: true
