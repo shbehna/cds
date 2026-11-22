@@ -91,10 +91,12 @@ TAG_POLICY_PROPAGATION_SECONDS = 120
 # data product ("pipeline"). They keep their former names as aliases, so that Pulumi
 # renames them instead of replacing them.
 FIRST_DATA_PRODUCT = "donnees_qc.req"
-# The generation of the job of a data product: changing it makes Pulumi replace the job (a
-# new job id) on the next deployment of every stack. The workspace refused every run of
-# the first repertoire_municipalites jobs, though no run was active ("There are already 5
-# active runs (limit: 5)"), while the req jobs ran: generation 2 replaces them.
+# The generation of the job of a data product, in the name of its resource: changing it
+# makes Pulumi create a new job (a new job id) and delete the former one, on the next
+# deployment of every stack. The workspace refused every run of the first
+# repertoire_municipalites jobs, though no run was active ("There are already 5 active
+# runs (limit: 5)"), while the req jobs ran: generation 2 replaces them. (A replacement
+# trigger does not replace a resource when it is first set.)
 JOB_GENERATIONS: dict[str, int] = {"donnees_qc.repertoire_municipalites": 2}
 
 
@@ -452,10 +454,10 @@ def renamed(data_product: str, former: str) -> pulumi.ResourceOptions:
     return pulumi.ResourceOptions(aliases=[pulumi.Alias(name=former)] if data_product == FIRST_DATA_PRODUCT else None)
 
 
-def job_generation(data_product: str) -> str | None:
-    """The replacement trigger of the job of a data product: its generation, None for the first one."""
+def job_resource_name(data_product: str) -> str:
+    """The name of the resource of the job of a data product: with its generation, after the first one."""
     generation = JOB_GENERATIONS.get(data_product)
-    return str(generation) if generation else None
+    return f"pipeline:{data_product}" + (f":{generation}" if generation else "")
 
 
 def alerts(
@@ -847,7 +849,7 @@ def deploy(settings: Settings) -> dict[str, databricks.Job]:
         }
         title = product.get("title")
         jobs[data_product] = databricks.Job(
-            f"pipeline:{data_product}",
+            job_resource_name(data_product),
             name=f"cds-demo-{name}-{settings.environment}",
             description=(
                 f"CDS demo: builds the {data_product} data product{f' ({title})' if title else ''} "
@@ -892,7 +894,6 @@ def deploy(settings: Settings) -> dict[str, databricks.Job]:
             opts=pulumi.ResourceOptions.merge(
                 renamed(data_product, "pipeline"),
                 pulumi.ResourceOptions(
-                    replacement_trigger=job_generation(data_product),
                     depends_on=[
                         *products,
                         *prerequisites,
