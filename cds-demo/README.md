@@ -14,11 +14,12 @@ products/                                   root folder of the data products
 └── donnees_qc/                             group
     ├── donnees_qc_config.py                naming conventions, history table names, metadata
     ├── donnees_qc.odcs.yaml                contract defaults of the group: tenant, tags
+    ├── sources.py                          reading of the CSV files, shared by the data products
     └── req/                                data product
         ├── req_config.py                   quality and history settings, Genie space, quality dashboard
         ├── req.odps.yaml                   ODPS document: description, domain, status, support, usage
         ├── req.odcs.yaml                   contract defaults: service levels
-        ├── sources.py                      reading of the CSV files, shared by the contracts
+        ├── sources.py                      conversions of the values, shared by the contracts
         ├── questions.py                    instructions and questions of the Genie space
         ├── entreprise/
         │   ├── entreprise.yaml             ODCS data contract
@@ -31,7 +32,7 @@ products/                                   root folder of the data products
 csv/                                        synthetic data set and its generator
 manifest/                                   what the deployment needs of the contracts, generated from them
 deploy/                                     deployment with Pulumi
-tests/                                      tests of the data products, the data set, the dashboard and the Genie space, without Spark
+tests/                                      tests of the data products, the data set, the dashboards and the Genie spaces, without Spark
 ```
 
 ## Language
@@ -118,9 +119,11 @@ another `STRING` column in a contract is enough to mask it: the policy matches t
 not the columns. The masking function only takes strings, which a test checks.
 
 The deployment cannot load the data products: it reads the classifications in the
-manifest [manifest/req_manifest.json](manifest/req_manifest.json), generated from the
+manifest [manifest/manifest.json](manifest/manifest.json), generated from the
 contracts by [manifest/manifest.py](manifest/manifest.py), with the Discover domains,
-and the schedule and the alerts of the service levels. Regenerate it after changing the contracts or their
+and for each data product the schedule of its job and the alerts of its service levels.
+The data products share the classifications: the masking policy applies to the whole
+catalog. Regenerate it after changing the contracts or their
 configurations, and commit it: a test checks that it is up to date.
 
 ```bash
@@ -183,8 +186,8 @@ also send an email.
 ## Synthetic data set
 
 [csv/testdata](csv/testdata) holds a synthetic version of each file of the register,
-named after it (`Entreprise_testdata.csv` for `Entreprise.csv`), to illustrate the
-quality service. Each file has 200 rows: 170 valid rows (85 %), 20 rows with a warning
+named after it (`Entreprise_testdata.csv` for `Entreprise.csv`), in the folder of its
+data product (`donnees_qc/req`), to illustrate the quality service. Each file has 200 rows: 170 valid rows (85 %), 20 rows with a warning
 (10 %) and 10 rows with an error (5 %). Each of these rows fails a single check, chosen
 among the kinds of checks of its table:
 
@@ -201,10 +204,11 @@ The other rows reference each other as in the register: the establishments, name
 mergers and continuations belong to enterprises without errors, and their codes belong
 to the value domains of `DomaineValeur_testdata.csv`.
 
-The transformations read the synthetic files instead of those of the register when the
-runtime parameter `synthetic_data` is true ([sources.py](products/donnees_qc/req/sources.py)).
-The deployment uploads them next to the files of the register, and the `nprod` job
-loads them; the `prod` job loads the register.
+The transformations read the synthetic files instead of the published ones when the
+runtime parameter `synthetic_data` is true ([sources.py](products/donnees_qc/sources.py)).
+The deployment uploads them next to the published files, and the `nprod` job of `req`
+loads them; the `prod` jobs load the published files. A data product without synthetic
+data set loads its published files in `nprod` too.
 
 [csv/generate_testdata.py](csv/generate_testdata.py) generates the files,
 deterministically. Regenerate them after changing it, and commit them: a test checks

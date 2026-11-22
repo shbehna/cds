@@ -11,8 +11,9 @@ and continuations belong to enterprises of the entreprise file, and the codes be
 the value domains of the domaine_valeur file, except in the rows illustrating the
 foreign key and value domain checks. The enterprises with errors are not referenced.
 
-The files are committed in cds-demo/csv/testdata, named after the files of the register
-(Entreprise_testdata.csv for Entreprise.csv). The transformations read them instead of
+The files are committed in cds-demo/csv/testdata, in the folder of their data product
+(donnees_qc/req), named after the files of the register (Entreprise_testdata.csv for
+Entreprise.csv). The transformations read them instead of
 the real files when the runtime parameter synthetic_data is true; the deployment uploads
 them next to the real files. The generation is deterministic: regenerate the files,
 from the root of the repository, after changing this script:
@@ -31,6 +32,10 @@ from datetime import date, timedelta
 from pathlib import Path
 
 TESTDATA = Path(__file__).with_name("testdata")
+REQ = "donnees_qc.req"
+# The data products of the data set: every table of each has a synthetic file. The other
+# data products load their published files in every environment.
+DATA_PRODUCTS = (REQ,)
 SUFFIX = "_testdata"
 SEED = 2026
 ROWS = 200
@@ -513,6 +518,8 @@ class SourceFile:
     """The rows of a file of the data set, and the checks each row is expected to fail."""
 
     name: str
+    # The data product of the file (<group>.<data product>): the file is in its folder.
+    data_product: str
     rows: list[Row] = field(default_factory=list)
     # Names of the checks failed by each row.
     expected: list[set[str]] = field(default_factory=list)
@@ -524,6 +531,11 @@ class SourceFile:
         """Name of the file of the data set: the name of the file of the register, with a suffix."""
         stem, extension = self.name.rsplit(".", 1)
         return f"{stem}{SUFFIX}.{extension}"
+
+    @property
+    def path(self) -> str:
+        """Path of the file in the data set: the folder of its data product, <group>/<data product>."""
+        return f"{self.data_product.replace('.', '/')}/{self.file_name}"
 
     def add(self, values: Row) -> int:
         """Adds a valid row and returns its index; the columns not given are empty."""
@@ -740,7 +752,7 @@ def enterprise_row(rng: random.Random, enterprise: Enterprise) -> Row:
 
 
 def entreprise_file(rng: random.Random, found: Sequence[Enterprise]) -> SourceFile:
-    source = SourceFile("Entreprise.csv")
+    source = SourceFile("Entreprise.csv", REQ)
     for enterprise in found:
         source.add(enterprise_row(rng, enterprise))
     picker = Picker(rng, source)
@@ -800,7 +812,7 @@ def establishment_row(enterprise: Enterprise, number: int, place: Address, name:
 
 
 def etablissement_file(rng: random.Random, clean: Sequence[Enterprise]) -> SourceFile:
-    source = SourceFile("Etablissements.csv")
+    source = SourceFile("Etablissements.csv", REQ)
     counts = {enterprise.neq: 1 for enterprise in clean}
     for enterprise in clean:
         source.add(establishment_row(enterprise, 1, enterprise.address, enterprise.name))
@@ -838,7 +850,7 @@ NAME_KEY = ("NEQ", "NOM_ASSUJ", "NOM_ASSUJ_LANG_ETRNG", "TYP_NOM_ASSUJ", "DAT_IN
 
 
 def nom_file(rng: random.Random, clean: Sequence[Enterprise]) -> SourceFile:
-    source = SourceFile("Nom.csv")
+    source = SourceFile("Nom.csv", REQ)
     current: dict[str, int] = {}
     for enterprise in clean:
         current[enterprise.neq] = source.add(
@@ -911,7 +923,7 @@ def nom_file(rng: random.Random, clean: Sequence[Enterprise]) -> SourceFile:
 
 
 def fusion_file(rng: random.Random, clean: Sequence[Enterprise]) -> SourceFile:
-    source = SourceFile("FusionScissions.csv")
+    source = SourceFile("FusionScissions.csv", REQ)
     companies = [enterprise for enterprise in clean if enterprise.form == "CIE"]
     while len(source.rows) < ROWS:
         resulting = rng.choice(companies)
@@ -958,7 +970,7 @@ CHANGE_KEY = ("NEQ", "COD_TYP_CHANG", "COD_REGIM_JURI", "DAT_EFCTVT")
 
 
 def continuation_file(rng: random.Random, clean: Sequence[Enterprise]) -> SourceFile:
-    source = SourceFile("ContinuationsTransformations.csv")
+    source = SourceFile("ContinuationsTransformations.csv", REQ)
 
     def change(enterprise: Enterprise, kind: str, after: date) -> Row:
         return {
@@ -1002,7 +1014,7 @@ def continuation_file(rng: random.Random, clean: Sequence[Enterprise]) -> Source
 
 
 def domaine_file(rng: random.Random, files: Iterable[SourceFile]) -> SourceFile:
-    source = SourceFile("DomaineValeur.csv")
+    source = SourceFile("DomaineValeur.csv", REQ)
     for domain, code, description in DOMAINS:
         source.add({"TYP_DOM_VAL": domain, "COD_DOM_VAL": code, "VAL_DOM_FRAN": description})
     # The codes used by the other files remain in their domains: only the others are changed.
@@ -1055,14 +1067,14 @@ def generate() -> list[SourceFile]:
 
 
 def render() -> dict[str, str]:
-    """Returns the content of each file of the data set, by file name."""
-    return {source.file_name: source.render() for source in generate()}
+    """Returns the content of each file of the data set, by path in the data set."""
+    return {source.path: source.render() for source in generate()}
 
 
 def main() -> None:
-    TESTDATA.mkdir(exist_ok=True)
     for name, content in render().items():
         path = TESTDATA / name
+        path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8", newline="") as file:
             file.write(content)
         print(f"Wrote {path}")

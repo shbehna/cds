@@ -7,9 +7,10 @@ config:
   databricks:clientId: bf175dc4-c86b-4e88-83e9-9194c485a080
   # CDS environment id, which is also the Unity Catalog catalog of the data products.
   cds-demo:environment: prod
-  # PLACEHOLDER: folder of the REQ CSV files (Entreprise.csv, Nom.csv...) in the ext catalog.
-  cds-demo:sourcePath: /Volumes/ext/donnees_qc/req
-  # The job loads the files of the register.
+  # PLACEHOLDER: folder of the folders of the CSV files of the data products, one per data
+  # product in the ext catalog: /Volumes/ext/donnees_qc/req (Entreprise.csv, Nom.csv...).
+  cds-demo:sourceRoot: /Volumes/ext
+  # The jobs load the published files.
   cds-demo:syntheticData: "false"
   # The prod catalog uses the Default Storage of the account, which the API cannot create:
   # an administrator creates it in Catalog Explorer (README.md). With a metastore storage

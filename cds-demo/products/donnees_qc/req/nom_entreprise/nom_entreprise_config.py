@@ -5,7 +5,7 @@ from pyspark.sql.functions import col
 
 from cds import ContractConfig, RuntimeConfiguration
 
-from ..sources import read_source
+from ...sources import read_source
 
 
 def transform(spark: SparkSession, runtime_configuration: RuntimeConfiguration) -> DataFrame:

@@ -30,7 +30,6 @@ from cds import DataContext, RuntimeConfiguration, ServiceContext, Table
 from cds.services.checks import build_checks
 
 PRODUCTS = Path(__file__).resolve().parents[1] / "products"
-TABLES = sorted(table.name for table in DataContext.discover(PRODUCTS).tables)
 # The contracts document the source file of each table and the source column of each property.
 SOURCE_FILE = re.compile(r"fichier source (\w+\.csv)")
 SOURCE_COLUMN = re.compile(r"Colonne source (\w+)\.")
@@ -210,6 +209,15 @@ def source_file(table: Table) -> str:
     return match.group(1)
 
 
+def has_synthetic_data(table: Table) -> bool:
+    """Whether the table belongs to a data product of the synthetic data set."""
+    return table.data_product.qualified_name in generate_testdata.DATA_PRODUCTS
+
+
+# The tables of the synthetic data set.
+TABLES = sorted(table.name for table in DataContext.discover(PRODUCTS).tables if has_synthetic_data(table))
+
+
 def contract_rows(table: Table, path: Path) -> list[Row]:
     """Reads a file of the data set as the transformation does: renamed and cast to the contract types."""
     with path.open(encoding="utf-8-sig", newline="") as file:
@@ -327,8 +335,9 @@ def data_context() -> DataContext:
 @pytest.fixture(scope="module")
 def tables(data_context: DataContext) -> dict[str, list[Row]]:
     return {
-        table.name: contract_rows(table, generate_testdata.TESTDATA / synthetic_file_name(source_file(table)))
+        table.name: contract_rows(table, synthetic_path(table))
         for table in data_context.tables
+        if has_synthetic_data(table)
     }
 
 
@@ -340,7 +349,9 @@ def checks(data_context: DataContext, tables: dict[str, list[Row]]) -> dict[str,
         data_context=data_context,
         runtime_configuration=RuntimeConfiguration({"environment": "nprod", "synthetic_data": "true"}),
     )
-    return {table.name: build_checks(table, context).checks for table in data_context.tables}
+    return {
+        table.name: build_checks(table, context).checks for table in data_context.tables if has_synthetic_data(table)
+    }
 
 
 @pytest.fixture(scope="module")
@@ -356,6 +367,12 @@ def results(tables: dict[str, list[Row]], checks: dict[str, list[Check]]) -> dic
     return found
 
 
+def synthetic_path(table: Table) -> Path:
+    """The synthetic file of a table, in the folder of its data product (<group>/<data product>)."""
+    folder = table.data_product.qualified_name.replace(".", "/")
+    return generate_testdata.TESTDATA / folder / synthetic_file_name(source_file(table))
+
+
 def synthetic_file_name(file_name: str) -> str:
     stem, extension = file_name.rsplit(".", 1)
     return f"{stem}{generate_testdata.SUFFIX}.{extension}"
@@ -363,7 +380,10 @@ def synthetic_file_name(file_name: str) -> str:
 
 def test_the_committed_files_are_up_to_date() -> None:
     expected = generate_testdata.render()
-    committed = {path.name: path.read_text(encoding="utf-8") for path in generate_testdata.TESTDATA.glob("*.csv")}
+    committed = {
+        path.relative_to(generate_testdata.TESTDATA).as_posix(): path.read_text(encoding="utf-8")
+        for path in generate_testdata.TESTDATA.rglob("*.csv")
+    }
 
     assert committed.keys() == expected.keys()
     for name, content in expected.items():

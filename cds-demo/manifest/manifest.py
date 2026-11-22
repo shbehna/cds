@@ -1,20 +1,27 @@
-"""Generates the deployment manifest of the REQ data product, read by the Pulumi program.
+"""Generates the deployment manifest of the data products of the demo, read by the Pulumi program.
 
 The Pulumi program (cds-demo/deploy) cannot load the data products: their configurations
 import PySpark, which its environment does not install. The manifest holds what it needs
-to know of the contracts:
+to know of the contracts. For the whole demo, whose data products share a catalog per
+environment and the governed tags of the account:
 
 - ``classification``: the key and the allowed values of the classification tag of the
-  columns, which the deployment declares as a governed tag and masks;
+  columns, which the deployment declares as a governed tag and masks. The data products
+  must share them: the masking policy applies to the whole catalog;
 - ``domains``: the Discover domains of the tables and their parent domains, parents
   first: the governed tag of each domain, and that of its parent (``None`` for a
-  top-level domain), which the deployment creates with the domains;
-- ``schedule``: the schedule of the job, from the ``frequency`` SLA of the tables, as a
+  top-level domain), which the deployment creates with the domains.
+
+And for each data product (``data_products``), which the deployment runs in a job of its own:
+
+- ``data_product``: its qualified name, ``<group>.<data product>``, and ``title``: the name
+  of its ODPS document;
+- ``schedule``: the schedule of its job, from the ``frequency`` SLA of its tables, as a
   cron expression and in the Quartz syntax of Databricks;
-- ``alerts``: the SQL alerts checking the ``errorRate`` and ``latency`` SLA of the tables,
+- ``alerts``: the SQL alerts checking the ``errorRate`` and ``latency`` SLA of its tables,
   with their schedules. The query of an alert returns a row per table, whose ``exceeded``
   column is 1 when the table breaks its SLA: the alert triggers when one of them does;
-- ``recipients``: the addresses of the email support channels of the contracts, which
+- ``recipients``: the addresses of the email support channels of its contracts, which
   receive the alerts.
 
 The queries name the tables in the catalog and schema of the naming conventions, with the
@@ -31,7 +38,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from cds import DataContext, MetadataSettings, QualitySettings, ServiceContext, Table
+from cds import DataContext, DataProduct, MetadataSettings, QualitySettings, ServiceContext, Table
 from cds.config import resolved
 from cds.errors import ConfigurationError
 from cds.odcs import SlaProperty
@@ -40,8 +47,7 @@ from cds.sla import cron_schedule, duration, percentage, quartz_cron, support_em
 from cds.sql import quote_identifier, quote_name, string_literal
 
 PRODUCTS = Path(__file__).resolve().parents[1] / "products"
-MANIFEST = Path(__file__).with_name("req_manifest.json")
-DATA_PRODUCT = "donnees_qc.req"
+MANIFEST = Path(__file__).with_name("manifest.json")
 # Placeholder of the environment in the queries, replaced by the deployment.
 ENVIRONMENT = "${environment}"
 # Environment id naming the tables, then replaced by the placeholder.
@@ -50,24 +56,33 @@ _SENTINEL = "cds_manifest_environment"
 EXCEEDED = "exceeded"
 
 
+def data_products(data_context: DataContext) -> list[DataProduct]:
+    """The data products of the demo, by qualified name."""
+    return sorted(data_context.data_products, key=lambda data_product: data_product.qualified_name)
+
+
 def classification(data_context: DataContext) -> dict[str, Any]:
-    """The classification tag of the columns of the data product: its key and allowed values.
+    """The classification tag of the columns of the data products: its key and allowed values.
 
     Raises:
-        ConfigurationError: If the classifications are not declared, or differ between tables.
+        ConfigurationError: If the classifications are not declared, or differ between
+            data products or tables.
     """
-    data_product = data_context.get_data_product(DATA_PRODUCT)
-    settings = data_product.settings(MetadataSettings)
+    products = data_products(data_context)
+    if not products:
+        raise ConfigurationError("No data product: the manifest needs one.")
+    first = products[0]
+    settings = first.settings(MetadataSettings)
     if not settings.classifications:
-        raise ConfigurationError(f"{DATA_PRODUCT}: MetadataSettings.classifications is not set.")
-    for table in data_product.tables:
-        table_settings = table.settings(MetadataSettings)
-        if (table_settings.classification_tag, table_settings.classifications) != (
-            settings.classification_tag,
-            settings.classifications,
-        ):
+        raise ConfigurationError(f"{first.qualified_name}: MetadataSettings.classifications is not set.")
+    expected = (settings.classification_tag, settings.classifications)
+    elements: list[DataProduct | Table] = [*products, *(table for product in products for table in product.tables)]
+    for element in elements:
+        element_settings = element.settings(MetadataSettings)
+        if (element_settings.classification_tag, element_settings.classifications) != expected:
             raise ConfigurationError(
-                f"{table.qualified_name}: the classification tag and values must be those of {DATA_PRODUCT}."
+                f"{element.qualified_name}: the classification tag and values must be those of "
+                f"{first.qualified_name}: the masking applies to the whole catalog."
             )
     return {"tag": resolved(settings.classification_tag), "values": list(settings.classifications)}
 
@@ -79,7 +94,7 @@ def domains(data_context: DataContext) -> list[dict[str, str | None]]:
     Québec`` under ``Économie``.
     """
     found: set[str] = set()
-    for table in _tables(data_context):
+    for table in data_context.tables:
         tag = discover_domain(table)
         levels = tag.split(DOMAIN_SEPARATOR) if tag else []
         found.update(DOMAIN_SEPARATOR.join(levels[:depth]) for depth in range(1, len(levels) + 1))
@@ -89,8 +104,8 @@ def domains(data_context: DataContext) -> list[dict[str, str | None]]:
     ]
 
 
-def _tables(data_context: DataContext) -> list[Table]:
-    return sorted(data_context.get_data_product(DATA_PRODUCT).tables, key=lambda table: table.name)
+def _tables(data_context: DataContext, data_product: str) -> list[Table]:
+    return sorted(data_context.get_data_product(data_product).tables, key=lambda table: table.name)
 
 
 def _scheduled(table: Table, name: str) -> tuple[SlaProperty, str | None, str] | None:
@@ -109,7 +124,7 @@ def _scheduled(table: Table, name: str) -> tuple[SlaProperty, str | None, str] |
     return prop, column, schedule
 
 
-def _common_schedule(name: str, schedules: Mapping[str, str]) -> dict[str, str]:
+def _common_schedule(data_product: str, name: str, schedules: Mapping[str, str]) -> dict[str, str]:
     """The schedule shared by the SLA of the tables, as a cron expression and in the Quartz syntax.
 
     Raises:
@@ -117,7 +132,7 @@ def _common_schedule(name: str, schedules: Mapping[str, str]) -> dict[str, str]:
     """
     if len(set(schedules.values())) > 1:
         details = ", ".join(f"{table} ({cron})" for table, cron in sorted(schedules.items()))
-        raise ConfigurationError(f"{DATA_PRODUCT}: the tables must share the schedule of their {name} SLA: {details}.")
+        raise ConfigurationError(f"{data_product}: the tables must share the schedule of their {name} SLA: {details}.")
     cron = next(iter(schedules.values()))
     return {"cron": cron, "quartz": quartz_cron(cron)}
 
@@ -131,22 +146,22 @@ def _name(full_name: str) -> str:
     return full_name.replace(_SENTINEL, ENVIRONMENT)
 
 
-def schedule(data_context: DataContext) -> dict[str, str] | None:
-    """The schedule of the job: the ``frequency`` SLA of the tables, ``None`` without it.
+def schedule(data_context: DataContext, data_product: str) -> dict[str, str] | None:
+    """The schedule of the job of a data product: the ``frequency`` SLA of its tables, ``None`` without it.
 
     Raises:
         ConfigurationError: If the tables have different frequencies, or one without cron schedule.
     """
     schedules = {}
-    for table in _tables(data_context):
+    for table in _tables(data_context, data_product):
         found = _scheduled(table, "frequency")
         if found is not None:
             schedules[table.name] = found[2]
-    return _common_schedule("frequency", schedules) if schedules else None
+    return _common_schedule(data_product, "frequency", schedules) if schedules else None
 
 
-def error_rate_alert(data_context: DataContext) -> dict[str, Any] | None:
-    """The alert on the ``errorRate`` SLA: the share of the rows with a quality error, in percent.
+def error_rate_alert(data_context: DataContext, data_product: str) -> dict[str, Any] | None:
+    """The alert on the ``errorRate`` SLA of a data product: the share of the rows with a quality error, in percent.
 
     Only the tables checked by the quality service, which writes the errors of each row,
     are included. ``None`` if no table has the SLA.
@@ -154,7 +169,7 @@ def error_rate_alert(data_context: DataContext) -> dict[str, Any] | None:
     context = _context(data_context)
     selects = []
     schedules = {}
-    for table in _tables(data_context):
+    for table in _tables(data_context, data_product):
         found = _scheduled(table, "errorRate") if table.settings(QualitySettings).enabled else None
         if found is None:
             continue
@@ -176,13 +191,13 @@ def error_rate_alert(data_context: DataContext) -> dict[str, Any] | None:
         "name": "error-rate",
         "title": "error rate",
         "sla": "errorRate",
-        **_common_schedule("errorRate", schedules),
+        **_common_schedule(data_product, "errorRate", schedules),
         "query": query,
     }
 
 
-def latency_alert(data_context: DataContext) -> dict[str, Any] | None:
-    """The alert on the ``latency`` SLA: the age of the last change of the tables.
+def latency_alert(data_context: DataContext, data_product: str) -> dict[str, Any] | None:
+    """The alert on the ``latency`` SLA of a data product: the age of the last change of its tables.
 
     The last change of a table is the ``last_altered`` time of the information schema,
     which the metadata step of the job updates: it runs after the load, and not when the
@@ -192,7 +207,7 @@ def latency_alert(data_context: DataContext) -> dict[str, Any] | None:
     context = _context(data_context)
     selects = []
     schedules = {}
-    for table in _tables(data_context):
+    for table in _tables(data_context, data_product):
         found = _scheduled(table, "latency")
         if found is None:
             continue
@@ -225,30 +240,46 @@ def latency_alert(data_context: DataContext) -> dict[str, Any] | None:
         "name": "latency",
         "title": "latency",
         "sla": "latency",
-        **_common_schedule("latency", schedules),
+        **_common_schedule(data_product, "latency", schedules),
         "query": query,
     }
 
 
-def recipients(data_context: DataContext) -> list[str]:
-    """The addresses of the email support channels of the contracts of the data product."""
-    contracts = data_context.get_data_product(DATA_PRODUCT).contracts
+def recipients(data_context: DataContext, data_product: str) -> list[str]:
+    """The addresses of the email support channels of the contracts of a data product."""
+    contracts = data_context.get_data_product(data_product).contracts
     addresses = (
         address for contract in contracts if contract.document for address in support_emails(contract.document)
     )
     return list(dict.fromkeys(addresses))
 
 
-def build(data_context: DataContext) -> dict[str, Any]:
-    """The manifest of the data product."""
-    alerts = [alert for alert in (error_rate_alert(data_context), latency_alert(data_context)) if alert]
+def data_product_manifest(data_context: DataContext, data_product: str) -> dict[str, Any]:
+    """What the deployment needs to know of a data product: its job, its alerts and their recipients."""
+    document = data_context.get_data_product(data_product).document
+    alerts = [
+        alert
+        for alert in (error_rate_alert(data_context, data_product), latency_alert(data_context, data_product))
+        if alert
+    ]
     return {
-        "data_product": DATA_PRODUCT,
+        "data_product": data_product,
+        "title": document.name if document else None,
+        "schedule": schedule(data_context, data_product),
+        "alerts": alerts,
+        "recipients": recipients(data_context, data_product),
+    }
+
+
+def build(data_context: DataContext) -> dict[str, Any]:
+    """The manifest of the data products."""
+    return {
         "classification": classification(data_context),
         "domains": domains(data_context),
-        "schedule": schedule(data_context),
-        "alerts": alerts,
-        "recipients": recipients(data_context),
+        "data_products": [
+            data_product_manifest(data_context, data_product.qualified_name)
+            for data_product in data_products(data_context)
+        ],
     }
 
 

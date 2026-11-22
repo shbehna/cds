@@ -22,6 +22,7 @@ from cds.sla import cron_schedule, quartz_cron, support_emails, table_sla
 
 # The Pulumi program and its stacks.
 DEPLOY = manifest.PRODUCTS.parent / "deploy"
+DATA_PRODUCTS = [data_product.qualified_name for data_product in DataContext.discover(manifest.PRODUCTS).data_products]
 
 
 @pytest.fixture(scope="module")
@@ -29,9 +30,9 @@ def data_context() -> DataContext:
     return DataContext.discover(manifest.PRODUCTS)
 
 
-@pytest.fixture(scope="module")
-def data_product(data_context: DataContext) -> DataProduct:
-    return data_context.get_data_product(manifest.DATA_PRODUCT)
+@pytest.fixture(scope="module", params=sorted(DATA_PRODUCTS))
+def data_product(data_context: DataContext, request: pytest.FixtureRequest) -> DataProduct:
+    return data_context.get_data_product(request.param)
 
 
 def test_the_committed_manifest_is_up_to_date(data_context: DataContext) -> None:
@@ -46,9 +47,18 @@ def test_classification(data_context: DataContext, data_product: DataProduct) ->
     document: dict[str, Any] = json.loads(manifest.render(data_context))
     values = document["classification"]["values"]
 
-    assert document["data_product"] == data_product.qualified_name
+    assert data_product.qualified_name in [product["data_product"] for product in document["data_products"]]
     assert values == list(resolved(data_product.settings(MetadataSettings).classifications) or [])
     assert values and len(set(values)) == len(values)
+
+
+def test_each_data_product_has_its_manifest(data_context: DataContext) -> None:
+    document: dict[str, Any] = json.loads(manifest.render(data_context))
+
+    assert [product["data_product"] for product in document["data_products"]] == sorted(DATA_PRODUCTS)
+    for product in document["data_products"]:
+        odps = data_context.get_data_product(product["data_product"]).document
+        assert odps is not None and product["title"] == odps.name
 
 
 def test_the_tables_are_in_discover_domains(data_product: DataProduct) -> None:
@@ -66,11 +76,12 @@ def test_the_tables_are_in_discover_domains(data_product: DataProduct) -> None:
             assert discover_domain(table, environment) == expected, (table.name, environment)
 
 
-def test_the_domains_are_listed_parents_first(data_context: DataContext, data_product: DataProduct) -> None:
+def test_the_domains_are_listed_parents_first(data_context: DataContext) -> None:
     listed = manifest.domains(data_context)
     tags = [domain["tag"] for domain in listed]
 
-    assert {discover_domain(table) for table in data_product.tables} - {None} <= set(tags)
+    assert {discover_domain(table) for table in data_context.tables} - {None} <= set(tags)
+    assert len(set(tags)) == len(tags)
     for index, domain in enumerate(listed):
         parent = domain["parent"]
         assert parent == ((domain["tag"] or "").rpartition(DOMAIN_SEPARATOR)[0] or None), domain
@@ -187,6 +198,30 @@ def test_the_classifications_must_be_those_of_the_data_product(tmp_path: Path) -
         manifest.classification(DataContext.discover(root))
 
 
+def test_the_data_products_must_share_the_classifications(tmp_path: Path) -> None:
+    """The masking policy applies to the whole catalog: the classifications are those of the demo."""
+    root = write(
+        tmp_path,
+        {
+            "donnees_qc/a/a_config.py": """
+                from cds import DataProductConfig, MetadataSettings
+
+                config = DataProductConfig(name="a", metadata=MetadataSettings(classifications=["public"]))
+            """,
+            "donnees_qc/a/t/t.yaml": CONTRACT.format(name="t"),
+            "donnees_qc/b/b_config.py": """
+                from cds import DataProductConfig, MetadataSettings
+
+                config = DataProductConfig(name="b", metadata=MetadataSettings(classifications=["secret"]))
+            """,
+            "donnees_qc/b/u/u.yaml": CONTRACT.format(name="u"),
+        },
+    )
+
+    with pytest.raises(ConfigurationError, match=r"donnees_qc\.b: the classification tag and values must be those"):
+        manifest.classification(DataContext.discover(root))
+
+
 def schedules(tables: list[Table], name: str) -> dict[str, str]:
     """The cron schedule of an SLA of the tables, by table name."""
     found = {table.name: table_sla(table, name) for table in tables}
@@ -197,14 +232,14 @@ def test_the_job_runs_on_the_frequency_of_the_tables(data_context: DataContext, 
     crons = set(schedules(data_product.tables, "frequency").values())
 
     if not crons:
-        assert manifest.schedule(data_context) is None
+        assert manifest.schedule(data_context, data_product.qualified_name) is None
         return
     [cron] = crons
-    assert manifest.schedule(data_context) == {"cron": cron, "quartz": quartz_cron(cron)}
+    assert manifest.schedule(data_context, data_product.qualified_name) == {"cron": cron, "quartz": quartz_cron(cron)}
 
 
 def test_the_alerts_check_the_sla_of_the_tables(data_context: DataContext, data_product: DataProduct) -> None:
-    alerts = manifest.build(data_context)["alerts"]
+    alerts = manifest.data_product_manifest(data_context, data_product.qualified_name)["alerts"]
     slas = {sla: schedules(data_product.tables, sla) for sla in ("errorRate", "latency")}
 
     assert {alert["sla"] for alert in alerts} == {sla for sla, found in slas.items() if found}
@@ -226,7 +261,7 @@ def test_the_alerts_are_sent_to_the_support_channels(data_context: DataContext, 
         for address in support_emails(contract.document)
     }
 
-    assert set(manifest.recipients(data_context)) == addresses
+    assert set(manifest.recipients(data_context, data_product.qualified_name)) == addresses
 
 
 SLA_CONTRACT = """
@@ -255,13 +290,13 @@ def test_the_tables_must_share_the_frequency(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ConfigurationError, match=r"share the schedule of their frequency SLA: t \(0 6 \* \* \*\), u"):
-        manifest.schedule(DataContext.discover(root))
+        manifest.schedule(DataContext.discover(root), "donnees_qc.req")
 
 
 def test_the_latency_of_a_column_is_its_latest_value(tmp_path: Path) -> None:
     root = write(tmp_path, {"donnees_qc/req/t/t.yaml": SLA_CONTRACT.format(name="t", cron="0 6 * * *")})
 
-    alert = manifest.latency_alert(DataContext.discover(root))
+    alert = manifest.latency_alert(DataContext.discover(root), "donnees_qc.req")
 
     assert alert is not None and alert["quartz"] == "0 0 * * * ?"
     # The latest value of the column, instead of the last change of the table.
@@ -280,4 +315,4 @@ def test_an_alert_needs_a_cron_schedule(tmp_path: Path) -> None:
     root = write(tmp_path, {"donnees_qc/req/t/t.yaml": contract})
 
     with pytest.raises(ConfigurationError, match="the errorRate SLA needs a cron schedule"):
-        manifest.error_rate_alert(DataContext.discover(root))
+        manifest.error_rate_alert(DataContext.discover(root), "donnees_qc.req")
