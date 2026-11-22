@@ -15,12 +15,16 @@ group of data products, a data product or a single contract.
 ## Services
 
 ```mermaid
-%%{init: {"flowchart": {"nodeSpacing": 12, "rankSpacing": 80, "padding": 6}}}%%
+%%{init: {"flowchart": {"nodeSpacing": 12, "rankSpacing": 30, "padding": 6}}}%%
 flowchart LR
-    odps["<b>ODPS document</b><br/>"]
-    odcs["<b>ODCS data contracts</b><br/>"]
+    subgraph documents [Your documents]
+        direction TB
+        odps["<b>ODPS document</b>"]
+        odcs["<b>ODCS data contracts</b>"]
+    end
 
     subgraph services [CDS services]
+        direction LR
         schema["Schema creation"]
         metadata["Table and field doc and tags"]
         transformation["Transformation"]
@@ -31,8 +35,12 @@ flowchart LR
         dashboard["Quality dashboard"]
     end
 
-    odcs --> schema & metadata & transformation & quality & scd & snapshot & genie & dashboard
-    odps -.-> schema & metadata & genie & dashboard
+    odps ~~~ odcs
+    schema ~~~ metadata
+    transformation ~~~ quality
+    scd ~~~ snapshot
+    genie ~~~ dashboard
+    documents --> services
 
     classDef document fill:#dbeafe,stroke:#1d4ed8,color:#0b1f4d
     classDef service fill:#ecfdf5,stroke:#047857,color:#052e1f
