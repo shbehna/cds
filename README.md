@@ -17,20 +17,20 @@ group of data products, a data product or a single contract.
 ```mermaid
 %%{init: {"flowchart": {"nodeSpacing": 12, "rankSpacing": 30, "padding": 6}}}%%
 flowchart LR
-    subgraph documents [Your documents]
+    subgraph documents [Executable specifications]
         direction TB
-        odps["<b>ODPS document</b>"]
-        odcs["<b>ODCS data contracts</b>"]
+        odps["<b>ODPS</b>"]
+        odcs["<b>ODCS</b>"]
     end
 
     subgraph services [CDS services]
         direction LR
-        schema["Schema creation"]
-        metadata["Table and field doc and tags"]
+        schema["Schema"]
+        metadata["Metadata"]
         transformation["Transformation"]
-        quality["Data quality with DQX"]
+        quality["Data quality (DQX)"]
         scd["History (SCD Type 2)"]
-        snapshot["Snapshot (latest record)"]
+        snapshot["Snapshot"]
         genie["Genie space"]
         dashboard["Quality dashboard"]
     end
