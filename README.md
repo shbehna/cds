@@ -76,3 +76,8 @@ uv run cds validate cds-demo/products
 
 - [ci.yml](.github/workflows/ci.yml) lints, type-checks and tests the repository on each push and pull request.
 - [deploy-demo.yml](.github/workflows/deploy-demo.yml) deploys the demo to Databricks.
+
+## License
+
+The code is licensed under the [Apache License 2.0](LICENSE). The open data of Données
+Québec used by the demo keeps its own licenses.

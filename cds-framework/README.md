@@ -653,3 +653,7 @@ uv run mypy
 - Injection of the DataFrames of tables by parameter name.
 - Data products defined as sources, with implicit contracts.
 - Open Data Product Standard (ODPS) descriptors.
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).

@@ -1,5 +1,6 @@
 [build-system]
-requires = ["hatchling>=1.25"]
+# 1.27: license as an SPDX expression (PEP 639).
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
@@ -7,6 +8,8 @@ name = "cds-framework"
 version = "0.1.0"
 description = "Contract Driven Services: build Databricks data products from ODCS data contracts."
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.10"
 keywords = ["databricks", "data contract", "odcs", "data engineering", "data quality", "dqx"]
 classifiers = [
@@ -37,4 +40,4 @@ cds = "cds.cli:main"
 packages = ["src/cds"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/cds", "notebooks", "README.md"]
+include = ["src/cds", "notebooks", "README.md", "LICENSE", "NOTICE"]

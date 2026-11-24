@@ -1,0 +1,10 @@
+CDS (Contract Driven Services)
+Copyright 2026 Sherif Behna
+
+This product includes software developed by Sherif Behna, licensed under the Apache
+License, Version 2.0.
+
+This product includes the JSON schema of the Open Data Product Standard (ODPS),
+cds-demo/tests/schemas/odps-json-schema-v1.1.0.json, copied unmodified from
+https://github.com/bitol-io/open-data-product-standard under the Apache License,
+Version 2.0.
