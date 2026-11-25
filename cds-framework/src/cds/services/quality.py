@@ -58,7 +58,8 @@ class QualityService(Service):
     and the table is rewritten with them. The statistics of the table and of its checks,
     against the thresholds of its contract, are then appended to the summary table of
     its schema (``_quality_summary`` by default, see ``cds.services.summary``). A table
-    with errors, or exceeding a threshold, is reported as a warning.
+    with errors, exceeding a threshold, or whose summary could not be written, is
+    reported as a warning.
 
     Args:
         context: The service context.
@@ -133,15 +134,23 @@ class QualityService(Service):
             f"{len(check_set.checks)} check(s) on {total} row(s): {errors} row(s) with errors, {warnings} with warnings"
         )
         exceeded: list[str] = []
+        summary_failed = False
         if summary_name:
-            rows = self._write_summary(
-                table, summary_name, settings, check_set, error_rate, checked.columns, (total, errors, warnings)
-            )
-            exceeded = list(dict.fromkeys(row.check_name or row.metric for row in rows if row.passed is False))
-            if exceeded:
-                message += f"; {len(exceeded)} threshold(s) exceeded: {', '.join(exceeded)}"
+            try:
+                rows = self._write_summary(
+                    table, summary_name, settings, check_set, error_rate, checked.columns, (total, errors, warnings)
+                )
+            except Exception as exc:
+                # The table is checked and rewritten: the missing summary is reported, not raised.
+                logger.warning("quality: %s: the summary was not written to %s", table.qualified_name, summary_name)
+                message += f"; summary not written to {summary_name}: {type(exc).__name__}: {exc}"
+                summary_failed = True
+            else:
+                exceeded = list(dict.fromkeys(row.check_name or row.metric for row in rows if row.passed is False))
+                if exceeded:
+                    message += f"; {len(exceeded)} threshold(s) exceeded: {', '.join(exceeded)}"
         message += notes
-        if errors or exceeded:
+        if errors or exceeded or summary_failed:
             return TableResult.warning(table.qualified_name, message)
         return TableResult.success(table.qualified_name, message)
 

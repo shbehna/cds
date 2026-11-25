@@ -100,21 +100,24 @@ def measure(metric: str, unit: str, failed_rows: int, total_rows: int) -> float:
     return float(count)
 
 
-def rule_thresholds(rule: QualityRule, where: str, metric: str = FAILED_ROWS) -> list[Threshold]:
+def rule_thresholds(rule: QualityRule, metric: str = FAILED_ROWS) -> list[Threshold]:
     """Returns the thresholds of a quality rule, in the order of the ODCS operators.
+
+    The unit is only read when the rule has thresholds.
 
     Args:
         rule: The rule.
-        where: Where the rule is, for the errors.
         metric: What the thresholds measure: ``failedRows``, or ``rowCount`` for a
             ``rowCount`` rule.
 
     Raises:
         ContractError: If a threshold is not a number (a pair of numbers for the
-            ``Between`` operators), a percentage is not from 0 to 100, or the unit is not
-            ``rows`` or ``percent``.
+            ``Between`` operators), a percentage is not from 0 to 100, the unit is not
+            ``rows`` or ``percent``, or a ``rowCount`` is in percent.
     """
-    name = f"{where}: quality rule {rule.name or rule.metric or rule.type!r}"
+    if not rule.thresholds:
+        return []
+    name = f"quality rule {rule.name or rule.metric or rule.type!r}"
     unit = _UNITS.get((rule.unit or ROWS).strip().lower())
     if unit is None:
         raise ContractError(f"{name}: the unit must be rows or percent, got {rule.unit!r}")

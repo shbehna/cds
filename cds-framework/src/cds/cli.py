@@ -23,7 +23,13 @@ from cds.dashboard import build_dashboard
 from cds.data_context import DataContext, DataProduct, Table
 from cds.errors import CdsError
 from cds.genie import build_space, run_time_examples
-from cds.services.checks import CheckSet, build_checks, checked_tables, configured_checks
+from cds.services.checks import (
+    CheckSet,
+    build_checks,
+    checked_tables,
+    configured_checks,
+    ignore_ambiguous_thresholds,
+)
 from cds.services.summary import summary_table
 from cds.services.tags import discover_domains, domain_environments, tag_problems
 from cds.sla import sla_problems
@@ -83,6 +89,7 @@ def offline_checks(table: Table, context: ServiceContext) -> tuple[CheckSet, boo
     configured = callable(getattr(table.contract.config, "quality_checks", None))
     if not configured:
         check_set.checks.extend(configured_checks(table, context))
+        ignore_ambiguous_thresholds(table, check_set)
     return check_set, configured or bool(check_set.run_time)
 
 

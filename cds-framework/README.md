@@ -401,13 +401,26 @@ WHERE NOT passed
 QUALIFY checked_at = max(checked_at) OVER (PARTITION BY table_name)
 ```
 
-The rows a rule tolerates are still flagged, with the criticality of its `severity`: a
-rule of severity `error` counts in the `errorRate`. A table with errors or exceeding a
-threshold is reported as a warning, which names the thresholds exceeded. A library rule
-without threshold is not checked; the checks of a rule with thresholds must have
-distinct names, which identify them in the summary. `cds validate` checks the
-thresholds (numbers, a pair of numbers for the `Between` operators, percentages from 0
-to 100) and their unit, and `cds checks` prints them.
+The row flags do not depend on the threshold: each row a rule counts is flagged, with
+the criticality of its `severity`, even when the table is within the threshold. A rule
+of severity `error` counts in the `errorRate`: give a tolerant rule `severity: warning`,
+or `info`, which DQX flags as a warning. For a rule stating a minimum, such as
+`mustBeGreaterThan`, the flagged rows are those it counts, not faults.
+
+A table with errors or exceeding a threshold is reported as a warning, which names the
+thresholds exceeded. A summary that cannot be written, for example without the right to
+create a table in the schema, does not fail the checked table: it is reported as a
+warning.
+
+The summary identifies the checks by name. A rule check identical to an inferred one,
+such as `nullValues` on a `required` column, is shared; a default name taken by another
+check gets a number (`phone_is_null_2`); the thresholds of a name that several checks
+keep, such as a rule and a configured check, are ignored. A library rule without
+threshold is not checked. The thresholds must be numbers (a pair of numbers for the
+`Between` operators), the percentages from 0 to 100, the unit `rows` or `percent`, and a
+`rowCount` in rows: a library rule with an invalid threshold is not checked, the invalid
+thresholds of a custom rule are ignored. `cds validate` lists them with the rules not
+checked, and `cds checks` prints the thresholds.
 
 ### Tags
 
