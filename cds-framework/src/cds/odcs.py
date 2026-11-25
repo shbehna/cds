@@ -2,8 +2,8 @@
 
 The model covers the parts of the standard the services rely on: schema objects
 (tables), their properties (columns), keys, partitioning, relationships, enumerations
-of allowed values, classifications, tags, data quality rules, service level agreements
-(``slaProperties``) and support channels. Each element keeps its source mapping in
+of allowed values, classifications, tags, authoritative definitions, data quality rules,
+service level agreements (``slaProperties``) and support channels. Each element keeps its source mapping in
 ``raw``, so any other part of a contract remains readable.
 
 Reference: https://bitol-io.github.io/open-data-contract-standard/latest/
@@ -58,6 +58,21 @@ class EnumValue:
 
     value: Any
     label: str | None = None
+    description: str | None = None
+
+
+@dataclass(frozen=True)
+class AuthoritativeDefinition:
+    """A link to the authoritative definition of an element (``authoritativeDefinitions``).
+
+    Attributes:
+        url: Address of the definition.
+        type: Its kind, such as ``businessDefinition`` or ``referenceData``.
+        description: What it is.
+    """
+
+    url: str
+    type: str | None = None
     description: str | None = None
 
 
@@ -118,6 +133,7 @@ class SchemaProperty:
     # Sensitivity of the data, such as public or restricted (ODCS ``classification``).
     classification: str | None = None
     tags: tuple[str, ...] = ()
+    authoritative_definitions: tuple[AuthoritativeDefinition, ...] = ()
     custom_properties: Mapping[str, Any] = field(default_factory=dict)
     quality: tuple[QualityRule, ...] = ()
     relationships: tuple[Relationship, ...] = ()
@@ -152,6 +168,7 @@ class SchemaObject:
     quality: tuple[QualityRule, ...] = ()
     relationships: tuple[Relationship, ...] = ()
     tags: tuple[str, ...] = ()
+    authoritative_definitions: tuple[AuthoritativeDefinition, ...] = ()
     custom_properties: Mapping[str, Any] = field(default_factory=dict)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
@@ -459,6 +476,7 @@ class _Parser:
                 for index, item in enumerate(self._list(data, "relationships", where))
             ),
             tags=self._tags(data, where),
+            authoritative_definitions=self._authoritative_definitions(data, where),
             custom_properties=self._custom_properties(data, where),
             raw=data,
         )
@@ -498,6 +516,7 @@ class _Parser:
             ),
             classification=self._text(data, "classification", where),
             tags=self._tags(data, where),
+            authoritative_definitions=self._authoritative_definitions(data, where),
             custom_properties=self._custom_properties(data, where),
             quality=self._quality_rules(data, where),
             relationships=tuple(
@@ -623,6 +642,20 @@ class _Parser:
 
     def _tags(self, data: Mapping[str, Any], where: str) -> tuple[str, ...]:
         return tuple(str(tag) for tag in self._list(data, "tags", where))
+
+    def _authoritative_definitions(self, data: Mapping[str, Any], where: str) -> tuple[AuthoritativeDefinition, ...]:
+        definitions = []
+        for index, item in enumerate(self._list(data, "authoritativeDefinitions", where)):
+            item_where = f"{_join(where, 'authoritativeDefinitions')}[{index}]"
+            item = self._mapping(item, item_where)
+            definitions.append(
+                AuthoritativeDefinition(
+                    url=self._required_text(item, "url", item_where),
+                    type=self._text(item, "type", item_where),
+                    description=self._text(item, "description", item_where),
+                )
+            )
+        return tuple(definitions)
 
     def _custom_properties(self, data: Mapping[str, Any], where: str) -> dict[str, Any]:
         properties: dict[str, Any] = {}

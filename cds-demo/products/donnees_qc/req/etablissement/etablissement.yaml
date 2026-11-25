@@ -9,6 +9,9 @@ schema:
   - name: etablissement
     physicalType: table
     businessName: Établissement
+    customProperties:
+      - property: synonyms
+        value: ["Place d'affaires", Succursale]
     description: Établissements des entreprises immatriculées au Québec (fichier source Etablissements.csv).
     properties:
       - name: numero_entreprise

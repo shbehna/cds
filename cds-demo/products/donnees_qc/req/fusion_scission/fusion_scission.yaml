@@ -59,6 +59,7 @@ schema:
         logicalType: string
         physicalType: STRING
       - name: code_relation
+        businessName: Type de relation entre les entreprises
         description: Code de la relation entre les entreprises (domaine de valeur RELA_ASSUJ). Colonne source COD_RELA_ASSUJ.
         logicalType: string
         physicalType: STRING

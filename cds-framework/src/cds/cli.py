@@ -6,6 +6,7 @@ Usage::
     cds checks <root> [<root> ...] --data-product <group>.<data_product> [--environment <id>]
     cds genie <root> [<root> ...] --data-product <group>.<data_product> [--environment <id>]
     cds dashboard <root> [<root> ...] --data-product <group>.<data_product> [--environment <id>]
+    cds pages <root> [<root> ...] --data-product <group>.<data_product> [--environment <id>]
 """
 
 from __future__ import annotations
@@ -17,12 +18,13 @@ from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from typing import Any
 
-from cds.config import DashboardSettings, GenieSettings
+from cds.config import DashboardSettings, GenieSettings, PagesSettings
 from cds.context import ServiceContext
 from cds.dashboard import build_dashboard
 from cds.data_context import DataContext, DataProduct, Table
 from cds.errors import CdsError
 from cds.genie import build_space, run_time_examples
+from cds.pages import Page, build_pages, title_conflicts
 from cds.services.checks import (
     CheckSet,
     build_checks,
@@ -60,6 +62,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     dashboard.add_argument("--data-product", required=True, help="<group>.<data_product>")
     dashboard.add_argument("--environment", default="validation", help="Environment id used to resolve names.")
 
+    pages = commands.add_parser("pages", help="Print the Pages of a data product.")
+    pages.add_argument("roots", nargs="+", help="Root folders of the data products.")
+    pages.add_argument("--data-product", required=True, help="<group>.<data_product>")
+    pages.add_argument("--environment", default="validation", help="Environment id used to resolve names.")
+
     args = parser.parse_args(argv)
     try:
         context = ServiceContext(
@@ -71,6 +78,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _print_genie(context, args.data_product)
         if args.command == "dashboard":
             return _print_dashboard(context, args.data_product)
+        if args.command == "pages":
+            return _print_pages(context, args.data_product)
         return _print_checks(context, args.data_product)
     except CdsError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -96,6 +105,7 @@ def offline_checks(table: Table, context: ServiceContext) -> tuple[CheckSet, boo
 def _validate(context: ServiceContext) -> int:
     validator = _dqx_validator()
     failed = False
+    all_pages: list[Page] = []
     for data_product in context.data_context.data_products:
         print(f"{data_product.qualified_name}: {len(data_product.contracts)} contract(s)")
         for table in data_product.tables:
@@ -133,6 +143,17 @@ def _validate(context: ServiceContext) -> int:
             failed = True
         if not _validate_dashboard(data_product, context):
             failed = True
+        pages = _validate_pages(data_product, context)
+        if pages is None:
+            failed = True
+        else:
+            all_pages.extend(pages)
+    # The titles of the Pages of a domain are unique across its data products.
+    conflicts = title_conflicts(all_pages)
+    for conflict in conflicts:
+        print(f"x Pages: {conflict}")
+    if conflicts:
+        failed = True
     if validator is None:
         print("DQX is not installed: the checks were not validated (install cds-framework[dqx]).")
     return 1 if failed else 0
@@ -176,6 +197,27 @@ def _validate_dashboard(data_product: DataProduct, context: ServiceContext) -> b
     return True
 
 
+def _validate_pages(data_product: DataProduct, context: ServiceContext) -> list[Page] | None:
+    """Builds the Pages of a data product that has some; returns them, ``None`` if they are invalid."""
+    if not data_product.settings(PagesSettings).enabled:
+        return []
+    try:
+        pages = build_pages(data_product, context)
+    except CdsError as exc:
+        print(f"  x Pages: {exc}")
+        return None
+    tables = sum(1 for page in pages if page.key.startswith("table:"))
+    domains = sorted({page.domain for page in pages})
+    details = f"{tables} table(s), {len(pages) - tables} code list(s)"
+    if not pages:
+        print("  + Pages: none, no table is in a Discover domain")
+        return pages
+    environments = domain_environments(data_product.tables)
+    where = f", published in {', '.join(environments)}" if environments else ""
+    print(f"  + Pages: {details}, in the Discover domain(s) {', '.join(domains)}{where}")
+    return pages
+
+
 def _in_domains(tables: Sequence[Table], domains: Sequence[str]) -> str:
     """The Discover domains a workspace object of tables joins, and in which environments."""
     if not domains:
@@ -194,6 +236,30 @@ def _print_dashboard(context: ServiceContext, reference: str) -> int:
         )
         return 1
     print(json.dumps(build_dashboard(data_product, context), indent=2))
+    return 0
+
+
+def _print_pages(context: ServiceContext, reference: str) -> int:
+    data_product = context.get_data_product(reference)
+    if not data_product.settings(PagesSettings).enabled:
+        print(
+            f"error: {data_product.qualified_name} has no Pages: enable them with PagesSettings(enabled=True).",
+            file=sys.stderr,
+        )
+        return 1
+    pages = [
+        {
+            "key": page.key,
+            "domain": page.domain,
+            "display_name": page.display_name,
+            "description": page.description,
+            "synonyms": list(page.synonyms),
+            "state": page.state,
+            "body": page.body,
+        }
+        for page in build_pages(data_product, context)
+    ]
+    print(json.dumps(pages, indent=2))
     return 0
 
 

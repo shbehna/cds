@@ -50,6 +50,7 @@ schema:
         primaryKey: true
         primaryKeyPosition: 1
       - name: groupe_titre
+        businessName: Groupe de titre
         description: Groupe du titre du poste. Colonne source resgroupe.
         logicalType: string
         physicalType: STRING

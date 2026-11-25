@@ -36,6 +36,7 @@ schema:
         relationships:
           - to: entreprise.numero_entreprise
       - name: code_type_changement
+        businessName: Type de changement
         description: Code du type de changement, une continuation ou une transformation (domaine de valeur TYP_CHANG). Colonne source COD_TYP_CHANG.
         logicalType: string
         physicalType: STRING

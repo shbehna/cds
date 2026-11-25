@@ -54,7 +54,7 @@ run of a job of more than 5 tasks, with the error "There are already 5 active ru
 (limit: 5)", even when nothing else runs. The `load` task runs the schema step, then the
 transformation step; the `publication` task runs the genie step, once the metadata step
 has set the comments of the tables, then the dashboard step, once the quality step has
-added its result columns.
+added its result columns, then the pages step.
 
 A failed step fails the run, and the steps after it do not run, in its task or in the
 tasks after it: a failed genie step leaves the dashboard as it was. A failed run sends an
@@ -102,7 +102,8 @@ l'Habitation** of the domain **Gouvernement** for `repertoire_municipalites` (se
 [cds-demo/README.md](../README.md#discover-domains)). The `genie` and
 `dashboard` steps tag the Genie space and the quality dashboard with it: the subdomain
 lists them with the tables. The `nprod` job does not, and removes the tags it applied
-before. With `cds-demo:createDomains`, the deployment creates them, from the manifest:
+before. The `pages` step creates the [Pages](#pages) in the subdomain: published by the
+`prod` job, drafts by the `nprod` job. With `cds-demo:createDomains`, the deployment creates them, from the manifest:
 
 | Resource | Name | Role |
 | --- | --- | --- |
@@ -163,6 +164,22 @@ the dashboard: users need `CAN USE` on the warehouse, which the `users` group ha
 Serverless Starter Warehouse, and `SELECT` on the tables. The deployment does not grant
 them: the permissions of a warehouse are shared with its other uses. Users see the
 addresses masked (`****`). The service principal owns the space.
+
+### Pages
+
+The `pages` step of the job creates the Pages of the data product in the Discover
+subdomain of its tables, from the contracts (see
+[cds-demo/README.md](../README.md#pages)): published by the `prod` job, drafts by the
+`nprod` job, so that only those of `prod` are published. The next
+runs update them when the contracts change, and delete those of the removed tables and
+of the deprecated contracts. The job keeps their ids in the `cds.knowledge_pages`
+property of the schema of its data product (`donnees_qc_req`).
+
+The deployment does not manage the Pages, nor grant anything for them: the service
+principal creates them with `MANAGE PAGES`, which every user of the account has on the
+domains by default, and owns them. It reads the domains to find that of the governed tag
+of the tables. `pulumi destroy` does not delete the Pages: delete them on the page of the
+subdomain, in **Discover**.
 
 ### Alerts of the service levels
 

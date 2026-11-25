@@ -6,10 +6,12 @@ job running the services in order:
 
     schema --> transformation --> metadata --> genie
                               --> quality --> scd
-                                          --> dashboard
+                                          --> dashboard --> pages
 
 The genie and dashboard steps create the Genie space and the quality dashboard of the data
-product from its contracts, in the genie and dashboards folders.
+product from its contracts, in the genie and dashboards folders. The pages step creates
+its Pages, the business definitions Genie Ontology uses, in the Discover domains of its
+tables.
 
 The metadata step runs after the load: a failed load leaves the tables unchanged, which
 the latency alert detects. The job runs on the schedule of the frequency SLA of the
@@ -61,7 +63,7 @@ READER_PRIVILEGES = ["USE_CATALOG", "USE_SCHEMA", "SELECT"]
 # updates the tables on each run: after the load, so that the latency alert sees the
 # failed loads. The publication task runs the genie service, once the metadata step has
 # set the comments of the tables, then the dashboard service, once the quality step has
-# added its result columns.
+# added its result columns, then the pages service.
 TASKS: dict[str, list[str]] = {
     "load": [],
     "metadata": ["load"],
@@ -70,10 +72,13 @@ TASKS: dict[str, list[str]] = {
     "publication": ["metadata", "quality"],
 }
 # The services of the tasks that run several; the other tasks run the service of their name.
-TASK_SERVICES: dict[str, list[str]] = {"load": ["schema", "transformation"], "publication": ["genie", "dashboard"]}
+TASK_SERVICES: dict[str, list[str]] = {
+    "load": ["schema", "transformation"],
+    "publication": ["genie", "dashboard", "pages"],
+}
 # Databricks Free Edition refuses a run of a job of more than 5 tasks ("There are already
 # 5 active runs (limit: 5)"), even when nothing else runs: hence the load and publication
-# tasks, which run two services each.
+# tasks, which run several services each.
 MAX_TASKS = 5
 # Permission of the users of the Genie space on its folder, which the space inherits: they
 # can view the space and ask questions.
@@ -475,7 +480,8 @@ def alert_aliases(data_product: str, name: str) -> pulumi.ResourceOptions:
 def task_description(task: str) -> str:
     """The description of a task of the job: the services its notebook runs."""
     services = TASK_SERVICES.get(task, [task])
-    return f"CDS {' and '.join(services)} service{'s' if len(services) > 1 else ''}"
+    names = f"{', '.join(services[:-1])} and {services[-1]}" if len(services) > 1 else services[0]
+    return f"CDS {names} service{'s' if len(services) > 1 else ''}"
 
 
 def alerts(

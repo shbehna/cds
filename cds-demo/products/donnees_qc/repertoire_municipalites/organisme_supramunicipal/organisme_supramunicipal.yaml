@@ -12,6 +12,9 @@ schema:
   - name: organisme_supramunicipal
     physicalType: table
     businessName: Organisme supramunicipal
+    customProperties:
+      - property: synonyms
+        value: [Communauté métropolitaine, MRC, Municipalité régionale de comté]
     description: >-
       MRC, communautés métropolitaines et administration régionale du Québec (fichier
       source MRC_CM_Arg.csv).
@@ -115,6 +118,7 @@ schema:
         logicalType: string
         physicalType: STRING
       - name: code_designation
+        businessName: Désignation de l'organisme supramunicipal
         description: Code de la désignation de l'organisme. Colonne source mrccodedesi.
         logicalType: string
         physicalType: STRING

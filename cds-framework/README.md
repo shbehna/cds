@@ -117,7 +117,7 @@ group, then the framework default).
 | | `certification_tag` | `system.certification_status` |
 | | `classification_tag` | `classification` |
 | | `classifications` | none: any classification |
-| | `discover_domain` | `False`: the tables, the Genie space and the dashboard are not in a Discover domain |
+| | `discover_domain` | `False`: the tables, the Genie space, the dashboard and the Pages are not in a Discover domain |
 | | `discover_environments` | none: the assets of every environment are in their Discover domain |
 | `GenieSettings` | `enabled` | `False`: the data product has no Genie space |
 | | `title` | the `name` of the ODPS document, else `<group>.<data_product>` |
@@ -126,6 +126,8 @@ group, then the framework default).
 | `DashboardSettings` | `enabled` | `False`: the data product has no quality dashboard |
 | | `title` | `<name> data quality`, the `name` of the ODPS document, else `<group>.<data_product>` |
 | | `shown_classifications` | `public` |
+| `PagesSettings` | `enabled` | `False`: the data product has no Pages |
+| | `code_lists` | `True`: each code list has its own Page |
 
 ```python
 # donnees_qc/req/req_config.py
@@ -227,6 +229,8 @@ Contracts are ODCS v3 documents (`apiVersion: v3.0.0` to `v3.2.0`). CDS reads:
   `primaryKey` and `primaryKeyPosition`, `partitioned` and `partitionKeyPosition`,
   `enum` and `logicalTypeOptions`, and the `allowedValues` custom property (see the
   quality service);
+- the `businessName`, `authoritativeDefinitions` and `synonyms` custom property of the
+  `schema` objects and of their properties (see [Pages](#pages));
 - `relationships` of type `foreignKey`, with the shorthand notation
   `[[<group>.]<data_product>.]<table>.<property>`, or `schema/<id>/properties/<id>` in
   the same contract;
@@ -277,6 +281,7 @@ per table: success, skipped, warning or error. A run fails if a table is in erro
 | `snapshot` | Loads a table with the latest record of each key of a historical table. |
 | `genie` | Creates the [Genie space](#genie-spaces) of the data product from its contracts, or updates it to match them. It processes the data product, not its tables, and reports a single result. |
 | `dashboard` | Creates the [quality dashboard](#quality-dashboards) of the data product from its contracts, or updates it, and publishes it. It processes the data product, not its tables, and reports a single result. |
+| `pages` | Creates the [Pages](#pages) of the data product, the business definitions of its tables and code lists in their Discover domains, or updates them to match its contracts. It processes the data product, not its tables, and reports a single result. |
 
 ### Quality checks
 
@@ -485,12 +490,14 @@ The tables of a subdomain also appear on the page of its parent domain. The
 product join the Discover domains of their tables: the `genie` and `dashboard` services
 tag them with the same governed tags, which the user running them needs `ASSIGN` on. The
 governed tags and the domains are not created by the framework: create them first, with
-the deployment or in the **Discover** page.
+the deployment or in the **Discover** page. The [Pages](#pages) of a data product are
+created in the Discover domains of its tables.
 
 `MetadataSettings.discover_environments` limits the domains to some environments, such
 as `["prod"]`: the tables, the Genie space and the dashboard of the other environments
 stay out of the Discover page, which would otherwise show them side by side with those
 of production. The services remove the domain tags they applied in those environments.
+The Pages of those environments are drafts.
 `cds validate` checks the domains as in every environment. A domain has up to five levels, each a valid tag
 key, which `cds validate` checks. The `customProperties` of a contract replace those of
 the contract defaults: a contract defining its own repeats the `subdomain`.
@@ -687,6 +694,68 @@ dashboard joins the Discover domains of its tables, recorded in the
 `cds validate` builds the dashboard of the data products that have one, and `cds
 dashboard` prints it.
 
+## Pages
+
+A [Page](https://docs.databricks.com/aws/en/uc-semantics/pages) is the governed
+definition of a business concept, such as an entity or a code list, in a Discover domain.
+[Genie Ontology](https://docs.databricks.com/aws/en/genie/genie-ontology/), the context
+layer of the Genie agents, takes the Pages as modeled knowledge, over what it learns from
+the queries and dashboards. `cds.pages.build_pages` generates the Pages of a data product
+from its contracts:
+
+| Page | Title | Content |
+| --- | --- | --- |
+| A table, unless its contract is deprecated or retired | the `businessName` of the schema object, else its name | the description of the table; the purpose, usage and limitations of the data product; its key; its columns, with their `businessName`, type and description; its `foreignKey` relationships in the data product; its frequency and error rate service levels; its `authoritativeDefinitions` |
+| A code list: the `enum` of a column | the `businessName` of the property, else the name of its column | the columns using it, and its codes, labels and descriptions |
+
+Their synonyms are the `synonyms` custom property of the schema object or property, a
+list of at most 50 strings. The columns whose code lists have the same title share a
+Page, and must then have the same codes. The headings are in English, and the content is
+the text of the contracts: it holds no value of the data.
+
+```yaml
+schema:
+  - name: entreprise
+    businessName: Entreprise
+    customProperties:
+      - property: synonyms
+        value: [Assujetti, Compagnie, Société]
+    properties:
+      - name: code_forme_juridique
+        businessName: Forme juridique
+        enum:
+          - { value: "CIE", label: "Société par actions ou compagnie" }
+```
+
+A Page is in the Discover domain of its table (`MetadataSettings.discover_domain`, see
+[Tags](#tags)): the tables without domain have none. The Pages are published in the
+environments of `MetadataSettings.discover_environments`, and drafts in the others: the
+titles of the published Pages of a domain are unique, and a test environment does not
+publish a second definition of the same concept. The `PagesSettings` of a data product,
+or of its group, enable them:
+
+```python
+from cds import DataProductConfig, PagesSettings
+
+config = DataProductConfig(name="orders", pages=PagesSettings(enabled=True))
+```
+
+The `pages` service creates the Pages with the
+[Pages API](https://docs.databricks.com/api/knowledge/v1/page) (Beta), in the domain
+whose governed tag is that of their tables, and keeps their ids in the
+`cds.knowledge_pages` property of the schema of the data product. The next runs update
+the fields that changed, create again the Pages that were deleted, and delete those the
+contracts no longer describe, such as the Page of a removed table or of a deprecated
+contract. A Page whose domain does not exist, or whose title is that of another
+published Page of its domain, is a warning. The user running the service needs `MANAGE
+PAGES` on the domains, which all the users of the account have by default, and the right
+to set the properties of the schema. If the id of a new Page cannot be recorded, the
+service deletes the Page and fails.
+
+`cds validate` builds the Pages of the data products that have some, and checks that
+their titles are unique in each domain, across the data products. `cds pages` prints
+them.
+
 ## Running the services
 
 The `notebooks` folder contains one Databricks notebook per service. A notebook only
@@ -714,22 +783,23 @@ Any other parameter is available to the configuration through the
 environment variables (`CDS_ENVIRONMENT=nprod`) or passed to `run_service`.
 
 A typical pipeline runs `schema`, then `transformation`, then `metadata` and `quality`,
-then `scd`, `genie` after `metadata`, and `dashboard` after `quality`. Running `metadata` after the load keeps the time of the last change of the
+then `scd`, `genie` after `metadata`, `dashboard` after `quality`, and `pages`. Running `metadata` after the load keeps the time of the last change of the
 tables (`last_altered`) for the loads that succeeded.
 
-Two notebooks run two services each, to make a job of 5 tasks, the most that Databricks
-Free Edition runs: `load` runs `schema` then `transformation`, and `publication` runs
-`genie` then `dashboard`, after `metadata` and `quality`. A service in error stops the
-notebook: the second service does not run.
+Two notebooks run several services each, to make a job of 5 tasks, the most that
+Databricks Free Edition runs: `load` runs `schema` then `transformation`, and
+`publication` runs `genie`, `dashboard` then `pages`, after `metadata` and `quality`. A
+service in error stops the notebook: the next services do not run.
 
 ## Command line
 
 `cds validate <root>` loads the data products of a root folder, validates their
-contracts and configurations, including their tags, service levels, Genie spaces and
-dashboards, and
+contracts and configurations, including their tags, service levels, Genie spaces,
+dashboards and Pages, and
 validates the inferred checks with DQX, without Spark. `cds checks <root> --data-product <group>.<data_product>` prints the inferred
-checks, `cds genie <root> --data-product <group>.<data_product>` the Genie space, and
-`cds dashboard <root> --data-product <group>.<data_product>` the quality dashboard.
+checks, `cds genie <root> --data-product <group>.<data_product>` the Genie space,
+`cds dashboard <root> --data-product <group>.<data_product>` the quality dashboard, and
+`cds pages <root> --data-product <group>.<data_product>` the Pages.
 
 ## Development
 
