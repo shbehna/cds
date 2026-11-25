@@ -205,7 +205,7 @@ def test_the_metric_views_no_longer_declared_are_dropped(
 
     found = results(service_for(removed, spark))
 
-    assert found[VIEW] == (Status.SUCCESS, f"dropped the metric view {VIEW}: no measures")
+    assert found[VIEW] == (Status.SUCCESS, f"dropped the metric view {VIEW}: no longer declared")
     assert set(catalog.views) == {"other_metrics"}
 
 

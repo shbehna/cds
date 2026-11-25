@@ -321,8 +321,9 @@ def test_a_metric_view_cannot_have_the_name_of_a_table(make_project: MakeProject
 
 
 def test_the_settings_are_checked() -> None:
-    with pytest.raises(ConfigurationError, match=r"MetricViewSettings.name must be a pattern with \{table\}"):
-        MetricViewSettings(name="metrics")
+    for name in ("metrics", "{table}_{environment}", "{table}_{0}", "{table"):
+        with pytest.raises(ConfigurationError, match=r"MetricViewSettings.name must be a pattern with the only"):
+            MetricViewSettings(name=name)
     with pytest.raises(ConfigurationError, match=r"excluded_classifications must be a list"):
         MetricViewSettings(excluded_classifications="restricted")
 

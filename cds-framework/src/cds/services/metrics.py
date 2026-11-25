@@ -149,7 +149,9 @@ class MetricsService(Service):
                     logger.exception("metrics: cannot drop the metric view %s", full_name)
                     results.append(TableResult.failure(full_name, f"{type(exc).__name__}: {exc}", exc))
                     continue
-                results.append(TableResult.success(full_name, f"dropped the metric view {full_name}: no measures"))
+                results.append(
+                    TableResult.success(full_name, f"dropped the metric view {full_name}: no longer declared")
+                )
         return results
 
     def _view_name(self, table: Table) -> str | None:

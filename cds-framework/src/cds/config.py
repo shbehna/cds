@@ -427,8 +427,17 @@ class MetricViewSettings:
     def __post_init__(self) -> None:
         if self.enabled is not None and not isinstance(self.enabled, bool):
             raise ConfigurationError(f"MetricViewSettings.enabled must be a boolean, got {self.enabled!r}.")
-        if self.name is not None and (not isinstance(self.name, str) or "{table}" not in self.name):
-            raise ConfigurationError(f"MetricViewSettings.name must be a pattern with {{table}}, got {self.name!r}.")
+        if self.name is not None:
+            problem = not isinstance(self.name, str) or "{table}" not in self.name
+            if not problem:
+                try:
+                    self.name.format(table="table")
+                except (KeyError, IndexError, ValueError):
+                    problem = True
+            if problem:
+                raise ConfigurationError(
+                    f"MetricViewSettings.name must be a pattern with the only placeholder {{table}}, got {self.name!r}."
+                )
         value = self.excluded_classifications
         if value is not None and (
             isinstance(value, str) or not all(isinstance(item, str) and item.strip() for item in value)
