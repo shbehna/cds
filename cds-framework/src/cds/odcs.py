@@ -72,6 +72,8 @@ class QualityRule:
     metric: str | None = None
     arguments: Mapping[str, Any] = field(default_factory=dict)
     thresholds: Mapping[str, Any] = field(default_factory=dict)
+    # Unit of the thresholds: rows or percent (ODCS); rows when the rule does not state it.
+    unit: str | None = None
     engine: str | None = None
     implementation: Any = None
     query: str | None = None
@@ -532,6 +534,7 @@ class _Parser:
             metric=self._text(data, "metric", where) or self._text(data, "rule", where),
             arguments=dict(arguments),
             thresholds={key: data[key] for key in THRESHOLDS if key in data},
+            unit=self._text(data, "unit", where),
             engine=self._text(data, "engine", where),
             implementation=data.get("implementation"),
             query=self._text(data, "query", where),

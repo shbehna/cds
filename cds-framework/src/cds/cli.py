@@ -14,6 +14,7 @@ import argparse
 import json
 import sys
 from collections.abc import Callable, Sequence
+from dataclasses import asdict
 from typing import Any
 
 from cds.config import DashboardSettings, GenieSettings
@@ -23,6 +24,7 @@ from cds.data_context import DataContext, DataProduct, Table
 from cds.errors import CdsError
 from cds.genie import build_space, run_time_examples
 from cds.services.checks import CheckSet, build_checks, checked_tables, configured_checks
+from cds.services.summary import summary_table
 from cds.services.tags import discover_domains, domain_environments, tag_problems
 from cds.sla import sla_problems
 
@@ -93,6 +95,7 @@ def _validate(context: ServiceContext) -> int:
             try:
                 check_set, run_time = offline_checks(table, context)
                 problems = validator(check_set.checks) if validator else []
+                summary_table(table, context)
             except CdsError as exc:
                 failed = True
                 print(f"  x {table.name}: {exc}")
@@ -208,6 +211,10 @@ def _print_checks(context: ServiceContext, reference: str) -> int:
         check_set, run_time = offline_checks(table, context)
         result[table.name] = {
             "checks": check_set.checks,
+            "thresholds": {
+                name: [asdict(threshold) for threshold in thresholds]
+                for name, thresholds in check_set.thresholds.items()
+            },
             "not_checked": check_set.unsupported,
             "run_time_checks": run_time,
             "computed_at_run_time": check_set.run_time,
