@@ -12,6 +12,18 @@ schema:
     customProperties:
       - property: synonyms
         value: [Élu municipal]
+      - property: measures
+        value:
+          - name: nombre_sieges
+            expr: COUNT(1)
+            businessName: Nombre de sièges
+            description: Nombre de sièges des conseils municipaux.
+            format: { type: number }
+          - name: sieges_vacants
+            expr: COUNT_IF(indicateur_poste_vacant)
+            businessName: Sièges vacants
+            description: Nombre de sièges des conseils municipaux dont le poste est vacant.
+            format: { type: number }
     description: >-
       Sièges des conseils municipaux et leurs conseillers (fichier source MUN.csv, colonnes
       con1 à con75). Les sièges vides du fichier n'ont pas de ligne.

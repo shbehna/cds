@@ -128,6 +128,9 @@ group, then the framework default).
 | | `shown_classifications` | `public` |
 | `PagesSettings` | `enabled` | `False`: the data product has no Pages |
 | | `code_lists` | `True`: each code list has its own Page |
+| `MetricViewSettings` | `enabled` | `False`: the tables have no metric view |
+| | `name` | `{table}_metrics` |
+| | `excluded_classifications` | none: every column is a dimension |
 
 ```python
 # donnees_qc/req/req_config.py
@@ -230,7 +233,8 @@ Contracts are ODCS v3 documents (`apiVersion: v3.0.0` to `v3.2.0`). CDS reads:
   `enum` and `logicalTypeOptions`, and the `allowedValues` custom property (see the
   quality service);
 - the `businessName`, `authoritativeDefinitions` and `synonyms` custom property of the
-  `schema` objects and of their properties (see [Pages](#pages));
+  `schema` objects and of their properties (see [Pages](#pages)), and the `measures`
+  custom property of the `schema` objects (see [Metric views](#metric-views));
 - `relationships` of type `foreignKey`, with the shorthand notation
   `[[<group>.]<data_product>.]<table>.<property>`, or `schema/<id>/properties/<id>` in
   the same contract;
@@ -281,6 +285,7 @@ per table: success, skipped, warning or error. A run fails if a table is in erro
 | `snapshot` | Loads a table with the latest record of each key of a historical table. |
 | `genie` | Creates the [Genie space](#genie-spaces) of the data product from its contracts, or updates it to match them. It processes the data product, not its tables, and reports a single result. |
 | `dashboard` | Creates the [quality dashboard](#quality-dashboards) of the data product from its contracts, or updates it, and publishes it. It processes the data product, not its tables, and reports a single result. |
+| `metrics` | Creates the [metric view](#metric-views) of each table whose contract declares measures, or updates it, and drops those no longer declared. |
 | `pages` | Creates the [Pages](#pages) of the data product, the business definitions of its tables and code lists in their Discover domains, or updates them to match its contracts. It processes the data product, not its tables, and reports a single result. |
 
 ### Quality checks
@@ -760,6 +765,71 @@ service deletes the Page and fails.
 their titles are unique in each domain, across the data products. `cds pages` prints
 them.
 
+## Metric views
+
+A [metric view](https://docs.databricks.com/aws/en/uc-semantics/metric-views/) is a
+Unity Catalog view defined in YAML: a source table, the tables it joins, its dimensions
+and its measures, with their names for the users and their synonyms. Genie, the AI/BI
+dashboards and [Genie Ontology](https://docs.databricks.com/aws/en/genie/genie-ontology/)
+read it as the governed definition of the measures of a table. A contract declares the
+measures of its table in the `measures` custom property of its schema object (see
+`cds.semantics`):
+
+```yaml
+schema:
+  - name: entreprise
+    customProperties:
+      - property: measures
+        value:
+          - name: entreprises_immatriculees
+            expr: COUNT_IF(code_statut_immatriculation = 'IM')
+            businessName: Entreprises immatriculées
+            description: Nombre d'entreprises dont le statut est Immatriculée (IM).
+            synonyms: [Entreprises actives]
+            format: { type: number }
+```
+
+A measure needs a `name`, unique among the fields of its view, and an `expr`, a SQL
+aggregate on the columns of the table and of the tables it joins. Its `businessName` is
+its `display_name`, its `description` its `comment`, and its `format` one of the formats
+of the metric views (`number`, `currency`, `percentage`, `byte`, `date`, `date_time`).
+`cds.metric_views.build_metric_view` generates the metric view of a table with measures
+(YAML version 1.1, Databricks Runtime 17.3 or later):
+
+| Metric view | From |
+| --- | --- |
+| Name | `MetricViewSettings.name`, `{table}_metrics` by default, in the schema of the table |
+| `source`, `comment` | the table, named in the environment, and its description |
+| `joins` | the `foreignKey` relationships of the table to the key of another table of its data product: a join to rows that are not unique would multiply the rows of the source |
+| Dimensions (`fields`) | the columns of the table, and the key and coded columns (with an `enum` or `allowedValues`) of the joined tables, named `<join>_<column>`, with the description, `businessName` (`display_name`) and `synonyms` (at most 10) of their column. A column whose `enum` has labels has a second dimension, `<name>_label`, its codes replaced by their labels, which takes the business name and the synonyms of the column. The columns of `MetricViewSettings.excluded_classifications` are left out |
+| `measures` | the measures of the contract |
+
+The `MetricViewSettings` of a data product, or of its group, enable them:
+
+```python
+from cds import DataProductConfig, MetricViewSettings
+
+config = DataProductConfig(
+    name="orders", metric_views=MetricViewSettings(enabled=True, excluded_classifications=["restricted"])
+)
+```
+
+The `metrics` service creates the metric view of each table with measures, with the
+`cds.metric_view` property, naming its table, and `cds.metric_view_digest`, the digest of
+its YAML: Unity Catalog stores the YAML rewritten, which cannot be compared. The next runs
+update the definition of a view whose digest differs, with `ALTER VIEW ... AS`, which keeps
+its tags and grants, and leave the others unchanged. When the service processes all the
+tables of a data product, it drops the metric views it created that the contracts no
+longer declare. It never replaces a table, a view or a metric view it did not create. With
+`MetadataSettings.tags`, a metric view gets the certification of its table, and joins its
+Discover domain in the environments of `MetadataSettings.discover_environments`. The user
+running the service needs `CREATE TABLE` on the schema, `SELECT` on the tables, and
+`ASSIGN` on the governed tags.
+
+The Genie space of the data product includes its metric views, and the
+[Page](#pages) of a table lists its measures. `cds validate` builds the metric views of
+the data products, and `cds metrics` prints their YAML.
+
 ## Running the services
 
 The `notebooks` folder contains one Databricks notebook per service. A notebook only
@@ -787,23 +857,26 @@ Any other parameter is available to the configuration through the
 environment variables (`CDS_ENVIRONMENT=nprod`) or passed to `run_service`.
 
 A typical pipeline runs `schema`, then `transformation`, then `metadata` and `quality`,
-then `scd`, `genie` after `metadata`, `dashboard` after `quality`, and `pages`. Running `metadata` after the load keeps the time of the last change of the
+then `scd`, `metrics` and `genie` after `metadata`, `dashboard` after `quality`, and
+`pages`. Running `metadata` after the load keeps the time of the last change of the
 tables (`last_altered`) for the loads that succeeded.
 
 Two notebooks run several services each, to make a job of 5 tasks, the most that
 Databricks Free Edition runs: `load` runs `schema` then `transformation`, and
-`publication` runs `genie`, `dashboard` then `pages`, after `metadata` and `quality`. A
+`publication` runs `metrics`, `genie`, `dashboard` then `pages`, after `metadata` and
+`quality`. A
 service in error stops the notebook: the next services do not run.
 
 ## Command line
 
 `cds validate <root>` loads the data products of a root folder, validates their
-contracts and configurations, including their tags, service levels, Genie spaces,
-dashboards and Pages, and
+contracts and configurations, including their tags, service levels, metric views,
+Genie spaces, dashboards and Pages, and
 validates the inferred checks with DQX, without Spark. `cds checks <root> --data-product <group>.<data_product>` prints the inferred
 checks, `cds genie <root> --data-product <group>.<data_product>` the Genie space,
-`cds dashboard <root> --data-product <group>.<data_product>` the quality dashboard, and
-`cds pages <root> --data-product <group>.<data_product>` the Pages.
+`cds dashboard <root> --data-product <group>.<data_product>` the quality dashboard,
+`cds pages <root> --data-product <group>.<data_product>` the Pages, and
+`cds metrics <root> --data-product <group>.<data_product>` the metric views.
 
 ## Development
 

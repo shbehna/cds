@@ -11,6 +11,15 @@ schema:
   - name: continuation_transformation
     physicalType: table
     businessName: Continuation et transformation
+    customProperties:
+      - property: measures
+        value:
+          - name: nombre_changements
+            expr: COUNT(1)
+            businessName: Nombre de continuations et de transformations
+            description: Nombre de continuations et de transformations des entreprises.
+            synonyms: [Changements de régime juridique]
+            format: { type: number }
     description: Continuations et transformations des entreprises (fichier source ContinuationsTransformations.csv).
     quality:
       - type: custom

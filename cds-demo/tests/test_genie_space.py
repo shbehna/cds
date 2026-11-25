@@ -13,6 +13,7 @@ import pytest
 from cds import DataContext, DataProduct, GenieSettings, ServiceContext, Table
 from cds.config import resolved
 from cds.genie import build_space
+from cds.metric_views import build_metric_views
 
 PRODUCTS = Path(__file__).resolve().parents[1] / "products"
 # The data products with a Genie space.
@@ -73,10 +74,14 @@ def test_the_title_of_the_space(data_product: DataProduct, document: dict[str, A
     assert document["title"] == (settings.title or (data_product.document and data_product.document.name))
 
 
-def test_the_space_reads_every_table(space: dict[str, Any], tables: dict[str, Table]) -> None:
+def test_the_space_reads_every_table(
+    space: dict[str, Any], tables: dict[str, Table], data_product: DataProduct, context: ServiceContext
+) -> None:
+    """The tables of the data product, and the metric views of their measures."""
     identifiers = [table["identifier"] for table in space["data_sources"]["tables"]]
+    views = [context.full_table_name(view.table, view.name) for view in build_metric_views(data_product, context)]
 
-    assert sorted(identifiers) == sorted(tables)
+    assert identifiers == sorted([*tables, *views])
 
 
 def test_the_joins_use_columns_of_their_tables(space: dict[str, Any], tables: dict[str, Table]) -> None:

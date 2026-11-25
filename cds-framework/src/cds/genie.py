@@ -4,7 +4,8 @@ A Genie space answers questions in natural language by writing SQL on tables. Ge
 the comments of the tables and columns in Unity Catalog, which the metadata service sets
 from the contracts. The space of a data product adds what the comments do not say:
 
-- its tables (``data_sources``);
+- its tables, and the metric views of their measures (``data_sources``, see
+  ``cds.metric_views``);
 - their joins, from the ``foreignKey`` relationships of the contracts (``join_specs``);
 - the values of the codes and their labels, from the ``enum`` of the properties, in the
   description of their columns (``column_configs``);
@@ -31,6 +32,7 @@ from cds.data_context import DataProduct, Table
 from cds.errors import CdsError, ConfigurationError, ContractError
 from cds.injection import ContractInjection
 from cds.odcs import Relationship, SchemaProperty
+from cds.semantics import metric_view_name
 from cds.services.checks import checked_tables
 from cds.sla import percentage, table_sla
 from cds.sql import quote_identifier, quote_name, string_literal
@@ -199,6 +201,13 @@ def joins(data_product: DataProduct, context: ServiceContext) -> list[Join]:
     return found
 
 
+def data_sources(data_product: DataProduct, context: ServiceContext) -> list[dict[str, Any]]:
+    """The tables of the space, and the metric views of their measures, sorted by full name (Genie API)."""
+    sources = [table_source(table, context) for table in _tables(data_product, context)]
+    sources += [{"identifier": full_name} for full_name in metric_views(data_product, context)]
+    return sorted(sources, key=lambda source: str(source["identifier"]))
+
+
 def join_specs(data_product: DataProduct, context: ServiceContext) -> list[dict[str, Any]]:
     """The joins of the space, as the Genie API describes them."""
     specs = []
@@ -265,6 +274,21 @@ def _masked(tables: Sequence[Table], classifications: Sequence[str]) -> str | No
     return f"These columns are masked (****) for most users: do not filter nor group on them. {', '.join(masked)}."
 
 
+def metric_views(data_product: DataProduct, context: ServiceContext) -> list[str]:
+    """The full names of the metric views of the tables of a data product, sorted."""
+    return sorted(
+        context.full_table_name(table, name) for table in data_product.tables if (name := metric_view_name(table))
+    )
+
+
+def _metric_views(data_product: DataProduct, context: ServiceContext) -> str | None:
+    views = metric_views(data_product, context)
+    if not views:
+        return None
+    names = ", ".join(full_name.rsplit(".", 1)[1] for full_name in views)
+    return f"Metric views, the governed measures of the tables, to query with MEASURE(): {names}."
+
+
 def _frequency(tables: Sequence[Table]) -> str | None:
     found = (table_sla(table, "frequency") for table in tables)
     descriptions = list(dict.fromkeys(sla[0].description for sla in found if sla is not None and sla[0].description))
@@ -290,6 +314,7 @@ def instructions(data_product: DataProduct, context: ServiceContext) -> str:
         *_quality(checked_tables(data_product, context)),
         _masked(tables, resolved(settings.masked_classifications)),
         _frequency(tables),
+        _metric_views(data_product, context),
         *resolved(settings.instructions),
     ]
     return "\n\n".join(paragraph.strip() for paragraph in paragraphs if paragraph and paragraph.strip())
@@ -398,7 +423,7 @@ def build_space(data_product: DataProduct, context: ServiceContext) -> dict[str,
     space = {
         "version": VERSION,
         "config": {"sample_questions": sample_questions(data_product)},
-        "data_sources": {"tables": [table_source(table, context) for table in _tables(data_product, context)]},
+        "data_sources": {"tables": data_sources(data_product, context)},
         "instructions": {
             "text_instructions": [
                 {"id": item_id(_TEXT_INSTRUCTION, 0), "content": lines(instructions(data_product, context))}

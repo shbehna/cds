@@ -18,7 +18,7 @@ Unless stated otherwise, the sections below describe `req`.
 ```text
 products/                                   root folder of the data products
 └── donnees_qc/                             group
-    ├── donnees_qc_config.py                naming conventions, history table names, metadata, Pages
+    ├── donnees_qc_config.py                naming conventions, history table names, metadata, Pages, metric views
     ├── donnees_qc.odcs.yaml                contract defaults of the group: tenant, tags
     ├── sources.py                          reading of the CSV files, shared by the data products
     ├── req/                                data product
@@ -50,7 +50,7 @@ products/                                   root folder of the data products
 csv/                                        synthetic data set and its generator
 manifest/                                   what the deployment needs of the contracts, generated from them
 deploy/                                     deployment with Pulumi
-tests/                                      tests of the data products, the data set, the dashboards, the Genie spaces and the Pages, without Spark
+tests/                                      tests of the data products, the data set, the dashboards, the Genie spaces, the Pages and the metric views, without Spark
 ```
 
 ## Language
@@ -351,6 +351,39 @@ step of the job creates them, and updates them on each run when the contracts ch
 uv run cds pages cds-demo/products --data-product donnees_qc.req --environment nprod
 ```
 
+## Metric views
+
+A [metric view](https://docs.databricks.com/aws/en/uc-semantics/metric-views/) holds the
+governed measures of a table, which Genie, the dashboards and Genie Ontology use. The
+contracts declare the measures of their tables, in French, in the `measures` custom
+property of their schema object, and the `metric_views` settings of
+[donnees_qc_config.py](products/donnees_qc/donnees_qc_config.py) give each of these
+tables a metric view, `<table>_indicateurs`, generated from its contract (see
+[cds.metric_views](../cds-framework/README.md#metric-views)):
+
+| Metric view | Measures |
+| --- | --- |
+| `entreprise_indicateurs` | *Nombre d'entreprises*, *Entreprises immatriculées*, *Entreprises en faillite* |
+| `etablissement_indicateurs` | *Nombre d'établissements*, *Entreprises ayant un établissement* |
+| `continuation_transformation_indicateurs` | *Nombre de continuations et de transformations* |
+| `municipalite_indicateurs` | *Nombre de municipalités*, *Population totale*, *Superficie totale* |
+| `conseiller_municipal_indicateurs` | *Nombre de sièges*, *Sièges vacants* |
+
+Their dimensions are the columns of the table, with their business names and synonyms,
+and the key and coded columns of the tables it joins: `etablissement_indicateurs` counts
+the establishments by the legal form of their enterprise, and
+`conseiller_municipal_indicateurs` the seats by the designation of their municipality.
+The codes of an `enum` also have their labels, such as *Société par actions ou
+compagnie*. The `restricted` addresses, which the deployment masks, are not dimensions.
+The metric views have the certification of their tables, and the Discover domain in
+`prod`. The `metrics` step of the job creates them (see
+[deploy/README.md](deploy/README.md#metric-views)), before the Genie space, which
+includes them. To see them without deploying them:
+
+```bash
+uv run cds metrics cds-demo/products --data-product donnees_qc.req --environment nprod
+```
+
 ## The directory of the municipalities
 
 The data product `repertoire_municipalites` is built from the four CSV files of the
@@ -415,6 +448,8 @@ The other services cover it as they cover `req`:
   unknown values. The `confidential` names are not masked.
 - **Pages**: in the subdomain **Ministère des Affaires municipales et de l'Habitation**,
   for its tables and the code lists of the designations and of the groups of titles.
+- **Metric views**: `municipalite_indicateurs` (municipalities, population, area) and
+  `conseiller_municipal_indicateurs` (seats, vacant seats).
 
 ## Run locally
 

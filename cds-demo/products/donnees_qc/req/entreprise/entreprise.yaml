@@ -12,6 +12,24 @@ schema:
     customProperties:
       - property: synonyms
         value: [Assujetti, Compagnie, Société]
+      - property: measures
+        value:
+          - name: nombre_entreprises
+            expr: COUNT(1)
+            businessName: Nombre d'entreprises
+            description: Nombre d'entreprises inscrites au registre.
+            synonyms: [Entreprises inscrites]
+            format: { type: number }
+          - name: entreprises_immatriculees
+            expr: COUNT_IF(code_statut_immatriculation = 'IM')
+            businessName: Entreprises immatriculées
+            description: Nombre d'entreprises dont le statut de l'immatriculation est Immatriculée (IM).
+            format: { type: number }
+          - name: entreprises_en_faillite
+            expr: COUNT_IF(indicateur_faillite)
+            businessName: Entreprises en faillite
+            description: Nombre d'entreprises en faillite.
+            format: { type: number }
     description: Entreprises inscrites au registre du Registraire des entreprises du Québec (fichier source Entreprise.csv).
     quality:
       - type: text
