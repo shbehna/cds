@@ -323,12 +323,12 @@ def test_the_service_is_skipped_without_pages(make_project: MakeProject, spark: 
 
 def test_the_recorded_pages_are_read_defensively() -> None:
     key = page_property("table:a")
-    properties = {key: "pages/1", "cds.genie_space_id": "1", page_property("table:b"): ""}
+    properties = {key: "pages/1", "cds.genie_space_id": "1", page_property("table:b"): "deleted"}
     assert recorded_pages(properties) == {key: "pages/1"}
     assert recorded_pages({page_property("table:c"): "../domains/1"}) == {}
     assert legacy_pages(None) == {}
-    assert legacy_pages("not json") == {}
-    assert legacy_pages('["pages/1"]') == {}
+    assert legacy_pages("not json") is None
+    assert legacy_pages('["pages/1"]') is None
     assert legacy_pages(json.dumps({"table:a": "pages/1", "table:b": "../domains/1", "table:c": 3})) == {
         "table:a": "pages/1"
     }
@@ -381,8 +381,8 @@ def test_the_pages_of_the_previous_versions_are_moved_to_their_own_properties(
 
     assert (status, message.split(", in ")[0]) == (Status.SUCCESS, "4 Page(s): 4 unchanged, 1 deleted")
     assert api.recorded() == {page_property(key): page_name for key, page_name in by_key.items()}
-    assert api.properties[LEGACY_PAGES_PROPERTY] == ""
-    assert api.properties[page_property("table:removed")] == ""
+    assert api.properties[LEGACY_PAGES_PROPERTY] == "{}"
+    assert api.properties[page_property("table:removed")] == "deleted"
     assert "pages/9999" not in api.pages
     # Moved, the Pages are no longer read from the old property.
     assert run(service_for(root, spark, api))[1].split(", in ")[0] == "4 Page(s): 4 unchanged"
@@ -396,3 +396,15 @@ def test_the_synonyms_are_compared_as_sets() -> None:
     # A missing description is the empty description of the request.
     assert changed_fields({key: value for key, value in body.items() if key != "description"}, body) == []
     assert changed_fields({**body, "synonyms": ["a"], "state": "PUBLISHED"}, body) == ["synonyms", "state"]
+
+
+def test_an_unreadable_property_of_the_previous_versions_is_left_as_it_is(
+    root: Path, spark: FakeSpark, api: FakeApi
+) -> None:
+    """Emptying it would lose the ids of its Pages: they can still be recovered by hand."""
+    api.properties[LEGACY_PAGES_PROPERTY] = '{"table:customer": "pages/1"'
+
+    status, _ = run(service_for(root, spark, api))
+
+    assert status is Status.SUCCESS
+    assert api.properties[LEGACY_PAGES_PROPERTY] == '{"table:customer": "pages/1"'

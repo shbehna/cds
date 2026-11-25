@@ -747,10 +747,11 @@ of the schema of the data product, `cds.knowledge_page.<digest of its key>`: the
 of a property has at most 1024 characters, which the ids of all the Pages would exceed.
 The next runs update the fields that changed, create again the Pages that were deleted,
 and delete those the contracts no longer describe, such as the Page of a removed table
-or of a deprecated contract, emptying their property: the properties of a schema cannot
-be removed. The ids recorded by the first version, in the `cds.knowledge_pages`
-property, are moved to their own properties. A Page whose domain does not exist, or whose title is that of another
-published Page of its domain, is a warning. The user running the service needs `MANAGE
+or of a deprecated contract, setting their property to `deleted`: the properties of a
+schema cannot be removed. The ids recorded by the first version, in the
+`cds.knowledge_pages` property, are moved to their own properties. A Page whose domain
+does not exist, or whose title is that of another published Page of its domain, is a
+warning. The user running the service needs `MANAGE
 PAGES` on the domains, which all the users of the account have by default, and the right
 to set the properties of the schema. If the id of a new Page cannot be recorded, the
 service deletes the Page and fails.

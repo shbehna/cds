@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from cds.config import PagesSettings
+from cds.errors import ConfigurationError
 from cds.pages import Page, build_pages
 from cds.services.base import TableResult
 from cds.services.workspace import DataProductService
@@ -25,8 +26,11 @@ logger = logging.getLogger(__name__)
 # ids of all the Pages of a data product would exceed.
 PAGE_PROPERTY_PREFIX = "cds.knowledge_page."
 # Schema property of the previous versions, holding the ids of all the Pages as a JSON
-# mapping: its Pages are moved to their own properties.
+# mapping: its Pages are moved to their own properties, then it is emptied.
 LEGACY_PAGES_PROPERTY = "cds.knowledge_pages"
+EMPTY_LEGACY = "{}"
+# Value of the property of a deleted Page: schema properties cannot be removed.
+DELETED = "deleted"
 PAGES_PATH = "/api/2.0/knowledge/pages"
 KNOWLEDGE_PATH = "/api/2.0/knowledge"
 DOMAINS_PATH = "/api/2.0/domains"
@@ -45,7 +49,7 @@ class PagesService(DataProductService):
     data product, ``cds.knowledge_page.<digest of its key>`` (see ``page_property``): the
     next runs update those Pages, create them again if they were deleted, and delete those
     the contracts no longer describe, such as the Page of a removed table or of a
-    deprecated contract, emptying their property. A Page that already matches the
+    deprecated contract, whose property is then set to ``deleted``. A Page that already matches the
     contracts is left unchanged.
 
     The service processes a data product, not its tables: it reports a single result,
@@ -67,11 +71,15 @@ class PagesService(DataProductService):
         if not data_product.settings(PagesSettings).enabled:
             return TableResult.skipped(name, "no Pages: PagesSettings.enabled is not set")
         pages = build_pages(data_product, self.context)
+        expected = {page_property(page.key) for page in pages}
+        if len(expected) != len(pages):
+            raise ConfigurationError(f"{name}: two Pages have the same schema property: rename one of them.")
         schema = self.context.full_schema_name(data_product)
         properties = self.schema_properties(schema)
         recorded = recorded_pages(properties)
-        if properties.get(LEGACY_PAGES_PROPERTY):
-            self._migrate(schema, legacy_pages(properties[LEGACY_PAGES_PROPERTY]), recorded)
+        legacy = properties.get(LEGACY_PAGES_PROPERTY)
+        if legacy and legacy != EMPTY_LEGACY:
+            self._migrate(schema, legacy, recorded)
         if not pages and not recorded:
             return TableResult.skipped(
                 name, "no Pages: no table is in a Discover domain (MetadataSettings.discover_domain)"
@@ -87,11 +95,10 @@ class PagesService(DataProductService):
             problem = self._synchronize_page(page, domain, schema, recorded, counts)
             if problem:
                 problems.append(problem)
-        expected = {page_property(page.key) for page in pages}
         for key in sorted(set(recorded) - expected):
             self._delete(recorded.pop(key))
-            # Schema properties cannot be removed: an empty one records no Page.
-            self.set_schema_property(schema, key, "")
+            # Schema properties cannot be removed: the property of a deleted Page records no Page.
+            self.set_schema_property(schema, key, DELETED)
             counts["deleted"] += 1
         actions = ("created", "updated", "unchanged", "deleted")
         message = ", ".join(f"{counts[action]} {action}" for action in actions if counts[action]) or "none"
@@ -150,15 +157,26 @@ class PagesService(DataProductService):
         except NotFound:
             logger.info("pages: the Page %s was already deleted", page_name)
 
-    def _migrate(self, schema: str, legacy: Mapping[str, str], recorded: dict[str, str]) -> None:
-        """Moves the Pages recorded by the previous versions to their own properties, then empties the old one."""
+    def _migrate(self, schema: str, value: str, recorded: dict[str, str]) -> None:
+        """Moves the Pages recorded by the previous versions to their own properties, then empties the old one.
+
+        An unreadable old property is left as it is: emptying it would lose its Pages.
+        """
+        legacy = legacy_pages(value)
+        if legacy is None:
+            logger.error(
+                "pages: the %s property of %s is unreadable: its Pages are ignored", LEGACY_PAGES_PROPERTY, schema
+            )
+            return
+        moved = 0
         for page_key, page_name in sorted(legacy.items()):
             key = page_property(page_key)
             if key not in recorded:
                 self.set_schema_property(schema, key, page_name)
                 recorded[key] = page_name
-        self.set_schema_property(schema, LEGACY_PAGES_PROPERTY, "")
-        logger.info("pages: moved %d Page(s) of %s to their own schema properties", len(legacy), schema)
+                moved += 1
+        self.set_schema_property(schema, LEGACY_PAGES_PROPERTY, EMPTY_LEGACY)
+        logger.info("pages: moved %d Page(s) of %s to their own schema properties", moved, schema)
 
     def _domains(self) -> dict[str, str]:
         """The names of the Discover domains (``domains/<id>``), by governed tag, from all the pages of the API."""
@@ -216,7 +234,7 @@ def page_property(key: str) -> str:
 def recorded_pages(properties: Mapping[str, str]) -> dict[str, str]:
     """The Pages recorded in the properties of a schema: Page name (``pages/<id>``) by property.
 
-    The empty properties, of the deleted Pages, and the unreadable ones record no Page.
+    The properties of the deleted Pages (``deleted``), and the unreadable ones, record no Page.
     """
     return {
         key: value
@@ -225,14 +243,14 @@ def recorded_pages(properties: Mapping[str, str]) -> dict[str, str]:
     }
 
 
-def legacy_pages(value: str | None) -> dict[str, str]:
-    """The Pages of the property of the previous versions: Page name by Page key; none if unreadable."""
+def legacy_pages(value: str | None) -> dict[str, str] | None:
+    """The Pages of the property of the previous versions: Page name by Page key; ``None`` if unreadable."""
     try:
         recorded = json.loads(value or "{}")
     except ValueError:
-        return {}
+        return None
     if not isinstance(recorded, Mapping):
-        return {}
+        return None
     return {
         str(key): page_name
         for key, page_name in recorded.items()
