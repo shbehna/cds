@@ -402,6 +402,42 @@ class PagesSettings:
                 raise ConfigurationError(f"PagesSettings.{name} must be a boolean, got {value!r}.")
 
 
+@dataclass(frozen=True)
+class MetricViewSettings:
+    """Settings of the metric views of the tables (see ``cds.metric_views``).
+
+    A table whose contract declares measures (the ``measures`` custom property of its
+    schema object) gets a metric view, generated from its contract. These settings are
+    set on a data product or a group.
+
+    Attributes:
+        enabled: Whether the tables with measures have a metric view. Default: ``False``.
+        name: Pattern of the name of the metric view of a table, in its schema, with the
+            placeholder ``{table}``. Default: ``{table}_metrics``.
+        excluded_classifications: Classifications of the columns that are not dimensions
+            of the metric views, such as ``restricted``. Default: none.
+    """
+
+    attribute: ClassVar[str] = "metric_views"
+
+    enabled: bool | None = None
+    name: str | None = None
+    excluded_classifications: Sequence[str] | None = None
+
+    def __post_init__(self) -> None:
+        if self.enabled is not None and not isinstance(self.enabled, bool):
+            raise ConfigurationError(f"MetricViewSettings.enabled must be a boolean, got {self.enabled!r}.")
+        if self.name is not None and (not isinstance(self.name, str) or "{table}" not in self.name):
+            raise ConfigurationError(f"MetricViewSettings.name must be a pattern with {{table}}, got {self.name!r}.")
+        value = self.excluded_classifications
+        if value is not None and (
+            isinstance(value, str) or not all(isinstance(item, str) and item.strip() for item in value)
+        ):
+            raise ConfigurationError(
+                f"MetricViewSettings.excluded_classifications must be a list of non-empty strings, got {value!r}."
+            )
+
+
 DEFAULTS: Mapping[type[Settings], Settings] = {
     NamingSettings: NamingSettings(catalog="{environment}", schema="{group}_{data_product}"),
     SchemaSettings: SchemaSettings(on_breaking_change="replace"),
@@ -436,6 +472,7 @@ DEFAULTS: Mapping[type[Settings], Settings] = {
         enabled=False, instructions=(), sample_questions=(), examples=(), masked_classifications=()
     ),
     PagesSettings: PagesSettings(enabled=False, code_lists=True),
+    MetricViewSettings: MetricViewSettings(enabled=False, name="{table}_metrics", excluded_classifications=()),
 }
 
 
@@ -542,12 +579,14 @@ class GroupConfig(_LevelConfig):
         genie: Settings of the Genie spaces of the data products of the group.
         dashboard: Settings of the quality dashboards of the data products of the group.
         pages: Settings of the Pages of the data products of the group.
+        metric_views: Settings of the metric views of the tables of the group.
     """
 
     contract_defaults: Mapping[str, Any] | None = None
     genie: GenieSettings | None = None
     dashboard: DashboardSettings | None = None
     pages: PagesSettings | None = None
+    metric_views: MetricViewSettings | None = None
 
     def __init__(
         self,
@@ -564,6 +603,7 @@ class GroupConfig(_LevelConfig):
         genie: GenieSettings | None = None,
         dashboard: DashboardSettings | None = None,
         pages: PagesSettings | None = None,
+        metric_views: MetricViewSettings | None = None,
     ) -> None:
         self._assign(locals())
 
@@ -584,12 +624,14 @@ class DataProductConfig(_LevelConfig):
         genie: Settings of the Genie space of the data product.
         dashboard: Settings of the quality dashboard of the data product.
         pages: Settings of the Pages of the data product.
+        metric_views: Settings of the metric views of the tables of the data product.
     """
 
     contract_defaults: Mapping[str, Any] | None = None
     genie: GenieSettings | None = None
     dashboard: DashboardSettings | None = None
     pages: PagesSettings | None = None
+    metric_views: MetricViewSettings | None = None
 
     def __init__(
         self,
@@ -606,6 +648,7 @@ class DataProductConfig(_LevelConfig):
         genie: GenieSettings | None = None,
         dashboard: DashboardSettings | None = None,
         pages: PagesSettings | None = None,
+        metric_views: MetricViewSettings | None = None,
     ) -> None:
         self._assign(locals())
 

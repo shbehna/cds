@@ -31,7 +31,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
 
 from cds.config import PagesSettings, resolved
 from cds.context import ServiceContext
@@ -39,16 +38,13 @@ from cds.data_context import DataProduct, Table
 from cds.errors import ContractError
 from cds.genie import DEPRECATED, Join, column_description, joins
 from cds.odcs import AuthoritativeDefinition, EnumValue, SchemaProperty
+from cds.semantics import checked_synonyms, metric_view_name, synonyms, table_measures
 from cds.services.checks import ALLOWED_VALUES
 from cds.services.tags import discover_domain
 from cds.sla import percentage, table_sla
 
-# Custom property of a schema object or a property holding the synonyms of its Page.
-SYNONYMS_PROPERTY = "synonyms"
-# Limits of the Pages API.
+# Limit of the Pages API.
 MAX_TITLE_LENGTH = 200
-MAX_SYNONYMS = 50
-MAX_SYNONYM_LENGTH = 200
 PUBLISHED = "PUBLISHED"
 DRAFT = "DRAFT"
 TABLE_KEY = "table"
@@ -94,32 +90,6 @@ class _CodeList:
     title: str
     values: tuple[EnumValue, ...]
     columns: list[tuple[Table, SchemaProperty]] = field(default_factory=list)
-
-
-def synonyms(custom_properties: Mapping[str, Any], where: str) -> tuple[str, ...]:
-    """The synonyms of a schema object or a property: its ``synonyms`` custom property, trimmed, sorted.
-
-    Raises:
-        ContractError: If it is not a list of strings, or exceeds the limits of the Pages API.
-    """
-    value = custom_properties.get(SYNONYMS_PROPERTY)
-    if value is None:
-        return ()
-    if isinstance(value, str) or not isinstance(value, Sequence) or not all(isinstance(item, str) for item in value):
-        raise ContractError(f"{where}: the {SYNONYMS_PROPERTY} custom property must be a list of strings.")
-    return _checked_synonyms(value, where)
-
-
-def _checked_synonyms(values: Iterable[str], where: str) -> tuple[str, ...]:
-    found = sorted({value.strip() for value in values})
-    for value in found:
-        if not value or len(value) > MAX_SYNONYM_LENGTH:
-            raise ContractError(
-                f"{where}: a synonym must have from 1 to {MAX_SYNONYM_LENGTH} characters, got {value!r}."
-            )
-    if len(found) > MAX_SYNONYMS:
-        raise ContractError(f"{where}: more than {MAX_SYNONYMS} synonyms.")
-    return tuple(found)
 
 
 def _title(business_name: str | None, name: str, where: str) -> str:
@@ -222,6 +192,20 @@ def _relationships(table: Table, found: Sequence[Join], titles: Mapping[str, str
     return "## Relationships\n\n" + "\n".join(items) if items else None
 
 
+def _measures(table: Table, context: ServiceContext) -> str | None:
+    """The measures of the metric view of a table, if it has one."""
+    name = metric_view_name(table)
+    if name is None:
+        return None
+    items = [
+        f"- *{_cell(measure.business_name or measure.name)}* ({_code(measure.name)})"
+        + (f": {_cell(measure.description)}" if measure.description else "")
+        for measure in table_measures(table)
+    ]
+    full_name = _code(context.full_table_name(table, name))
+    return f"## Measures\n\nIn the metric view {full_name}, to query with `MEASURE()`:\n\n" + "\n".join(items)
+
+
 def _service_levels(table: Table) -> str | None:
     items = []
     frequency = table_sla(table, "frequency")
@@ -257,6 +241,7 @@ def _table_body(
         _columns(table, code_lists, context),
         _relationships(table, found, titles),
         _service_levels(table),
+        _measures(table, context),
         _references(table.schema_object.authoritative_definitions),
     ]
     return "\n\n".join(section.strip() for section in sections if section and section.strip())
@@ -353,7 +338,7 @@ def build_pages(data_product: DataProduct, context: ServiceContext) -> list[Page
                 display_name=item.title,
                 description=first.description,
                 body=_code_list_body(item, titles),
-                synonyms=_checked_synonyms(
+                synonyms=checked_synonyms(
                     (
                         synonym
                         for table, prop in item.columns

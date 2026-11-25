@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC # CDS - Publication
 # MAGIC
-# MAGIC Runs the genie service, the dashboard service, then the pages service, in one task: creates or updates the Genie space, the quality dashboard and the Pages (the business definitions of the Discover domains, used by Genie Ontology) of a data product from its data contracts. Run it after the metadata service, which sets the comments of the tables, and the quality service, which adds its result columns. A failed service stops the notebook: the next ones are not run.
+# MAGIC Runs the metrics service, the genie service, the dashboard service, then the pages service, in one task: creates or updates the metric views of the tables, then the Genie space, which includes them, the quality dashboard and the Pages (the business definitions of the Discover domains, used by Genie Ontology) of a data product from its data contracts. Run it after the metadata service, which sets the comments of the tables, and the quality service, which adds its result columns. A failed service stops the notebook: the next ones are not run.
 # MAGIC
 # MAGIC Combining them saves a task in a job: Databricks Free Edition refuses the runs of a job of more than 5 tasks.
 # MAGIC
@@ -22,7 +22,7 @@
 
 # COMMAND ----------
 
-from cds import DashboardService, GenieService, PagesService, run_service
+from cds import DashboardService, GenieService, MetricsService, PagesService, run_service
 
 # The parameters of the genie and dashboard services, besides those of every service: set
 # them to run the notebook by hand. The job parameters take precedence.
@@ -31,6 +31,7 @@ dbutils.widgets.text("genie_parent_path", "", "Folder of the space")
 dbutils.widgets.text("dashboard_warehouse_id", "", "SQL warehouse id of the dashboard")
 dbutils.widgets.text("dashboard_parent_path", "", "Folder of the dashboard")
 
+run_service(MetricsService, spark=spark, dbutils=dbutils)
 run_service(GenieService, spark=spark, dbutils=dbutils)
 run_service(DashboardService, spark=spark, dbutils=dbutils)
 run_service(PagesService, spark=spark, dbutils=dbutils)

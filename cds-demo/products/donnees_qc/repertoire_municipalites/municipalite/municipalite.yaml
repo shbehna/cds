@@ -14,6 +14,24 @@ schema:
     customProperties:
       - property: synonyms
         value: [Municipalité locale, Ville]
+      - property: measures
+        value:
+          - name: nombre_municipalites
+            expr: COUNT(1)
+            businessName: Nombre de municipalités
+            description: Nombre de municipalités, de territoires non organisés et de territoires autochtones.
+            format: { type: number }
+          - name: population_totale
+            expr: SUM(population)
+            businessName: Population totale
+            description: Somme de la population des municipalités, selon le décret de population.
+            synonyms: [Nombre d'habitants]
+            format: { type: number }
+          - name: superficie_totale
+            expr: SUM(superficie)
+            businessName: Superficie totale
+            description: Somme de la superficie des municipalités, en kilomètres carrés.
+            format: { type: number }
     description: >-
       Municipalités locales, territoires non organisés et territoires autochtones du Québec
       (fichier source MUN.csv). Les conseillers municipaux sont dans la table

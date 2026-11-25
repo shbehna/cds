@@ -4,7 +4,7 @@ The defaults of the contracts of the group (tenant, tags) are in its partial dat
 contract, donnees_qc.odcs.yaml.
 """
 
-from cds import GroupConfig, MetadataSettings, NamingSettings, PagesSettings, ScdSettings
+from cds import GroupConfig, MetadataSettings, MetricViewSettings, NamingSettings, PagesSettings, ScdSettings
 
 config = GroupConfig(
     name="donnees_qc",
@@ -34,4 +34,7 @@ config = GroupConfig(
     # domain of the table: the business definition Genie Ontology uses. Published in prod,
     # like the domain of the tables; drafts in nprod.
     pages=PagesSettings(enabled=True),
+    # The tables whose contracts declare measures have a metric view, named in French like the
+    # history tables, without the restricted addresses, which the deployment masks.
+    metric_views=MetricViewSettings(enabled=True, name="{table}_indicateurs", excluded_classifications=["restricted"]),
 )

@@ -117,7 +117,7 @@ def test_jobs(settings: pipeline.Settings) -> pulumi.Output[None]:
             "CDS metadata service",
             "CDS quality service",
             "CDS scd service",
-            "CDS genie, dashboard and pages services",
+            "CDS metrics, genie, dashboard and pages services",
         ]
         # A failed service fails the run, and the services after it do not run.
         assert all(value(task, "run_if") is None for task in tasks)

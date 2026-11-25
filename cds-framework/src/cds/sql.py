@@ -151,17 +151,22 @@ def tag_key_problem(key: str) -> str | None:
     return None
 
 
-def set_tags_statement(full_table_name: str, tags: Mapping[str, str], column: str | None = None) -> str:
-    """Returns the statement setting tags on a table, or on one of its columns."""
+def set_tags_statement(
+    full_table_name: str, tags: Mapping[str, str], column: str | None = None, kind: str = "TABLE"
+) -> str:
+    """Returns the statement setting tags on a table (or a ``VIEW``, by ``kind``), or on one of its columns."""
     assignments = ", ".join(f"{string_literal(key)} = {string_literal(value)}" for key, value in tags.items())
-    return f"{_tags_target(full_table_name, column)} SET TAGS ({assignments})"
+    return f"{_tags_target(full_table_name, column, kind)} SET TAGS ({assignments})"
 
 
-def unset_tags_statement(full_table_name: str, keys: Iterable[str], column: str | None = None) -> str:
-    """Returns the statement removing tags from a table, or from one of its columns."""
-    return f"{_tags_target(full_table_name, column)} UNSET TAGS ({', '.join(string_literal(key) for key in keys)})"
+def unset_tags_statement(
+    full_table_name: str, keys: Iterable[str], column: str | None = None, kind: str = "TABLE"
+) -> str:
+    """Returns the statement removing tags from a table (or a ``VIEW``, by ``kind``), or from one of its columns."""
+    keys_list = ", ".join(string_literal(key) for key in keys)
+    return f"{_tags_target(full_table_name, column, kind)} UNSET TAGS ({keys_list})"
 
 
-def _tags_target(full_table_name: str, column: str | None) -> str:
-    target = f"ALTER TABLE {quote_name(full_table_name)}"
+def _tags_target(full_table_name: str, column: str | None, kind: str) -> str:
+    target = f"ALTER {kind} {quote_name(full_table_name)}"
     return f"{target} ALTER COLUMN {quote_identifier(column)}" if column else target

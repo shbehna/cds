@@ -4,14 +4,15 @@ The deployment uploads the framework wheel, the service notebooks and the data p
 of the demo to a workspace folder, and creates, for each data product of the manifest, a
 job running the services in order:
 
-    schema --> transformation --> metadata --> genie
-                              --> quality --> scd
-                                          --> dashboard --> pages
+    schema --> transformation --> metadata --+--> metrics --> genie --> dashboard --> pages
+                              --> quality ---+
+                                          --> scd
 
-The genie and dashboard steps create the Genie space and the quality dashboard of the data
-product from its contracts, in the genie and dashboards folders. The pages step creates
-its Pages, the business definitions Genie Ontology uses, in the Discover domains of its
-tables.
+The metrics step creates the metric views of the tables whose contracts declare
+measures. The genie and dashboard steps create the Genie space, which includes the metric
+views, and the quality dashboard of the data product from its contracts, in the genie and
+dashboards folders. The pages step creates its Pages, the business definitions Genie
+Ontology uses, in the Discover domains of its tables.
 
 The metadata step runs after the load: a failed load leaves the tables unchanged, which
 the latency alert detects. The job runs on the schedule of the frequency SLA of the
@@ -63,7 +64,8 @@ READER_PRIVILEGES = ["USE_CATALOG", "USE_SCHEMA", "SELECT"]
 # updates the tables on each run: after the load, so that the latency alert sees the
 # failed loads. The publication task runs the genie service, once the metadata step has
 # set the comments of the tables, then the dashboard service, once the quality step has
-# added its result columns, then the pages service.
+# added its result columns, then the pages service. The metrics service runs first: the
+# Genie space includes the metric views it creates.
 TASKS: dict[str, list[str]] = {
     "load": [],
     "metadata": ["load"],
@@ -74,7 +76,7 @@ TASKS: dict[str, list[str]] = {
 # The services of the tasks that run several; the other tasks run the service of their name.
 TASK_SERVICES: dict[str, list[str]] = {
     "load": ["schema", "transformation"],
-    "publication": ["genie", "dashboard", "pages"],
+    "publication": ["metrics", "genie", "dashboard", "pages"],
 }
 # Databricks Free Edition refuses a run of a job of more than 5 tasks ("There are already
 # 5 active runs (limit: 5)"), even when nothing else runs: hence the load and publication

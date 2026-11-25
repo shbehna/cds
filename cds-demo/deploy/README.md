@@ -52,9 +52,10 @@ load --> metadata --> publication
 The job has 5 tasks, each a notebook of the framework: Databricks Free Edition refuses a
 run of a job of more than 5 tasks, with the error "There are already 5 active runs
 (limit: 5)", even when nothing else runs. The `load` task runs the schema step, then the
-transformation step; the `publication` task runs the genie step, once the metadata step
-has set the comments of the tables, then the dashboard step, once the quality step has
-added its result columns, then the pages step.
+transformation step; the `publication` task runs the metrics step, then the genie step,
+which includes the metric views, once the metadata step has set the comments of the
+tables, then the dashboard step, once the quality step has added its result columns, then
+the pages step.
 
 A failed step fails the run, and the steps after it do not run, in its task or in the
 tasks after it: a failed genie step leaves the dashboard as it was. A failed run sends an
@@ -164,6 +165,17 @@ the dashboard: users need `CAN USE` on the warehouse, which the `users` group ha
 Serverless Starter Warehouse, and `SELECT` on the tables. The deployment does not grant
 them: the permissions of a warehouse are shared with its other uses. Users see the
 addresses masked (`****`). The service principal owns the space.
+
+### Metric views
+
+The `metrics` step of the job creates the metric views of the tables whose contracts
+declare measures, such as `entreprise_indicateurs`, in the schema of their data product
+(see [cds-demo/README.md](../README.md#metric-views)). The next runs update their
+definition when the contracts change, and drop those no longer declared. The service
+principal owns them; their users need `SELECT` on them, as on the tables, and the
+masking of the tables applies to them. In `prod`, they join the Discover subdomain of
+their tables. The deployment does
+not manage them: `pulumi destroy` leaves them, with the tables.
 
 ### Pages
 

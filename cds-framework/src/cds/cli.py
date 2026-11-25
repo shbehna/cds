@@ -7,6 +7,7 @@ Usage::
     cds genie <root> [<root> ...] --data-product <group>.<data_product> [--environment <id>]
     cds dashboard <root> [<root> ...] --data-product <group>.<data_product> [--environment <id>]
     cds pages <root> [<root> ...] --data-product <group>.<data_product> [--environment <id>]
+    cds metrics <root> [<root> ...] --data-product <group>.<data_product> [--environment <id>]
 """
 
 from __future__ import annotations
@@ -18,12 +19,13 @@ from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from typing import Any
 
-from cds.config import DashboardSettings, GenieSettings, PagesSettings
+from cds.config import DashboardSettings, GenieSettings, MetricViewSettings, PagesSettings
 from cds.context import ServiceContext
 from cds.dashboard import build_dashboard
 from cds.data_context import DataContext, DataProduct, Table
 from cds.errors import CdsError
 from cds.genie import build_space, run_time_examples
+from cds.metric_views import build_metric_views
 from cds.pages import Page, build_pages, title_conflicts
 from cds.services.checks import (
     CheckSet,
@@ -67,6 +69,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     pages.add_argument("--data-product", required=True, help="<group>.<data_product>")
     pages.add_argument("--environment", default="validation", help="Environment id used to resolve names.")
 
+    metrics = commands.add_parser("metrics", help="Print the metric views of the tables of a data product.")
+    metrics.add_argument("roots", nargs="+", help="Root folders of the data products.")
+    metrics.add_argument("--data-product", required=True, help="<group>.<data_product>")
+    metrics.add_argument("--environment", default="validation", help="Environment id used to resolve names.")
+
     args = parser.parse_args(argv)
     try:
         context = ServiceContext(
@@ -80,6 +87,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _print_dashboard(context, args.data_product)
         if args.command == "pages":
             return _print_pages(context, args.data_product)
+        if args.command == "metrics":
+            return _print_metric_views(context, args.data_product)
         return _print_checks(context, args.data_product)
     except CdsError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -143,6 +152,8 @@ def _validate(context: ServiceContext) -> int:
             failed = True
         if not _validate_dashboard(data_product, context):
             failed = True
+        if not _validate_metric_views(data_product, context):
+            failed = True
         pages = _validate_pages(data_product, context)
         if pages is None:
             failed = True
@@ -194,6 +205,21 @@ def _validate_dashboard(data_product: DataProduct, context: ServiceContext) -> b
         return False
     pages = len(dashboard["pages"])
     print(f"  + Dashboard: {len(tables)} table(s), {pages} page(s){_in_domains(tables, domains)}")
+    return True
+
+
+def _validate_metric_views(data_product: DataProduct, context: ServiceContext) -> bool:
+    """Builds the metric views of the tables of a data product; returns whether they are valid."""
+    if not any(table.settings(MetricViewSettings).enabled for table in data_product.tables):
+        return True
+    try:
+        views = build_metric_views(data_product, context)
+    except CdsError as exc:
+        print(f"  x Metric views: {exc}")
+        return False
+    measures = sum(len(view.measures) for view in views)
+    names = f": {', '.join(view.name for view in views)}" if views else ""
+    print(f"  + Metric views: {len(views)} view(s), {measures} measure(s){names}")
     return True
 
 
@@ -260,6 +286,22 @@ def _print_pages(context: ServiceContext, reference: str) -> int:
         for page in build_pages(data_product, context)
     ]
     print(json.dumps(pages, indent=2))
+    return 0
+
+
+def _print_metric_views(context: ServiceContext, reference: str) -> int:
+    data_product = context.get_data_product(reference)
+    views = build_metric_views(data_product, context)
+    if not views:
+        print(
+            f"error: {data_product.qualified_name} has no metric view: enable them with "
+            "MetricViewSettings(enabled=True), and declare measures in the contracts.",
+            file=sys.stderr,
+        )
+        return 1
+    for view in views:
+        print(f"# {context.full_table_name(view.table, view.name)}")
+        print(view.yaml)
     return 0
 
 
