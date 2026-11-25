@@ -15,7 +15,7 @@ from cds.metric_views import build_metric_views
 from cds.services.metrics import DIGEST_PROPERTY, SOURCE_PROPERTY
 
 SCHEMA = "`prod`.`sales_orders`"
-VIEW = "prod.sales_orders.order_metrics"
+VIEW = "prod.sales_orders.order_metric"
 
 
 def _unquote(text: str) -> str:
@@ -132,11 +132,11 @@ def test_the_metric_view_is_created_and_tagged(root: Path, spark: FakeSpark, cat
     )
     assert found["sales.orders.customer"] == (Status.SKIPPED, "no metric view: the contract declares no measures")
     [view] = build_metric_views(service.context.data_context.get_data_product("sales.orders"), service.context)
-    assert catalog.views["order_metrics"] == {SOURCE_PROPERTY: "order", DIGEST_PROPERTY: view.digest}
-    assert catalog.yaml["order_metrics"] == f"\n{view.yaml}"
-    assert catalog.tags["order_metrics"] == {"system.certification_status": "certified", "Ventes": ""}
+    assert catalog.views["order_metric"] == {SOURCE_PROPERTY: "order", DIGEST_PROPERTY: view.digest}
+    assert catalog.yaml["order_metric"] == f"\n{view.yaml}"
+    assert catalog.tags["order_metric"] == {"system.certification_status": "certified", "Ventes": ""}
     [create] = spark.statements_matching(r"^CREATE VIEW")
-    assert create.startswith("CREATE VIEW `prod`.`sales_orders`.`order_metrics` WITH METRICS LANGUAGE YAML ")
+    assert create.startswith("CREATE VIEW `prod`.`sales_orders`.`order_metric` WITH METRICS LANGUAGE YAML ")
 
 
 def test_an_unchanged_metric_view_is_left_as_it_is(root: Path, spark: FakeSpark, catalog: FakeCatalog) -> None:
@@ -165,17 +165,17 @@ def test_a_changed_metric_view_is_updated_in_place(
 
     assert found["sales.orders.order"][1].startswith(f"updated the metric view {VIEW}")
     assert [statement.split(" AS ")[0] for statement in spark.statements_matching(r"^ALTER VIEW \S+ AS ")] == [
-        "ALTER VIEW `prod`.`sales_orders`.`order_metrics`"
+        "ALTER VIEW `prod`.`sales_orders`.`order_metric`"
     ]
     [view] = build_metric_views(service.context.data_context.get_data_product("sales.orders"), service.context)
-    assert catalog.views["order_metrics"][DIGEST_PROPERTY] == view.digest
-    assert "COUNT(*)" in catalog.yaml["order_metrics"]
+    assert catalog.views["order_metric"][DIGEST_PROPERTY] == view.digest
+    assert "COUNT(*)" in catalog.yaml["order_metric"]
     # Updated in place, the view keeps its tags.
     assert spark.statements_matching(r"SET TAGS") == []
 
 
 def test_an_object_of_the_same_name_is_not_replaced(root: Path, spark: FakeSpark, catalog: FakeCatalog) -> None:
-    catalog.tables.add("order_metrics")
+    catalog.tables.add("order_metric")
 
     status, message = results(service_for(root, spark))["sales.orders.order"]
 
@@ -187,7 +187,7 @@ def test_an_object_of_the_same_name_is_not_replaced(root: Path, spark: FakeSpark
 
 
 def test_a_metric_view_of_another_table_is_not_replaced(root: Path, spark: FakeSpark, catalog: FakeCatalog) -> None:
-    catalog.views["order_metrics"] = {SOURCE_PROPERTY: "customer"}
+    catalog.views["order_metric"] = {SOURCE_PROPERTY: "customer"}
 
     assert results(service_for(root, spark))["sales.orders.order"][0] is Status.ERROR
 
@@ -197,7 +197,7 @@ def test_the_metric_views_no_longer_declared_are_dropped(
 ) -> None:
     results(service_for(root, spark))
     # A metric view created by another tool is left untouched.
-    catalog.views["other_metrics"] = {"owner": "someone"}
+    catalog.views["other_metric"] = {"owner": "someone"}
     order = (root / "sales/orders/order/order.yaml").read_text(encoding="utf-8")
     start, end = order.index("    customProperties:"), order.index("    properties:")
     files = {path: (root / path).read_text(encoding="utf-8") for path in FILES}
@@ -206,18 +206,32 @@ def test_the_metric_views_no_longer_declared_are_dropped(
     found = results(service_for(removed, spark))
 
     assert found[VIEW] == (Status.SUCCESS, f"dropped the metric view {VIEW}: no longer declared")
-    assert set(catalog.views) == {"other_metrics"}
+    assert set(catalog.views) == {"other_metric"}
+
+
+def test_a_renamed_metric_view_replaces_the_former_one(
+    root: Path, spark: FakeSpark, catalog: FakeCatalog, make_project: MakeProject
+) -> None:
+    results(service_for(root, spark))
+    files = {path: (root / path).read_text(encoding="utf-8") for path in FILES}
+    group = files["sales/sales_config.py"].replace("MetricViewSettings(", 'MetricViewSettings(name="{table}_kpi", ')
+    renamed = make_project({**files, "sales/sales_config.py": group}, name="renamed")
+
+    found = results(service_for(renamed, spark))
+
+    assert found[VIEW] == (Status.SUCCESS, f"dropped the metric view {VIEW}: no longer declared")
+    assert set(catalog.views) == {"order_kpi"}
 
 
 def test_a_run_on_some_tables_drops_nothing(
     root: Path, spark: FakeSpark, catalog: FakeCatalog, make_project: MakeProject
 ) -> None:
-    catalog.views["stale_metrics"] = {SOURCE_PROPERTY: "stale"}
+    catalog.views["stale_metric"] = {SOURCE_PROPERTY: "stale"}
 
     found = results(service_for(root, spark), tables=["order"])
 
     assert list(found) == ["sales.orders.order"]
-    assert "stale_metrics" in catalog.views
+    assert "stale_metric" in catalog.views
 
 
 def test_outside_the_discover_environments_the_view_leaves_its_domain(
@@ -230,7 +244,7 @@ def test_outside_the_discover_environments_the_view_leaves_its_domain(
 
     results(service)
 
-    assert catalog.tags["order_metrics"] == {"system.certification_status": "certified"}
+    assert catalog.tags["order_metric"] == {"system.certification_status": "certified"}
 
 
 def test_the_tags_follow_the_metadata_settings(
@@ -242,7 +256,7 @@ def test_the_tags_follow_the_metadata_settings(
 
     results(service_for(untagged, spark))
 
-    assert catalog.tags.get("order_metrics", {}) == {}
+    assert catalog.tags.get("order_metric", {}) == {}
 
 
 def test_the_service_is_skipped_without_metric_views(

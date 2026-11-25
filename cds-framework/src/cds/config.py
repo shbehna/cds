@@ -413,7 +413,7 @@ class MetricViewSettings:
     Attributes:
         enabled: Whether the tables with measures have a metric view. Default: ``False``.
         name: Pattern of the name of the metric view of a table, in its schema, with the
-            placeholder ``{table}``. Default: ``{table}_metrics``.
+            placeholder ``{table}``. Default: ``{table}_metric``.
         excluded_classifications: Classifications of the columns that are not dimensions
             of the metric views, such as ``restricted``. Default: none.
     """
@@ -481,7 +481,7 @@ DEFAULTS: Mapping[type[Settings], Settings] = {
         enabled=False, instructions=(), sample_questions=(), examples=(), masked_classifications=()
     ),
     PagesSettings: PagesSettings(enabled=False, code_lists=True),
-    MetricViewSettings: MetricViewSettings(enabled=False, name="{table}_metrics", excluded_classifications=()),
+    MetricViewSettings: MetricViewSettings(enabled=False, name="{table}_metric", excluded_classifications=()),
 }
 
 

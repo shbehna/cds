@@ -39,6 +39,7 @@ schema:
         relationships:
           - to: municipalite.code_geographique
       - name: numero_siege
+        businessName: Numéro du siège
         description: Numéro du siège au conseil, celui de sa colonne source (con1 à con75).
         logicalType: integer
         physicalType: INT
@@ -48,11 +49,13 @@ schema:
         logicalTypeOptions:
           minimum: 1
       - name: nom
+        businessName: Nom du conseiller
         description: Nom du conseiller ; vide si le siège est vacant. Colonnes source con1 à con75.
         logicalType: string
         physicalType: STRING
         classification: confidential
       - name: indicateur_poste_vacant
+        businessName: Siège vacant
         description: Indique si le siège est vacant (Poste vacant dans le fichier source).
         logicalType: boolean
         physicalType: BOOLEAN

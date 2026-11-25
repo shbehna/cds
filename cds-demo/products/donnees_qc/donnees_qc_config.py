@@ -34,7 +34,7 @@ config = GroupConfig(
     # domain of the table: the business definition Genie Ontology uses. Published in prod,
     # like the domain of the tables; drafts in nprod.
     pages=PagesSettings(enabled=True),
-    # The tables whose contracts declare measures have a metric view, named in French like the
-    # history tables, without the restricted addresses, which the deployment masks.
-    metric_views=MetricViewSettings(enabled=True, name="{table}_indicateurs", excluded_classifications=["restricted"]),
+    # The tables whose contracts declare measures have a metric view, <table>_metric, without
+    # the restricted addresses, which the deployment masks.
+    metric_views=MetricViewSettings(enabled=True, excluded_classifications=["restricted"]),
 )

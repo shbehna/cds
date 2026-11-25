@@ -129,7 +129,7 @@ group, then the framework default).
 | `PagesSettings` | `enabled` | `False`: the data product has no Pages |
 | | `code_lists` | `True`: each code list has its own Page |
 | `MetricViewSettings` | `enabled` | `False`: the tables have no metric view |
-| | `name` | `{table}_metrics` |
+| | `name` | `{table}_metric` |
 | | `excluded_classifications` | none: every column is a dimension |
 
 ```python
@@ -798,10 +798,10 @@ of the metric views (`number`, `currency`, `percentage`, `byte`, `date`, `date_t
 
 | Metric view | From |
 | --- | --- |
-| Name | `MetricViewSettings.name`, `{table}_metrics` by default, in the schema of the table |
+| Name | `MetricViewSettings.name`, `{table}_metric` by default, in the schema of the table |
 | `source`, `comment` | the table, named in the environment, and its description |
 | `joins` | the `foreignKey` relationships of the table to the key of another table of its data product: a join to rows that are not unique would multiply the rows of the source |
-| Dimensions (`fields`) | the columns of the table, and the key and coded columns (with an `enum` or `allowedValues`) of the joined tables, named `<join>_<column>`, with the description, `businessName` (`display_name`) and `synonyms` (at most 10) of their column. A column whose `enum` has labels has a second dimension, `<name>_label`, its codes replaced by their labels, which takes the business name and the synonyms of the column. The columns of `MetricViewSettings.excluded_classifications` are left out |
+| Dimensions (`fields`) | the columns of the table, and the key and coded columns (with an `enum` or `allowedValues`) of the joined tables, named `<join>_<column>`, with the description, `businessName` (`display_name`) and `synonyms` (at most 10) of their column. A column whose `enum` has labels has a second dimension, `<name>_label`, its codes replaced by their labels, which takes the business name and the synonyms of the column; its code dimension is displayed as `<business name> (code)`. The display name of a column of a joined table starts with the business name of the table, else its name, followed by the alias of the join if the table is joined more than once: `<table> - <business name>`. Two fields or measures cannot have the same display name. The columns of `MetricViewSettings.excluded_classifications` are left out |
 | `measures` | the measures of the contract |
 
 The `MetricViewSettings` of a data product, or of its group, enable them:
@@ -820,7 +820,8 @@ its YAML: Unity Catalog stores the YAML rewritten, which cannot be compared. The
 update the definition of a view whose digest differs, with `ALTER VIEW ... AS`, which keeps
 its tags and grants, and leave the others unchanged. When the service processes all the
 tables of a data product, it drops the metric views it created that the contracts no
-longer declare. It never replaces a table, a view or a metric view it did not create. With
+longer declare, such as the former view of a table after a change of
+`MetricViewSettings.name`. It never replaces a table, a view or a metric view it did not create. With
 `MetadataSettings.tags`, a metric view gets the certification of its table, and joins its
 Discover domain in the environments of `MetadataSettings.discover_environments`. The user
 running the service needs `CREATE TABLE` on the schema, `SELECT` on the tables, and

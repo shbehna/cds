@@ -172,7 +172,7 @@ def fields_of(view: MetricView) -> dict[str, dict[str, Any]]:
 def test_a_table_with_measures_has_a_metric_view(make_project: MakeProject) -> None:
     [view] = views_of(project(make_project))
 
-    assert (view.table.name, view.name) == ("order", "order_metrics")
+    assert (view.table.name, view.name) == ("order", "order_metric")
     definition = view.definition
     assert list(definition) == ["version", "source", "comment", "joins", "fields", "measures"]
     assert (definition["version"], definition["source"], definition["comment"]) == (
@@ -227,16 +227,47 @@ def test_the_joined_tables_bring_their_keys_and_coded_columns(make_project: Make
         "name": "customer_segment",
         "expr": "customer.`segment`",
         "comment": "Segment of the customer.",
-        "display_name": "Segment (code)",
+        "display_name": "Client - Segment (code)",
     }
     assert fields["customer_segment_label"] == {
         "name": "customer_segment_label",
         "expr": "CASE customer.`segment` WHEN 'B2B' THEN 'Business' WHEN 'B\\'C' THEN 'Consumer\\'s' "
         "ELSE CAST(customer.`segment` AS STRING) END",
         "comment": "Segment of the customer.",
-        "display_name": "Segment",
+        "display_name": "Client - Segment",
         "synonyms": ["Market"],
     }
+
+
+def test_a_joined_table_without_business_name_is_named_by_its_name(make_project: MakeProject) -> None:
+    customer = CUSTOMER.replace("        businessName: Client\n", "", 1)
+    fields = fields_of(views_of(project(make_project, {"sales/orders/customer/customer.yaml": customer}))[0])
+
+    assert fields["customer_segment_label"]["display_name"] == "customer - Segment"
+    # A column without business name has no display name.
+    assert "display_name" not in fields["customer_country"]
+
+
+def test_a_table_joined_twice_is_told_apart_by_the_alias(make_project: MakeProject) -> None:
+    billed = (
+        "          - name: customer_id_billed\n"
+        "            physicalType: STRING\n"
+        "            relationships:\n"
+        "              - to: customer.customer_id\n"
+        "          - name: status\n"
+    )
+    order = ORDER.replace("          - name: status\n", billed, 1)
+    fields = fields_of(views_of(project(make_project, {"sales/orders/order/order.yaml": order}))[0])
+
+    assert fields["customer_segment_label"]["display_name"] == "Client (customer) - Segment"
+    assert fields["customer_billed_segment_label"]["display_name"] == "Client (customer_billed) - Segment"
+
+
+def test_two_fields_cannot_have_the_same_display_name(make_project: MakeProject) -> None:
+    order = ORDER.replace("businessName: Number of orders", "businessName: customer number")
+
+    with pytest.raises(ContractError, match=r"sales.orders.order: .* two fields or measures displayed as 'customer"):
+        views_of(project(make_project, {"sales/orders/order/order.yaml": order}))
 
 
 def test_the_excluded_classifications_are_not_dimensions(make_project: MakeProject) -> None:
@@ -250,14 +281,14 @@ def test_the_excluded_classifications_are_not_dimensions(make_project: MakeProje
     root = project(make_project, {"sales/orders/customer/customer.yaml": customer})
     views = {view.name: view for view in views_of(root)}
 
-    assert "email" not in fields_of(views["customer_metrics"])
-    assert "name" in fields_of(views["customer_metrics"])
+    assert "email" not in fields_of(views["customer_metric"])
+    assert "name" in fields_of(views["customer_metric"])
 
 
 def test_a_join_to_rows_that_are_not_unique_is_left_out(make_project: MakeProject) -> None:
     views = {view.name: view for view in views_of(project(make_project, {"sales/orders/line/line.yaml": LINE}))}
 
-    assert "joins" not in views["line_metrics"].definition
+    assert "joins" not in views["line_metric"].definition
 
 
 def test_the_yaml_is_that_of_the_definition(make_project: MakeProject) -> None:
@@ -335,9 +366,9 @@ def test_the_genie_space_includes_the_metric_views(make_project: MakeProject) ->
 
     identifiers = [source["identifier"] for source in space["data_sources"]["tables"]]
     assert identifiers == sorted(identifiers)
-    assert "prod.sales_orders.order_metrics" in identifiers
+    assert "prod.sales_orders.order_metric" in identifiers
     text = "".join(space["instructions"]["text_instructions"][0]["content"])
-    assert "Metric views, the governed measures of the tables, to query with MEASURE(): order_metrics." in text
+    assert "Metric views, the governed measures of the tables, to query with MEASURE(): order_metric." in text
 
 
 def test_the_page_of_a_table_lists_its_measures(make_project: MakeProject) -> None:
@@ -346,7 +377,7 @@ def test_the_page_of_a_table_lists_its_measures(make_project: MakeProject) -> No
     pages = {page.key: page for page in build_pages(context.data_context.get_data_product("sales.orders"), context)}
 
     assert (
-        "## Measures\n\nIn the metric view `prod.sales_orders.order_metrics`, to query with `MEASURE()`:\n\n"
+        "## Measures\n\nIn the metric view `prod.sales_orders.order_metric`, to query with `MEASURE()`:\n\n"
         "- *Number of orders* (`order_count`): Number of the orders.\n- *revenue* (`revenue`)"
     ) in pages["table:order"].body
     assert "## Measures" not in pages["table:customer"].body
@@ -354,7 +385,7 @@ def test_the_page_of_a_table_lists_its_measures(make_project: MakeProject) -> No
 
 def test_validate_reports_the_metric_views(make_project: MakeProject, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["validate", str(project(make_project))]) == 0
-    assert "  + Metric views: 1 view(s), 2 measure(s): order_metrics\n" in capsys.readouterr().out
+    assert "  + Metric views: 1 view(s), 2 measure(s): order_metric\n" in capsys.readouterr().out
 
 
 def test_validate_reports_invalid_metric_views(make_project: MakeProject, capsys: pytest.CaptureFixture[str]) -> None:
@@ -369,7 +400,7 @@ def test_the_metric_views_are_printed(make_project: MakeProject, capsys: pytest.
 
     assert main(["metrics", str(root), "--data-product", "sales.orders", "--environment", "prod"]) == 0
     printed = capsys.readouterr().out
-    assert printed.startswith("# prod.sales_orders.order_metrics\nversion: 1.1\n")
+    assert printed.startswith("# prod.sales_orders.order_metric\nversion: 1.1\n")
 
 
 def test_a_data_product_without_metric_views_is_not_printed(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
