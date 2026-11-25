@@ -60,15 +60,18 @@ schema:
         logicalTypeOptions:
           pattern: "^[0-9]{10}$"
       - name: indicateur_faillite
+        businessName: En faillite
         description: Indique si l'entreprise est en faillite. Colonne source IND_FAIL.
         logicalType: boolean
         physicalType: BOOLEAN
       - name: date_immatriculation
+        businessName: Date d'immatriculation
         description: Date à laquelle le numéro d'entreprise du Québec a été attribué à l'entreprise. Elle ne change jamais. Colonne source DAT_IMMAT.
         logicalType: date
         physicalType: DATE
         required: true
       - name: code_regime_juridique
+        businessName: Code du régime juridique
         description: Code du régime juridique sous lequel l'entreprise est constituée (domaine de valeur REGIM_JURI). Colonne source COD_REGIM_JURI.
         logicalType: string
         physicalType: STRING
@@ -100,6 +103,7 @@ schema:
           - { value: "O", label: "Aucun" }
           - { value: "P", label: "Non déclaré" }
       - name: date_cessation_prevue
+        businessName: Date de cessation prévue
         description: Date prévue de la cessation de l'existence de l'entreprise. Colonne source DAT_CESS_PREVU.
         logicalType: date
         physicalType: DATE
@@ -146,11 +150,13 @@ schema:
           - { value: "SYC", label: "Syndicat de copropriété" }
           - { value: "SYP", label: "Syndicat professionnel" }
       - name: date_statut_immatriculation
+        businessName: Date du statut d'immatriculation
         description: Date de la dernière mise à jour du statut de l'immatriculation. Colonne source DAT_STAT_IMMAT.
         logicalType: date
         physicalType: DATE
         required: true
       - name: code_regime_juridique_constitution
+        businessName: Code du régime juridique à la constitution
         description: Code du régime juridique de l'entreprise lors de sa constitution (domaine de valeur REGIM_JURI). Colonne source COD_REGIM_JURI_CONSTI.
         logicalType: string
         physicalType: STRING
@@ -158,34 +164,42 @@ schema:
           - property: allowedValues
             value: { reference: domaine_valeur.code, filter: "domaine = 'REGIM_JURI'" }
       - name: date_depot_declaration
+        businessName: Date de dépôt de la déclaration annuelle
         description: Date du dépôt de la dernière déclaration de mise à jour annuelle. Colonne source DAT_DEPO_DECLR.
         logicalType: date
         physicalType: DATE
       - name: annee_declaration
+        businessName: Année de la déclaration annuelle
         description: Année visée par la dernière déclaration de mise à jour annuelle déposée. Colonne source AN_DECL.
         logicalType: integer
         physicalType: INT
       - name: annee_production
+        businessName: Année de production de la déclaration annuelle
         description: Année de production de la déclaration de mise à jour annuelle. Colonne source AN_PROD.
         logicalType: integer
         physicalType: INT
       - name: date_limite_production
+        businessName: Date limite de production de la déclaration annuelle
         description: Date limite de production de la déclaration de mise à jour annuelle. Colonne source DAT_LIMIT_PROD.
         logicalType: date
         physicalType: DATE
       - name: annee_production_precedente
+        businessName: Année de production de la déclaration annuelle précédente
         description: Année de production de la déclaration de mise à jour annuelle précédente. Colonne source AN_PROD_PRE.
         logicalType: integer
         physicalType: INT
       - name: date_limite_production_precedente
+        businessName: Date limite de production de la déclaration annuelle précédente
         description: Date limite de production de la déclaration de mise à jour annuelle précédente. Colonne source DAT_LIMIT_PROD_PRE.
         logicalType: date
         physicalType: DATE
       - name: date_mise_a_jour_index_noms
+        businessName: Date de mise à jour de l'index des noms
         description: Date et heure de la dernière mise à jour de l'index des noms. Colonne source DAT_MAJ_INDEX_NOM.
         logicalType: timestamp
         physicalType: TIMESTAMP
       - name: code_premiere_activite
+        businessName: Code de la première activité économique
         description: Code de la première activité économique de l'entreprise (domaine de valeur ACT_ECON). Colonne source COD_ACT_ECON_CAE.
         logicalType: string
         physicalType: STRING
@@ -193,14 +207,17 @@ schema:
           - property: allowedValues
             value: { reference: domaine_valeur.code, filter: "domaine = 'ACT_ECON'" }
       - name: rang_premiere_activite
+        businessName: Rang de la première activité économique
         description: Rang de la première activité économique de l'entreprise. Colonne source NO_ACT_ECON_ASSUJ.
         logicalType: integer
         physicalType: INT
       - name: description_premiere_activite
+        businessName: Première activité économique
         description: Description de la première activité économique de l'entreprise. Colonne source DESC_ACT_ECON_ASSUJ.
         logicalType: string
         physicalType: STRING
       - name: code_deuxieme_activite
+        businessName: Code de la deuxième activité économique
         description: Code de la deuxième activité économique de l'entreprise (domaine de valeur ACT_ECON). Colonne source COD_ACT_ECON_CAE2.
         logicalType: string
         physicalType: STRING
@@ -208,68 +225,84 @@ schema:
           - property: allowedValues
             value: { reference: domaine_valeur.code, filter: "domaine = 'ACT_ECON'" }
       - name: rang_deuxieme_activite
+        businessName: Rang de la deuxième activité économique
         description: Rang de la deuxième activité économique de l'entreprise. Colonne source NO_ACT_ECON_ASSUJ2.
         logicalType: integer
         physicalType: INT
       - name: description_deuxieme_activite
+        businessName: Deuxième activité économique
         description: Description de la deuxième activité économique de l'entreprise. Colonne source DESC_ACT_ECON_ASSUJ2.
         logicalType: string
         physicalType: STRING
       - name: localite_constitution
+        businessName: Localité de constitution
         description: Nom de la localité où l'entreprise a été constituée. Colonne source NOM_LOCLT_CONSTI.
         logicalType: string
         physicalType: STRING
       - name: date_constitution
+        businessName: Date de constitution
         description: Date de la constitution de l'entreprise. Colonne source DAT_CONSTI.
         logicalType: date
         physicalType: DATE
       - name: indicateur_convention_unanime
+        businessName: Convention unanime des actionnaires
         description: Indique si une convention unanime des actionnaires existe. Colonne source IND_CONVEN_UNMN_ACTNR.
         logicalType: boolean
         physicalType: BOOLEAN
       - name: indicateur_retrait_pouvoirs
+        businessName: Retrait des pouvoirs du conseil d'administration
         description: Indique si une convention unanime des actionnaires retire les pouvoirs du conseil d'administration. Colonne source IND_RET_TOUT_POUVR.
         logicalType: boolean
         physicalType: BOOLEAN
       - name: indicateur_responsabilite_limitee
+        businessName: Société à responsabilité limitée
         description: Indique si la société est une société à responsabilité limitée. Colonne source IND_LIMIT_RESP.
         logicalType: boolean
         physicalType: BOOLEAN
       - name: date_debut_responsabilite_limitee
+        businessName: Début de la responsabilité limitée
         description: Date à laquelle la société est devenue une société à responsabilité limitée. Colonne source DAT_DEB_RESP.
         logicalType: date
         physicalType: DATE
       - name: date_fin_responsabilite_limitee
+        businessName: Fin de la responsabilité limitée
         description: Date à laquelle la société a cessé d'être une société à responsabilité limitée. Colonne source DAT_FIN_RESP.
         logicalType: date
         physicalType: DATE
       - name: objet_societe
+        businessName: Objet de la société
         description: But dans lequel la société a été créée. Colonne source OBJET_SOC.
         logicalType: string
         physicalType: STRING
       - name: numero_autorite_publique
+        businessName: NEQ de l'autorité publique
         description: Numéro d'entreprise du Québec sous lequel une autorité publique est immatriculée. Colonne source NO_MTR_VOLONT.
         logicalType: string
         physicalType: STRING
       - name: indicateur_dispense_adresse
+        businessName: Dispense d'adresse
         description: Indique si l'entreprise est dispensée de fournir l'adresse de son domicile, auquel cas l'adresse est vide. Colonne source ADR_DOMCL_ADR_DISP.
         logicalType: boolean
         physicalType: BOOLEAN
       - name: adresse_ligne_1
+        businessName: Adresse du domicile, ligne 1
         description: Adresse du domicile, ligne 1. Colonne source ADR_DOMCL_LIGN1_ADR.
         logicalType: string
         physicalType: STRING
         classification: restricted
       - name: adresse_ligne_2
+        businessName: Adresse du domicile, ligne 2
         description: Adresse du domicile, ligne 2. Colonne source ADR_DOMCL_LIGN2_ADR.
         logicalType: string
         physicalType: STRING
         classification: restricted
       - name: adresse_ligne_3
+        businessName: Adresse du domicile, ligne 3
         description: Adresse du domicile, ligne 3. Colonne source ADR_DOMCL_LIGN3_ADR.
         logicalType: string
         physicalType: STRING
       - name: adresse_ligne_4
+        businessName: Adresse du domicile, ligne 4
         description: Adresse du domicile, ligne 4. Colonne source ADR_DOMCL_LIGN4_ADR.
         logicalType: string
         physicalType: STRING

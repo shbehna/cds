@@ -169,7 +169,7 @@ addresses masked (`****`). The service principal owns the space.
 ### Metric views
 
 The `metrics` step of the job creates the metric views of the tables whose contracts
-declare measures, such as `entreprise_indicateurs`, in the schema of their data product
+declare measures, such as `entreprise_metric`, in the schema of their data product
 (see [cds-demo/README.md](../README.md#metric-views)). The next runs update their
 definition when the contracts change, and drop those no longer declared. The service
 principal owns them; their users need `SELECT` on them, as on the tables, and the

@@ -37,6 +37,7 @@ schema:
         relationships:
           - to: entreprise.numero_entreprise
       - name: numero_etablissement
+        businessName: Numéro d'établissement
         description: Numéro de l'établissement au sein de son entreprise (suffixe du numéro de l'établissement). Colonne source NO_SUF_ETAB.
         logicalType: integer
         physicalType: INT
@@ -46,45 +47,54 @@ schema:
         logicalTypeOptions:
           minimum: 1
       - name: indicateur_etablissement_principal
+        businessName: Établissement principal
         description: Indique s'il s'agit de l'établissement principal de l'entreprise. Colonne source IND_ETAB_PRINC.
         logicalType: boolean
         physicalType: BOOLEAN
         required: true
       - name: indicateur_salon_bronzage
+        businessName: Salon de bronzage
         description: Indique si un salon de bronzage est exploité dans l'établissement. Colonne source IND_SALON_BRONZ.
         logicalType: boolean
         physicalType: BOOLEAN
         required: true
       - name: indicateur_vente_tabac
+        businessName: Vente de tabac au détail
         description: Indique si du tabac est vendu au détail dans l'établissement. Colonne source IND_VENTE_TABAC_DETL.
         logicalType: boolean
         physicalType: BOOLEAN
         required: true
       - name: indicateur_dispense_adresse
+        businessName: Dispense d'adresse
         description: Indique si l'entreprise est dispensée de fournir l'adresse, auquel cas l'adresse est vide. Colonne source IND_DISP.
         logicalType: boolean
         physicalType: BOOLEAN
       - name: adresse_ligne_1
+        businessName: Adresse de l'établissement, ligne 1
         description: Adresse de l'établissement, ligne 1. Colonne source LIGN1_ADR.
         logicalType: string
         physicalType: STRING
         classification: restricted
       - name: adresse_ligne_2
+        businessName: Adresse de l'établissement, ligne 2
         description: Adresse de l'établissement, ligne 2. Colonne source LIGN2_ADR.
         logicalType: string
         physicalType: STRING
         classification: restricted
       - name: adresse_ligne_3
+        businessName: Adresse de l'établissement, ligne 3
         description: Adresse de l'établissement, ligne 3. Colonne source LIGN3_ADR.
         logicalType: string
         physicalType: STRING
         classification: restricted
       - name: adresse_ligne_4
+        businessName: Adresse de l'établissement, ligne 4
         description: Adresse de l'établissement, ligne 4. Colonne source LIGN4_ADR.
         logicalType: string
         physicalType: STRING
         classification: restricted
       - name: code_premiere_activite
+        businessName: Code de la première activité économique
         description: Code de la première activité économique de l'établissement (domaine de valeur ACT_ECON). Colonne source COD_ACT_ECON.
         logicalType: string
         physicalType: STRING
@@ -92,14 +102,17 @@ schema:
           - property: allowedValues
             value: { reference: domaine_valeur.code, filter: "domaine = 'ACT_ECON'" }
       - name: description_premiere_activite
+        businessName: Première activité économique
         description: Description de la première activité économique de l'établissement. Colonne source DESC_ACT_ECON_ETAB.
         logicalType: string
         physicalType: STRING
       - name: rang_premiere_activite
+        businessName: Rang de la première activité économique
         description: Rang de la première activité économique de l'établissement. Colonne source NO_ACT_ECON_ETAB.
         logicalType: integer
         physicalType: INT
       - name: code_deuxieme_activite
+        businessName: Code de la deuxième activité économique
         description: Code de la deuxième activité économique de l'établissement (domaine de valeur ACT_ECON). Colonne source COD_ACT_ECON2.
         logicalType: string
         physicalType: STRING
@@ -107,14 +120,17 @@ schema:
           - property: allowedValues
             value: { reference: domaine_valeur.code, filter: "domaine = 'ACT_ECON'" }
       - name: description_deuxieme_activite
+        businessName: Deuxième activité économique
         description: Description de la deuxième activité économique de l'établissement. Colonne source DESC_ACT_ECON_ETAB2.
         logicalType: string
         physicalType: STRING
       - name: rang_deuxieme_activite
+        businessName: Rang de la deuxième activité économique
         description: Rang de la deuxième activité économique de l'établissement. Colonne source NO_ACT_ECON_ETAB2.
         logicalType: integer
         physicalType: INT
       - name: nom_etablissement
+        businessName: Nom de l'établissement
         description: Nom désignant l'établissement. Colonne source NOM_ETAB.
         logicalType: string
         physicalType: STRING

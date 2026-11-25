@@ -71,41 +71,50 @@ schema:
         logicalTypeOptions:
           pattern: "^[0-9]{5}$"
       - name: nom
+        businessName: Nom de la municipalité
         description: Nom de la municipalité. Colonne source munnom.
         logicalType: string
         physicalType: STRING
         required: true
       - name: adresse_physique_ligne_1
+        businessName: Adresse physique, ligne 1
         description: Adresse physique de la municipalité, ligne 1. Colonne source madr1.
         logicalType: string
         physicalType: STRING
       - name: adresse_physique_ligne_2
+        businessName: Adresse physique, ligne 2
         description: Adresse physique de la municipalité, ligne 2. Colonne source madr2.
         logicalType: string
         physicalType: STRING
       - name: adresse_postale_ligne_1
+        businessName: Adresse postale, ligne 1
         description: Adresse postale de la municipalité, ligne 1. Colonne source madr3.
         logicalType: string
         physicalType: STRING
       - name: adresse_postale_ligne_2
+        businessName: Adresse postale, ligne 2
         description: Adresse postale de la municipalité, ligne 2. Colonne source madr4.
         logicalType: string
         physicalType: STRING
       - name: code_postal
+        businessName: Code postal
         description: Code postal de la municipalité, au format A9A9A9. Colonne source mcodpos.
         logicalType: string
         physicalType: STRING
         logicalTypeOptions:
           pattern: "^[A-Z][0-9][A-Z][0-9][A-Z][0-9]$"
       - name: courriel
+        businessName: Courriel
         description: Adresse de courriel de la municipalité. Colonne source mcourriel.
         logicalType: string
         physicalType: STRING
       - name: site_web
+        businessName: Site Web
         description: Adresse du site Web de la municipalité. Colonne source mweb.
         logicalType: string
         physicalType: STRING
       - name: telephone
+        businessName: Téléphone
         description: Numéro de téléphone de la municipalité, à dix chiffres ; 0000000000 s'il n'est pas renseigné. Colonne source mtel.
         logicalType: string
         physicalType: STRING
@@ -123,6 +132,7 @@ schema:
             mustBeLessOrEqualTo: 5
             unit: percent
       - name: telecopieur
+        businessName: Télécopieur
         description: Numéro de télécopieur de la municipalité, à dix chiffres ; 0000000000 s'il n'est pas renseigné. Colonne source mfax.
         logicalType: string
         physicalType: STRING
@@ -154,162 +164,197 @@ schema:
           - { value: "26", label: "Territoire non organisé regroupé" }
           - { value: "40", label: "Gouvernement régional" }
       - name: designation
+        businessName: Désignation
         description: Désignation de la municipalité, par exemple Ville ou Paroisse, abrégée à 35 caractères. Colonne source mdes.
         logicalType: string
         physicalType: STRING
       - name: gentile
+        businessName: Gentilé
         description: Gentilé des habitants de la municipalité. Colonne source mgentile.
         logicalType: string
         physicalType: STRING
       - name: region_administrative
+        businessName: Région administrative
         description: Région administrative de la municipalité, suivie de son code à deux chiffres entre parenthèses, par exemple Estrie (05). Colonne source regadm.
         logicalType: string
         physicalType: STRING
       - name: division_recensement
+        businessName: Division de recensement
         description: Division de recensement de Statistique Canada, suivie de son code à deux chiffres entre parenthèses. Colonne source divrec.
         logicalType: string
         physicalType: STRING
       - name: municipalite_regionale_comte
+        businessName: Municipalité régionale de comté (MRC)
         description: Municipalité régionale de comté (MRC) de la municipalité, suivie de son code à trois chiffres entre parenthèses, par exemple MRC Acton (480). Colonne source mrc.
         logicalType: string
         physicalType: STRING
       - name: administration_regionale
+        businessName: Administration régionale
         description: Administration régionale de la municipalité, suivie de son code entre parenthèses, par exemple Administration régionale Kativik (992). Colonne source admregionale.
         logicalType: string
         physicalType: STRING
       - name: indicateur_autochtone_hors_municipalite_regionale_comte
+        businessName: Territoire autochtone hors MRC
         description: Indique si la municipalité est un territoire autochtone hors MRC. Colonne source horsmrcautoch.
         logicalType: boolean
         physicalType: BOOLEAN
       - name: date_constitution
+        businessName: Date de constitution
         description: Date de constitution de la municipalité. Colonne source mdatcons.
         logicalType: date
         physicalType: DATE
       - name: date_changement_regime
+        businessName: Date du changement de régime
         description: Date du changement de régime de la municipalité. Colonne source mdatregi.
         logicalType: date
         physicalType: DATE
       - name: superficie
+        businessName: Superficie
         description: Superficie totale de la municipalité, en kilomètres carrés, mise à jour une fois par année. Colonne source msuperf.
         logicalType: number
         physicalType: DECIMAL(12,3)
         logicalTypeOptions:
           minimum: 0
       - name: superficie_terrestre
+        businessName: Superficie terrestre
         description: Superficie terrestre de la municipalité, en kilomètres carrés. Colonne source msupft.
         logicalType: number
         physicalType: DECIMAL(12,3)
         logicalTypeOptions:
           minimum: 0
       - name: population
+        businessName: Population
         description: Population de la municipalité, fixée chaque année par décret du gouvernement. Colonne source mpopul.
         logicalType: integer
         physicalType: INT
         logicalTypeOptions:
           minimum: 0
       - name: date_prochaine_election
+        businessName: Date de la prochaine élection
         description: Date des prochaines élections municipales ; 0001-01-01 si elle n'est pas connue. Colonne source datelec.
         logicalType: date
         physicalType: DATE
       - name: code_type_election
+        businessName: Code du type d'élection
         description: Code du type de l'élection du conseil, par exemple B pour une élection en bloc. Colonne source electype.
         logicalType: string
         physicalType: STRING
       - name: type_election
+        businessName: Type d'élection
         description: Type de l'élection du conseil, par exemple En bloc / tout le conseil. Colonne source delectype.
         logicalType: string
         physicalType: STRING
       - name: code_mode_election
+        businessName: Code du mode d'élection
         description: Code du mode de désignation du conseil, par exemple E pour une élection. Colonne source elecmode.
         logicalType: string
         physicalType: STRING
       - name: mode_election
+        businessName: Mode d'élection
         description: Mode de désignation du conseil, par exemple Élection ou S.O. - Administrateur nommé. Colonne source delecmode.
         logicalType: string
         physicalType: STRING
       - name: division_territoriale
+        businessName: Division territoriale
         description: Division du territoire de la municipalité pour les élections, par exemple District, Quartier ou Sans division. Colonne source divter.
         logicalType: string
         physicalType: STRING
       - name: communaute_metropolitaine
+        businessName: Communauté métropolitaine
         description: Communauté métropolitaine de la municipalité, suivie de son code entre parenthèses. Colonne source mcm.
         logicalType: string
         physicalType: STRING
       - name: circonscriptions_electorales
+        businessName: Circonscriptions électorales
         description: Circonscriptions électorales provinciales de la municipalité, chacune suivie de son code entre parenthèses, séparées par des points-virgules. Colonne source mcirc.
         logicalType: string
         physicalType: STRING
       - name: maire
+        businessName: Maire
         description: Nom du maire. Colonne source maire.
         logicalType: string
         physicalType: STRING
         classification: confidential
       - name: directeur_general
+        businessName: Directeur général
         description: Nom du directeur général. Colonne source dirgen.
         logicalType: string
         physicalType: STRING
         classification: confidential
       - name: directeur_securite_publique
+        businessName: Directeur de la sécurité publique
         description: Nom du directeur de la sécurité publique. Colonne source dirsecpub.
         logicalType: string
         physicalType: STRING
         classification: confidential
       - name: tresorier
+        businessName: Trésorier
         description: Nom du trésorier. Colonne source tres.
         logicalType: string
         physicalType: STRING
         classification: confidential
       - name: greffier
+        businessName: Greffier
         description: Nom du greffier. Colonne source gref.
         logicalType: string
         physicalType: STRING
         classification: confidential
       - name: secretaire_tresorier
+        businessName: Secrétaire-trésorier
         description: Nom du secrétaire-trésorier. Colonne source sectres.
         logicalType: string
         physicalType: STRING
         classification: confidential
       - name: directeur_police
+        businessName: Directeur de police
         description: Nom du directeur ou du chef de police. Colonne source polic.
         logicalType: string
         physicalType: STRING
         classification: confidential
       - name: directeur_incendie
+        businessName: Directeur du service d'incendie
         description: Nom du directeur du service d'incendie. Colonne source incen.
         logicalType: string
         physicalType: STRING
         classification: confidential
       - name: directeur_loisirs
+        businessName: Directeur des loisirs
         description: Nom du directeur des loisirs. Colonne source loisir.
         logicalType: string
         physicalType: STRING
         classification: confidential
       - name: directeur_travaux_publics
+        businessName: Directeur des travaux publics
         description: Nom du directeur des travaux publics. Colonne source trvpub.
         logicalType: string
         physicalType: STRING
         classification: confidential
       - name: coordonnateur_mesures_urgence
+        businessName: Coordonnateur des mesures d'urgence
         description: Nom du coordonnateur des mesures d'urgence. Colonne source mesurg.
         logicalType: string
         physicalType: STRING
         classification: confidential
       - name: responsable_urbanisme
+        businessName: Responsable de l'urbanisme
         description: Nom du responsable de l'urbanisme. Colonne source urban.
         logicalType: string
         physicalType: STRING
         classification: confidential
       - name: directeur_communications
+        businessName: Directeur des communications
         description: Nom du directeur des communications. Colonne source communic.
         logicalType: string
         physicalType: STRING
         classification: confidential
       - name: responsable_permis
+        businessName: Responsable des permis
         description: Nom du responsable de l'émission des permis et des certificats d'urbanisme. Colonne source permis.
         logicalType: string
         physicalType: STRING
         classification: confidential
       - name: inspecteur_municipal
+        businessName: Inspecteur municipal
         description: Nom de l'inspecteur municipal et de voirie. Colonne source batim.
         logicalType: string
         physicalType: STRING

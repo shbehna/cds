@@ -18,7 +18,10 @@ object, see ``cds.semantics``) has a metric view (``MetricViewSettings``):
   ``comment``, its ``businessName`` as ``display_name`` and its ``synonyms``. A column
   whose ``enum`` has labels has a second dimension, ``<name>_label``, its codes replaced
   by their labels: it takes the business name and the synonyms of the column, whose code
-  dimension is displayed as ``<business name> (code)``. The columns of the
+  dimension is displayed as ``<business name> (code)``. The display name of a column of
+  a joined table starts with the business name of the table (its name if it has none),
+  followed by the alias of the join if the table is joined more than once:
+  ``<table> - <business name>``. The columns of the
   ``MetricViewSettings.excluded_classifications`` are left out;
 - its measures are those of the contract.
 
@@ -53,6 +56,8 @@ MAX_SYNONYMS = 10
 MAX_DISPLAY_NAME_LENGTH = 255
 # Delimiter of the YAML in the statement creating a metric view.
 DELIMITER = "$$"
+# Between the business name of a joined table and that of its column.
+JOINED_SEPARATOR = " - "
 
 
 @dataclass(frozen=True)
@@ -118,11 +123,29 @@ def _literal(value: object) -> str:
     return string_literal(str(value))
 
 
-def _fields(table: Table, prop: SchemaProperty, alias: str, name: str) -> list[dict[str, Any]]:
-    """The dimensions of a column: its codes, and their labels if its ``enum`` has some."""
+def _joined_prefix(join: Join, table_joins: Sequence[Join]) -> str:
+    """The start of the display names of the columns of a joined table: its business name, else its name.
+
+    A table joined more than once is told apart by the alias of the join.
+    """
+    prefix = (join.target.schema_object.business_name or "").strip() or join.target.name
+    if sum(other.target is join.target for other in table_joins) > 1:
+        prefix = f"{prefix} ({join.alias})"
+    return prefix
+
+
+def _fields(
+    table: Table, prop: SchemaProperty, alias: str, name: str, *, prefix: str | None = None
+) -> list[dict[str, Any]]:
+    """The dimensions of a column: its codes, and their labels if its ``enum`` has some.
+
+    The business name of the column of a joined table starts with ``prefix``.
+    """
     where = f"{table.qualified_name}.{prop.column}"
     expr = f"{alias}.{quote_identifier(prop.column)}"
     business_name = (prop.business_name or "").strip() or None
+    if business_name and prefix:
+        business_name = f"{prefix}{JOINED_SEPARATOR}{business_name}"
     synonym_list = _synonyms(prop, where)
     if not any(value.label for value in prop.enum):
         metadata = _metadata(
@@ -184,8 +207,8 @@ def build_metric_view(table: Table, context: ServiceContext, found: Sequence[Joi
             computed if not given.
 
     Raises:
-        ContractError: If a measure is invalid, two fields or measures have the same name,
-            or a limit of the metric views is exceeded.
+        ContractError: If a measure is invalid, two fields or measures have the same name or
+            display name, or a limit of the metric views is exceeded.
     """
     name = metric_view_name(table)
     if name is None:
@@ -204,12 +227,13 @@ def build_metric_view(table: Table, context: ServiceContext, found: Sequence[Joi
         for item in _fields(table, prop, "source", prop.column)
     ]
     for join in table_joins:
+        prefix = _joined_prefix(join, table_joins)
         for prop in join.target.columns:
             column = prop.column
             if column in join.target_columns or _excluded(join.target, prop):
                 continue
             if column in join.target.primary_key or _coded(prop):
-                fields += _fields(join.target, prop, join.alias, f"{join.alias}_{column}")
+                fields += _fields(join.target, prop, join.alias, f"{join.alias}_{column}", prefix=prefix)
     definition: dict[str, Any] = {"version": VERSION, "source": context.full_table_name(table)}
     if table.description:
         definition["comment"] = " ".join(table.description.split())
@@ -220,6 +244,7 @@ def build_metric_view(table: Table, context: ServiceContext, found: Sequence[Joi
         _measure(measure, f"{table.qualified_name}: measure {measure.name!r}") for measure in declared
     ]
     seen: set[str] = set()
+    displayed: set[str] = set()
     for item in [*fields, *definition["measures"]]:
         key = item["name"].casefold()
         if key in seen:
@@ -227,6 +252,15 @@ def build_metric_view(table: Table, context: ServiceContext, found: Sequence[Joi
                 f"{table.qualified_name}: the metric view {name} has two fields or measures named {item['name']!r}."
             )
         seen.add(key)
+        display_name = item.get("display_name")
+        if display_name is None:
+            continue
+        if display_name.casefold() in displayed:
+            raise ContractError(
+                f"{table.qualified_name}: the metric view {name} has two fields or measures displayed as "
+                f"{display_name!r}: give their columns or measures distinct business names."
+            )
+        displayed.add(display_name.casefold())
     view = MetricView(table, name, definition, declared)
     if DELIMITER in view.yaml:
         raise ContractError(f"{table.qualified_name}: the metric view {name} cannot contain {DELIMITER}.")

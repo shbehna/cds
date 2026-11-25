@@ -358,21 +358,22 @@ governed measures of a table, which Genie, the dashboards and Genie Ontology use
 contracts declare the measures of their tables, in French, in the `measures` custom
 property of their schema object, and the `metric_views` settings of
 [donnees_qc_config.py](products/donnees_qc/donnees_qc_config.py) give each of these
-tables a metric view, `<table>_indicateurs`, generated from its contract (see
+tables a metric view, `<table>_metric`, generated from its contract (see
 [cds.metric_views](../cds-framework/README.md#metric-views)):
 
 | Metric view | Measures |
 | --- | --- |
-| `entreprise_indicateurs` | *Nombre d'entreprises*, *Entreprises immatriculées*, *Entreprises en faillite* |
-| `etablissement_indicateurs` | *Nombre d'établissements*, *Entreprises ayant un établissement* |
-| `continuation_transformation_indicateurs` | *Nombre de continuations et de transformations* |
-| `municipalite_indicateurs` | *Nombre de municipalités*, *Population totale*, *Superficie totale* |
-| `conseiller_municipal_indicateurs` | *Nombre de sièges*, *Sièges vacants* |
+| `entreprise_metric` | *Nombre d'entreprises*, *Entreprises immatriculées*, *Entreprises en faillite* |
+| `etablissement_metric` | *Nombre d'établissements*, *Entreprises ayant un établissement* |
+| `continuation_transformation_metric` | *Nombre de continuations et de transformations* |
+| `municipalite_metric` | *Nombre de municipalités*, *Population totale*, *Superficie totale* |
+| `conseiller_municipal_metric` | *Nombre de sièges*, *Sièges vacants* |
 
-Their dimensions are the columns of the table, with their business names and synonyms,
-and the key and coded columns of the tables it joins: `etablissement_indicateurs` counts
+Their dimensions are the columns of the table, with their business names and synonyms
+(each column of these tables has a `businessName`, its display name), and the key and
+coded columns of the tables it joins, such as *Entreprise - Forme juridique*: `etablissement_metric` counts
 the establishments by the legal form of their enterprise, and
-`conseiller_municipal_indicateurs` the seats by the designation of their municipality.
+`conseiller_municipal_metric` the seats by the designation of their municipality.
 The codes of an `enum` also have their labels, such as *Société par actions ou
 compagnie*. The `restricted` addresses, which the deployment masks, are not dimensions.
 The metric views have the certification of their tables, and the Discover domain in
@@ -448,8 +449,8 @@ The other services cover it as they cover `req`:
   unknown values. The `confidential` names are not masked.
 - **Pages**: in the subdomain **Ministère des Affaires municipales et de l'Habitation**,
   for its tables and the code lists of the designations and of the groups of titles.
-- **Metric views**: `municipalite_indicateurs` (municipalities, population, area) and
-  `conseiller_municipal_indicateurs` (seats, vacant seats).
+- **Metric views**: `municipalite_metric` (municipalities, population, area) and
+  `conseiller_municipal_metric` (seats, vacant seats).
 
 ## Run locally
 

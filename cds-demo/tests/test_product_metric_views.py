@@ -36,8 +36,7 @@ def test_each_table_with_measures_has_a_metric_view(data_product: DataProduct, c
     assert views
     for table in data_product.tables:
         if table_measures(table):
-            # Named in French, like the history tables.
-            assert views[table.name].name == f"{table.name}_indicateurs"
+            assert views[table.name].name == f"{table.name}_metric"
         else:
             assert table.name not in views
 
@@ -47,6 +46,13 @@ def test_the_measures_are_documented_in_french(data_product: DataProduct, contex
     for view in build_metric_views(data_product, context):
         for measure in view.definition["measures"]:
             assert measure.get("display_name") and measure.get("comment"), f"{view.name}.{measure['name']}"
+
+
+def test_the_fields_have_a_business_name(data_product: DataProduct, context: ServiceContext) -> None:
+    """Genie and the users read the fields by their display name: the businessName of their column."""
+    for view in build_metric_views(data_product, context):
+        for field in view.definition["fields"]:
+            assert field.get("display_name"), f"{view.name}.{field['name']}: the column needs a businessName"
 
 
 def test_the_restricted_columns_are_not_dimensions(data_product: DataProduct, context: ServiceContext) -> None:
