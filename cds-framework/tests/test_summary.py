@@ -12,7 +12,7 @@ from test_quality_scd_snapshot import CUSTOMER_TABLE, FakeEngine, quality_servic
 from cds import ConfigurationError, ContractError, DataContext, RuntimeConfiguration, ServiceContext, Status
 from cds.cli import main
 from cds.odcs import QualityRule
-from cds.services.checks import build_checks, make_check
+from cds.services.checks import CheckSet, build_checks, make_check
 from cds.services.summary import (
     COLUMNS,
     SummaryRow,
@@ -66,20 +66,18 @@ def rule(**fields: Any) -> QualityRule:
 
 
 def test_rule_thresholds() -> None:
-    assert rule_thresholds(rule(mustBeLessThan=5, unit="percent"), "t") == [
-        Threshold("mustBeLessThan", 5, unit="percent")
-    ]
-    assert rule_thresholds(rule(mustBeBetween=[1, 3], unit="%"), "t") == [
-        Threshold("mustBeBetween", 1, 3, unit="percent")
-    ]
-    assert rule_thresholds(rule(mustBe=0, unit="Rows"), "t") == [Threshold("mustBe", 0)]
-    assert rule_thresholds(rule(), "t") == []
+    assert rule_thresholds(rule(mustBeLessThan=5, unit="percent")) == [Threshold("mustBeLessThan", 5, unit="percent")]
+    assert rule_thresholds(rule(mustBeBetween=[1, 3], unit="%")) == [Threshold("mustBeBetween", 1, 3, unit="percent")]
+    assert rule_thresholds(rule(mustBe=0, unit="Rows")) == [Threshold("mustBe", 0)]
+    assert rule_thresholds(rule()) == []
+    # Without thresholds, the unit is not read: it may only describe the rule.
+    assert rule_thresholds(rule(unit="lines")) == []
 
 
 @pytest.mark.parametrize(
     ("fields", "metric", "message"),
     [
-        ({"mustBe": "0"}, "failedRows", "t: quality rule 'r': mustBe must be a number, got '0'"),
+        ({"mustBe": "0"}, "failedRows", "^quality rule 'r': mustBe must be a number, got '0'$"),
         ({"mustBe": True}, "failedRows", "mustBe must be a number"),
         ({"mustBeBetween": [1]}, "failedRows", r"mustBeBetween must be a pair of numbers \[low, high\]"),
         ({"mustBeBetween": [3, 1]}, "failedRows", "the low bound 3.0 is above the high bound 1.0"),
@@ -90,7 +88,7 @@ def test_rule_thresholds() -> None:
 )
 def test_rule_thresholds_are_validated(fields: dict[str, Any], metric: str, message: str) -> None:
     with pytest.raises(ContractError, match=message):
-        rule_thresholds(rule(**fields), "t", metric)
+        rule_thresholds(rule(**fields), metric)
 
 
 def rows(**overrides: Any) -> list[SummaryRow]:
@@ -316,14 +314,124 @@ def test_the_summary_cannot_replace_a_table(make_project: MakeProject, spark: Fa
         summary_table(context.data_context.get_table("customer"), context)
 
 
-def test_check_names_with_thresholds_are_unique(make_project: MakeProject, spark: FakeSpark) -> None:
-    contract = RULES.replace("name: name_mostly_present", "name: name_is_null").replace(
-        "            logicalType: string\n", "            logicalType: string\n            required: true\n"
+def name_rules(*rules: str, required: bool = False) -> str:
+    """The customer contract, with quality rules on its name column."""
+    return CUSTOMER.replace(
+        "            description: Name of the customer.\n",
+        "            description: Name of the customer.\n"
+        + ("            required: true\n" if required else "")
+        + "            quality:\n"
+        + "".join(f"              - {item}\n" for item in rules),
     )
-    context = rules_context(make_project, spark, {"sales/orders/customer/customer.yaml": contract})
 
-    with pytest.raises(ContractError, match=r"two checks are named 'name_is_null': name the quality rule"):
-        build_checks(context.data_context.get_table("customer"), context)
+
+def checks_of(make_project: MakeProject, spark: FakeSpark, contract: str, config: str | None = None) -> CheckSet:
+    files = {"sales/orders/customer/customer.yaml": contract}
+    if config:
+        files["sales/orders/customer/customer_config.py"] = config
+    context = rules_context(make_project, spark, files)
+    return build_checks(context.data_context.get_table("customer"), context)
+
+
+def test_a_rule_shares_the_identical_inferred_check(make_project: MakeProject, spark: FakeSpark) -> None:
+    contract = name_rules("{metric: nullValues, mustBeLessThan: 5, unit: percent}", required=True)
+
+    check_set = checks_of(make_project, spark, contract)
+
+    # The rows are flagged once, by the check of the required column, held to the threshold.
+    assert [check["name"] for check in check_set.checks].count("name_is_null") == 1
+    assert check_set.thresholds["name_is_null"] == [Threshold("mustBeLessThan", 5, unit="percent")]
+    assert check_set.unsupported == []
+
+
+def test_a_default_name_taken_by_another_check_is_numbered(make_project: MakeProject, spark: FakeSpark) -> None:
+    contract = name_rules(
+        "{metric: nullValues, severity: warning, mustBe: 0}",
+        "{metric: nullValues, mustBeLessThan: 5, unit: percent}",
+        required=True,
+    )
+
+    check_set = checks_of(make_project, spark, contract)
+
+    checks = {check["name"]: check for check in check_set.checks}
+    assert checks["name_is_null"]["criticality"] == "error"
+    assert checks["name_is_null_2"]["criticality"] == "warn"
+    assert check_set.thresholds["name_is_null"] == [Threshold("mustBeLessThan", 5, unit="percent")]
+    assert check_set.thresholds["name_is_null_2"] == [Threshold("mustBe", 0)]
+
+
+def test_the_thresholds_of_a_shared_name_are_ignored(make_project: MakeProject, spark: FakeSpark) -> None:
+    contract = name_rules("{metric: nullValues, name: name_present, mustBe: 0}")
+    # A configured check with the name of the rule, whatever their order.
+    config = (
+        "from cds import ContractConfig\n"
+        "config = ContractConfig(name='customer', quality_checks=[{'name': 'name_present', "
+        "'check': {'function': 'is_not_empty', 'arguments': {'column': 'name'}}}])\n"
+    )
+
+    check_set = checks_of(make_project, spark, contract, config)
+
+    assert "name_present" not in check_set.thresholds
+    assert check_set.unsupported == [
+        "sales.orders.customer: the thresholds of 'name_present' are ignored: 2 checks have this name"
+    ]
+
+
+def test_the_bounds_of_a_row_count_get_distinct_names(make_project: MakeProject, spark: FakeSpark) -> None:
+    contract = CUSTOMER.replace(
+        "    schema:\n      - name: customer\n",
+        "    schema:\n      - name: customer\n"
+        "        quality:\n"
+        "          - {metric: rowCount, mustBeGreaterThan: 0, mustBeGreaterOrEqualTo: 10, mustBeBetween: [5, 100]}\n",
+    )
+
+    check_set = checks_of(make_project, spark, contract)
+
+    assert check_set.thresholds == {
+        "row_count_minimum": [Threshold("mustBeGreaterThan", 0, metric="rowCount")],
+        "row_count_minimum_2": [Threshold("mustBeGreaterOrEqualTo", 10, metric="rowCount")],
+        "row_count_minimum_3": [Threshold("mustBeGreaterOrEqualTo", 5, metric="rowCount")],
+        "row_count_maximum": [Threshold("mustBeLessOrEqualTo", 100, metric="rowCount")],
+    }
+
+
+@pytest.mark.parametrize(
+    ("item", "note"),
+    [
+        (
+            "{metric: nullValues, mustBeLessThan: 500, unit: percent}",
+            "sales.orders.customer.name: quality rule 'nullValues': mustBeLessThan: a percentage is from 0 to 100",
+        ),
+        (
+            "{metric: rowCount, mustBeGreaterThan: 10, unit: percent}",
+            "a rowCount threshold is a number of rows, not a percentage",
+        ),
+    ],
+)
+def test_a_library_rule_with_an_invalid_threshold_is_not_checked(
+    make_project: MakeProject, spark: FakeSpark, item: str, note: str
+) -> None:
+    check_set = checks_of(make_project, spark, name_rules(item))
+
+    assert check_set.thresholds == {}
+    [unsupported] = check_set.unsupported
+    assert note in unsupported
+
+
+def test_the_invalid_thresholds_of_a_custom_rule_are_ignored(make_project: MakeProject, spark: FakeSpark) -> None:
+    contract = name_rules(
+        "{type: custom, engine: dqx, name: name_short, mustBe: x, unit: lines, "
+        "implementation: {check: {function: is_not_null}}}"
+    )
+
+    check_set = checks_of(make_project, spark, contract)
+
+    assert "name_short" in [check.get("name") for check in check_set.checks]
+    assert check_set.thresholds == {}
+    assert check_set.unsupported == [
+        "sales.orders.customer.name: quality rule 'name_short': the unit must be rows or percent, got 'lines': "
+        "the thresholds are ignored"
+    ]
 
 
 def test_dqx_rules_with_thresholds_need_named_checks(make_project: MakeProject, spark: FakeSpark) -> None:
@@ -338,10 +446,12 @@ def test_dqx_rules_with_thresholds_need_named_checks(make_project: MakeProject, 
         "                  - {check: {function: is_not_null}}\n"
         "                  - {check: {function: is_not_empty}}\n",
     )
-    context = rules_context(make_project, spark, {"sales/orders/customer/customer.yaml": contract})
+    check_set = checks_of(make_project, spark, contract)
 
-    with pytest.raises(ContractError, match=r"the DQX checks of a rule with thresholds need a name"):
-        build_checks(context.data_context.get_table("customer"), context)
+    assert len(check_set.checks) == 4
+    assert check_set.thresholds == {}
+    [note] = check_set.unsupported
+    assert "the thresholds are ignored: its DQX checks need a name" in note
 
 
 def test_cli_validate_reports_invalid_thresholds(make_project: MakeProject, capsys: pytest.CaptureFixture[str]) -> None:
@@ -349,5 +459,36 @@ def test_cli_validate_reports_invalid_thresholds(make_project: MakeProject, caps
         {"sales/orders/customer/customer.yaml": RULES.replace("mustBeLessThan: 5", "mustBeLessThan: 500")}
     )
 
+    # Listed with the rules not checked, as the other rules the framework cannot check.
+    assert main(["validate", str(root)]) == 0
+    assert "not checked: sales.orders.customer.name: quality rule 'name_mostly_present': mustBeLessThan: " in (
+        capsys.readouterr().out
+    )
+
+
+def test_cli_validate_reports_invalid_error_rates(
+    make_project: MakeProject, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = make_project({"sales/orders/customer/customer.yaml": RULES.replace("value: 1, unit", "value: 150, unit")})
+
     assert main(["validate", str(root)]) == 1
-    assert "a percentage is from 0 to 100, got 500" in capsys.readouterr().out
+    assert "invalid SLA: slaProperties[0]: errorRate: the value must be a percentage" in capsys.readouterr().out
+
+
+def test_quality_reports_a_summary_it_cannot_write(
+    make_project: MakeProject, spark: FakeSpark, engine: FakeEngine
+) -> None:
+    context = rules_context(make_project, spark)
+    spark.add_table(CUSTOMER_TABLE, ["customer_id", "name", "created_on"])
+    spark.on(r"count_if", [Row(total=10, errors=0, warnings=0)])
+    spark.on(r"^CREATE TABLE IF NOT EXISTS .*_quality_summary", RuntimeError("permission denied"))
+
+    [result] = run(quality_service(context, engine), context).results
+
+    # The table is checked and rewritten: the summary is reported, not raised.
+    assert result.status is Status.WARNING
+    assert result.message == (
+        "3 check(s) on 10 row(s): 0 row(s) with errors, 0 with warnings; summary not written to "
+        "dev.sales_orders._quality_summary: RuntimeError: permission denied"
+    )
+    assert spark.statements_matching(r"^INSERT OVERWRITE TABLE `dev`.`sales_orders`.`customer`")

@@ -23,11 +23,16 @@ The checks are DQX metadata dictionaries, applied with
   thresholds, and ``custom`` rules of the ``dqx`` engine, whose implementation is a DQX
   check.
 
-DQX flags each row a check fails, with the criticality of the ``severity`` of its rule.
-The thresholds of the rules (``mustBe``, ``mustBeLessThan``... in ``rows`` or
-``percent``) are kept in ``CheckSet.thresholds``, by check name: the quality summary
-compares the rows a check flags to them (see ``cds.services.summary``). A library rule
-without threshold is not checked.
+DQX flags each row a check fails, with the criticality of the ``severity`` of its rule,
+whatever its threshold. The thresholds of the rules (``mustBe``, ``mustBeLessThan``...
+in ``rows`` or ``percent``) are kept in ``CheckSet.thresholds``, by check name: the
+quality summary compares the rows a check flags to them (see
+``cds.services.summary``). A library rule without threshold, or with an invalid one, is
+not checked; the invalid thresholds of a custom rule are ignored. A check of a rule
+identical to a check already inferred, such as ``nullValues`` on a ``required`` column,
+is shared; a default name taken by another check gets a number (``x_is_null_2``). The
+thresholds of a name that several checks have are ignored: the summary cannot tell them
+apart.
 
 The ``quality_checks`` of the contract configuration are added to these checks. The
 rules and options no check implements are reported in ``CheckSet.unsupported``.
@@ -38,6 +43,7 @@ from __future__ import annotations
 import copy
 import logging
 import math
+from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -162,7 +168,22 @@ def build_checks(
     _ContractChecks(table, context, check_set, read_values).build()
     if include_configured:
         check_set.checks.extend(configured_checks(table, context))
+    ignore_ambiguous_thresholds(table, check_set)
     return check_set
+
+
+def ignore_ambiguous_thresholds(table: Table, check_set: CheckSet) -> None:
+    """Ignores the thresholds of a name that several checks have, noting it in ``unsupported``.
+
+    The summary identifies the checks by name: it cannot tell apart the rows they flag.
+    Call it again after adding checks to the set.
+    """
+    names = Counter(check.get("name") for check in check_set.checks)
+    for name in [name for name in check_set.thresholds if names[name] > 1]:
+        del check_set.thresholds[name]
+        check_set.unsupported.append(
+            f"{table.qualified_name}: the thresholds of {name!r} are ignored: {names[name]} checks have this name"
+        )
 
 
 def checked_tables(data_product: DataProduct, context: ServiceContext) -> list[Table]:
@@ -529,52 +550,74 @@ class _ContractChecks:
         if rule.type == "custom":
             if (rule.engine or "").lower() == DQX_ENGINE:
                 checks = self._dqx_rule(rule, prop)
-                thresholds = rule_thresholds(rule, self._where(prop))
+                try:
+                    thresholds = rule_thresholds(rule)
+                except ContractError as exc:
+                    self._not_checked(prop, f"{exc}: the thresholds are ignored")
+                    thresholds = []
                 if thresholds and any(not check.get("name") for check in checks):
-                    raise ContractError(
-                        f"{self._where(prop)}: the DQX checks of a rule with thresholds need a name: "
-                        "the quality summary compares the rows they flag to the thresholds."
+                    self._not_checked(
+                        prop,
+                        f"quality rule {rule.name or rule.engine!r}: the thresholds are ignored: its DQX checks "
+                        "need a name, which identifies them in the quality summary",
                     )
-                self._add_rule_checks([(check, thresholds) for check in checks])
+                    thresholds = []
+                self._add_rule_checks([(check, thresholds) for check in checks], default_names=False)
             else:
                 self._not_checked(prop, f"custom rule for the engine {rule.engine!r}")
             return
         if rule.type == "library":
-            rule_checks = self._library_rule(rule, prop)
+            try:
+                thresholds = rule_thresholds(rule, ROW_COUNT if rule.metric == "rowCount" else FAILED_ROWS)
+            except ContractError as exc:
+                self._not_checked(prop, str(exc))
+                return
+            rule_checks = self._library_rule(rule, prop, thresholds)
             if rule_checks:
-                self._add_rule_checks(rule_checks)
+                self._add_rule_checks(rule_checks, default_names=not rule.name)
             else:
                 self._not_checked(prop, f"library rule {rule.metric!r} with {dict(rule.thresholds) or 'no threshold'}")
             return
         self._not_checked(prop, f"{rule.type} rule {rule.name or ''}".rstrip())
 
-    def _add_rule_checks(self, checks: Sequence[tuple[dict[str, Any], Sequence[Threshold]]]) -> None:
+    def _add_rule_checks(
+        self, checks: Sequence[tuple[dict[str, Any], Sequence[Threshold]]], *, default_names: bool
+    ) -> None:
         """Adds the checks of a rule, and their thresholds.
 
-        Raises:
-            ContractError: If a check with thresholds has the name of another check: the
-                summary identifies the checks by name.
+        A check identical to one already added, such as ``nullValues`` on a ``required``
+        column, is shared: the rows are flagged once, and it gets the thresholds. A default
+        name taken by another check gets a number. The thresholds of a name that several
+        checks keep are ignored (see ``ignore_ambiguous_thresholds``).
+
+        Args:
+            checks: The checks of the rule, with their thresholds.
+            default_names: Whether the names of the checks are defaults, the rule having no name.
         """
         for check, thresholds in checks:
-            if thresholds:
-                name = str(check["name"])
-                if any(other.get("name") == name for other in self.check_set.checks):
-                    raise ContractError(
-                        f"{self.table.qualified_name}: two checks are named {name!r}: name the quality rule "
-                        "(name), the quality summary identifies its checks by name."
-                    )
-                self.check_set.thresholds[name] = list(thresholds)
-            self.check_set.checks.append(check)
+            name = check.get("name")
+            taken = [other for other in self.check_set.checks if name and other.get("name") == name]
+            if check not in taken:
+                if taken and default_names:
+                    name = self._unique_name(str(name))
+                    check = {**check, "name": name}
+                self.check_set.checks.append(check)
+            if thresholds and name:
+                self.check_set.thresholds.setdefault(str(name), []).extend(thresholds)
+
+    def _unique_name(self, base: str) -> str:
+        names = {check.get("name") for check in self.check_set.checks}
+        number = 2
+        while f"{base}_{number}" in names:
+            number += 1
+        return f"{base}_{number}"
 
     def _library_rule(
-        self, rule: QualityRule, prop: SchemaProperty | None
+        self, rule: QualityRule, prop: SchemaProperty | None, thresholds: Sequence[Threshold]
     ) -> list[tuple[dict[str, Any], Sequence[Threshold]]]:
         criticality = _criticality(rule)
         if rule.metric == "rowCount":
-            if prop is not None:
-                return []
-            return _row_count_checks(rule, criticality, rule_thresholds(rule, self._where(prop), ROW_COUNT))
-        thresholds = rule_thresholds(rule, self._where(prop), FAILED_ROWS)
+            return [] if prop is not None else _row_count_checks(rule, criticality, thresholds)
         if not thresholds:
             return []
         return [(check, thresholds) for check in self._row_checks(rule, prop, criticality)]
@@ -703,7 +746,8 @@ def _row_count_checks(
     """The aggregate checks of a ``rowCount`` rule, each with the threshold it implements.
 
     ``mustBeBetween`` is checked by a minimum and a maximum: the summary holds the table
-    to the bound each one checks. ``mustNotBeBetween`` has no check.
+    to the bound each one checks. ``mustNotBeBetween`` has no check. Several bounds of
+    the same kind, such as two minimums, are numbered (``row_count_minimum_2``).
     """
     limits: list[tuple[str, str, Any, Threshold]] = []
     for threshold in thresholds:
@@ -725,20 +769,15 @@ def _row_count_checks(
             limits.append(("minimum", "is_aggr_not_less_than", math.ceil(low), _bound(threshold, low, True)))
             limits.append(("maximum", "is_aggr_not_greater_than", math.floor(high), _bound(threshold, high, False)))
     base = rule.name or "row_count"
-    return [
-        (
-            make_check(
-                f"{base}_{suffix}" if len(limits) > 1 or not rule.name else base,
-                criticality,
-                function,
-                column="*",
-                aggr_type="count",
-                limit=limit,
-            ),
-            [threshold],
-        )
-        for suffix, function, limit, threshold in limits
-    ]
+    counts: Counter[str] = Counter()
+    checks: list[tuple[dict[str, Any], Sequence[Threshold]]] = []
+    for suffix, function, limit, threshold in limits:
+        counts[suffix] += 1
+        key = suffix if counts[suffix] == 1 else f"{suffix}_{counts[suffix]}"
+        name = f"{base}_{key}" if len(limits) > 1 or not rule.name else base
+        check = make_check(name, criticality, function, column="*", aggr_type="count", limit=limit)
+        checks.append((check, [threshold]))
+    return checks
 
 
 def _bound(threshold: Threshold, value: float, low: bool) -> Threshold:
