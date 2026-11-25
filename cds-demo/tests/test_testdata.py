@@ -60,14 +60,14 @@ def is_number(value: Value) -> bool:
 class Expression:
     """A SQL expression of the contracts (sql_expression checks), evaluated on a row.
 
-    The evaluator knows the subset of SQL the contracts use: comparisons of columns,
+    The evaluator knows the subset of SQL the contracts use: comparisons of columns (quoted or not),
     literals (strings, numbers, TRUE, FALSE, NULL) and function calls (trim, upper,
     lower, current_date), IS [NOT] NULL, AND, OR, NOT and parentheses. The dates are ISO
     strings, compared as strings. A string compared with a number is cast to a number, as
     Spark does: null when it is not one. None is the null of SQL, with its three-valued logic.
     """
 
-    TOKEN = re.compile(r"\s*(<>|!=|<=|>=|=|<|>|\(|\)|,|'(?:[^']|'')*'|\d+(?:\.\d+)?|\w+)")
+    TOKEN = re.compile(r"\s*(<>|!=|<=|>=|=|<|>|\(|\)|,|'(?:[^']|'')*'|\d+(?:\.\d+)?|`[^`]+`|\w+)")
     COMPARISONS: Mapping[str, Callable[[Any, Any], bool]] = {
         "=": operator.eq,
         "<>": operator.ne,
@@ -182,6 +182,8 @@ class Expression:
             return token.upper() == "TRUE"
         if token.upper() == "NULL":
             return None
+        # A quoted column, as the checks inferred from the contracts name them.
+        token = token[1:-1] if token.startswith("`") else token
         assert token in self.row, f"{self.text!r}: unknown column {token}"
         return self.row[token]
 

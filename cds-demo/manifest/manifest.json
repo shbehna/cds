@@ -36,12 +36,12 @@
       },
       "alerts": [
         {
-          "name": "error-rate",
-          "title": "error rate",
+          "name": "quality",
+          "title": "quality",
           "sla": "errorRate",
           "cron": "0 9 * * *",
           "quartz": "0 0 9 * * ?",
-          "query": "SELECT table_name, round(error_rate, 2) AS error_rate, threshold,\n  CASE WHEN error_rate > threshold THEN 1 ELSE 0 END AS exceeded\nFROM (\n  SELECT 'arrondissement' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_repertoire_municipalites`.`arrondissement`\n  UNION ALL\n  SELECT 'conseiller_arrondissement' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_repertoire_municipalites`.`conseiller_arrondissement`\n  UNION ALL\n  SELECT 'conseiller_municipal' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_repertoire_municipalites`.`conseiller_municipal`\n  UNION ALL\n  SELECT 'municipalite' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_repertoire_municipalites`.`municipalite`\n  UNION ALL\n  SELECT 'organisme_supramunicipal' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_repertoire_municipalites`.`organisme_supramunicipal`\n  UNION ALL\n  SELECT 'ressource' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_repertoire_municipalites`.`ressource`\n) AS rates\nORDER BY table_name"
+          "query": "SELECT table_name, measure, criticality, round(actual, 2) AS actual, unit, operator, threshold,\n  threshold_high, checked_at, CASE WHEN passed THEN 0 ELSE 1 END AS exceeded\nFROM (\nSELECT table_name, coalesce(check_name, metric) AS measure, criticality, metric, actual, unit,\n  operator, threshold, threshold_high, passed, checked_at, run_id\nFROM (\n  SELECT *, max(checked_at) OVER (PARTITION BY table_name) AS latest_checked_at\n  FROM (\n  SELECT * FROM `${environment}`.`donnees_qc_repertoire_municipalites`.`_quality_summary`\n  WHERE data_product = 'donnees_qc.repertoire_municipalites' AND table_name IN ('arrondissement', 'conseiller_arrondissement', 'conseiller_municipal', 'municipalite', 'organisme_supramunicipal', 'ressource')\n  ) AS summary\n) AS runs\nWHERE checked_at = latest_checked_at AND passed IS NOT NULL\n) AS thresholds\nORDER BY exceeded DESC, table_name, measure"
         },
         {
           "name": "latency",
@@ -65,12 +65,12 @@
       },
       "alerts": [
         {
-          "name": "error-rate",
-          "title": "error rate",
+          "name": "quality",
+          "title": "quality",
           "sla": "errorRate",
           "cron": "0 12 1,15 * *",
           "quartz": "0 0 12 1,15 * ?",
-          "query": "SELECT table_name, round(error_rate, 2) AS error_rate, threshold,\n  CASE WHEN error_rate > threshold THEN 1 ELSE 0 END AS exceeded\nFROM (\n  SELECT 'continuation_transformation' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_req`.`continuation_transformation`\n  UNION ALL\n  SELECT 'domaine_valeur' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_req`.`domaine_valeur`\n  UNION ALL\n  SELECT 'entreprise' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_req`.`entreprise`\n  UNION ALL\n  SELECT 'etablissement' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_req`.`etablissement`\n  UNION ALL\n  SELECT 'fusion_scission' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_req`.`fusion_scission`\n  UNION ALL\n  SELECT 'nom_entreprise' AS table_name, 1.0 AS threshold,\n    try_divide(100 * count_if(coalesce(size(`_errors`), 0) > 0), count(*)) AS error_rate\n  FROM `${environment}`.`donnees_qc_req`.`nom_entreprise`\n) AS rates\nORDER BY table_name"
+          "query": "SELECT table_name, measure, criticality, round(actual, 2) AS actual, unit, operator, threshold,\n  threshold_high, checked_at, CASE WHEN passed THEN 0 ELSE 1 END AS exceeded\nFROM (\nSELECT table_name, coalesce(check_name, metric) AS measure, criticality, metric, actual, unit,\n  operator, threshold, threshold_high, passed, checked_at, run_id\nFROM (\n  SELECT *, max(checked_at) OVER (PARTITION BY table_name) AS latest_checked_at\n  FROM (\n  SELECT * FROM `${environment}`.`donnees_qc_req`.`_quality_summary`\n  WHERE data_product = 'donnees_qc.req' AND table_name IN ('continuation_transformation', 'domaine_valeur', 'entreprise', 'etablissement', 'fusion_scission', 'nom_entreprise')\n  ) AS summary\n) AS runs\nWHERE checked_at = latest_checked_at AND passed IS NOT NULL\n) AS thresholds\nORDER BY exceeded DESC, table_name, measure"
         },
         {
           "name": "latency",

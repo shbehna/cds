@@ -20,9 +20,11 @@ from cds.services.summary import (
     create_statement,
     failures_query,
     insert_statement,
+    latest_thresholds_query,
     rule_thresholds,
     summary_rows,
     summary_table,
+    summary_tables,
 )
 
 CHECKED_AT = datetime(2026, 11, 24, 12, 30, tzinfo=timezone.utc)
@@ -492,3 +494,74 @@ def test_quality_reports_a_summary_it_cannot_write(
         "dev.sales_orders._quality_summary: RuntimeError: permission denied"
     )
     assert spark.statements_matching(r"^INSERT OVERWRITE TABLE `dev`.`sales_orders`.`customer`")
+
+
+def test_the_latest_thresholds_of_the_tables(make_project: MakeProject, spark: FakeSpark) -> None:
+    other = RULES.replace("id: sales.orders.customer", "id: sales.orders.other").replace(
+        "name: customer\n", "name: other\n"
+    )
+    disabled = (
+        "from cds import ContractConfig, QualitySettings\n"
+        "config = ContractConfig(name='other', quality=QualitySettings(summary=False))\n"
+    )
+    context = rules_context(
+        make_project,
+        spark,
+        {"sales/orders/other/other.yaml": other, "sales/orders/other/other_config.py": disabled},
+    )
+    tables = context.data_context.get_data_product("sales.orders").tables
+
+    summaries = summary_tables(tables, context)
+    query = latest_thresholds_query(summaries, "sales.orders")
+
+    assert summaries == {"dev.sales_orders._quality_summary": ["customer"]}
+    assert query == (
+        "SELECT table_name, coalesce(check_name, metric) AS measure, criticality, metric, actual, unit,\n"
+        "  operator, threshold, threshold_high, passed, checked_at, run_id\n"
+        "FROM (\n"
+        "  SELECT *, max(checked_at) OVER (PARTITION BY table_name) AS latest_checked_at\n"
+        "  FROM (\n"
+        "  SELECT * FROM `dev`.`sales_orders`.`_quality_summary`\n"
+        "  WHERE data_product = 'sales.orders' AND table_name IN ('customer')\n"
+        "  ) AS summary\n"
+        ") AS runs\n"
+        "WHERE checked_at = latest_checked_at AND passed IS NOT NULL"
+    )
+
+
+@pytest.mark.parametrize(
+    ("values", "expression"),
+    [
+        ("[null, '', 'N/A']", "`name` IS NOT NULL AND `name` <> '' AND `name` <> 'N/A'"),
+        # Without null in the list, a null value is not missing.
+        ("['0000000000']", "`name` IS NULL OR (`name` <> '0000000000')"),
+        ("[0, -1]", "`name` IS NULL OR (`name` <> 0 AND `name` <> -1)"),
+    ],
+)
+def test_missing_values_listed_by_a_rule(
+    make_project: MakeProject, spark: FakeSpark, values: str, expression: str
+) -> None:
+    contract = name_rules(
+        "{metric: missingValues, name: name_present, arguments: {missingValues: " + values + "}, mustBe: 0}"
+    )
+
+    checks = {check["name"]: check for check in checks_of(make_project, spark, contract).checks}
+
+    assert checks["name_present"]["check"] == {
+        "function": "sql_expression",
+        "arguments": {"expression": expression, "msg": "name is missing", "columns": ["name"]},
+    }
+
+
+def test_missing_values_default_to_null_and_empty(make_project: MakeProject, spark: FakeSpark) -> None:
+    checks = checks_of(make_project, spark, name_rules("{metric: missingValues, mustBe: 0}")).checks
+
+    assert make_check("name_is_missing", "error", "is_not_null_and_not_empty", column="name") in checks
+
+
+@pytest.mark.parametrize("values", ["[]", "'N/A'", "[[1]]"])
+def test_missing_values_are_validated(make_project: MakeProject, spark: FakeSpark, values: str) -> None:
+    contract = name_rules("{metric: missingValues, arguments: {missingValues: " + values + "}, mustBe: 0}")
+
+    with pytest.raises(ContractError, match=r"sales\.orders\.customer\.name: arguments\.missingValues must"):
+        checks_of(make_project, spark, contract)

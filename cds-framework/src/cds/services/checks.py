@@ -629,9 +629,12 @@ class _ContractChecks:
         if metric == "nullValues" and column:
             return [make_check(rule.name or f"{column}_is_null", criticality, "is_not_null", column=column)]
         if metric == "missingValues" and column:
-            return [
-                make_check(rule.name or f"{column}_is_missing", criticality, "is_not_null_and_not_empty", column=column)
-            ]
+            name = rule.name or f"{column}_is_missing"
+            values = rule.arguments.get("missingValues")
+            if values is None:
+                # The default missing values of ODCS: null and the empty string.
+                return [make_check(name, criticality, "is_not_null_and_not_empty", column=column)]
+            return [_missing_values_check(name, criticality, column, values, self._where(prop))]
         if metric == "invalidValues" and column:
             checks = []
             if rule.arguments.get("validValues"):
@@ -738,6 +741,33 @@ def _criticality(rule: QualityRule) -> str:
     if not rule.severity:
         return "error"
     return SEVERITIES.get(rule.severity.lower(), "error")
+
+
+def _missing_values_check(name: str, criticality: str, column: str, values: object, where: str) -> dict[str, Any]:
+    """The check of a ``missingValues`` rule listing the values that are missing, such as ``[null, '', 'N/A']``.
+
+    Raises:
+        ContractError: If the values are not a list of strings, numbers or nulls.
+    """
+    if isinstance(values, (str, bytes)) or not isinstance(values, Sequence) or not values:
+        raise ContractError(f"{where}: arguments.missingValues must be a non-empty list of values, got {values!r}")
+    if not all(value is None or isinstance(value, (str, int, float)) for value in values):
+        raise ContractError(f"{where}: arguments.missingValues must hold strings, numbers or null, got {values!r}")
+    quoted = quote_identifier(column)
+    differences = [f"{quoted} <> {_sql_value(value)}" for value in dict.fromkeys(values) if value is not None]
+    if None in values:
+        expression = " AND ".join([f"{quoted} IS NOT NULL", *differences])
+    else:
+        # Null is not missing: it passes.
+        expression = f"{quoted} IS NULL OR ({' AND '.join(differences)})"
+    return make_check(
+        name,
+        criticality,
+        "sql_expression",
+        expression=expression,
+        msg=f"{column} is missing",
+        columns=[column],
+    )
 
 
 def _row_count_checks(

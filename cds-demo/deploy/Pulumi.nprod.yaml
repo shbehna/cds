@@ -39,7 +39,7 @@ config:
   cds-demo:createDomains: "true"
   # The job runs on the schedule of the frequency SLA of the contracts, in this time
   # zone. Paused in nprod: run it on demand. The alerts of the SLA are not paused: run the
-  # error rate alert after a run, the error rate of the synthetic data set triggers it.
+  # quality alert after a run, the error rate of the synthetic data set triggers it.
   cds-demo:timezone: America/Toronto
   cds-demo:pauseSchedule: "true"
   # The alerts are sent to the email support channels of the contracts, whose address is

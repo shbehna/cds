@@ -297,7 +297,7 @@ The quality service infers checks from the contracts:
 | `logicalTypeOptions` `format` of strings: `email`, `uri`, `url`, `uuid`, `ipv4`, `ipv6`, `json` | `is_valid_email`, `is_valid_url`, `is_valid_uuid`, `is_valid_ipv4_address`, `is_valid_ipv6_address`, `is_valid_json` |
 | `logicalTypeOptions` `format` of dates and timestamps stored as strings | `is_valid_date`, `is_valid_timestamp` |
 | `relationships` (`foreignKey`) | `foreign_key` |
-| `quality` library metrics `nullValues`, `missingValues`, `invalidValues`, `duplicateValues`, with a threshold | `is_not_null`, `is_not_null_and_not_empty`, `is_in_list` or `regex_match`, `is_unique` |
+| `quality` library metrics `nullValues`, `missingValues`, `invalidValues`, `duplicateValues`, with a threshold | `is_not_null`, `is_not_null_and_not_empty` (`sql_expression` for the values of `arguments.missingValues`), `is_in_list` or `regex_match`, `is_unique` |
 | `quality` library metric `rowCount` | `is_aggr_*` |
 | `quality` rules of type `custom` with `engine: dqx` | the DQX check of their `implementation` |
 
@@ -355,7 +355,7 @@ statistics to the summary table of its schema, `_quality_summary`
 framework start with `_`, as its columns do. The alerts and the dashboards then read a
 few rows per table, instead of scanning the checked tables.
 
-The thresholds are those of ODCS: the `quality` rules state them with an operator
+The thresholds are those of ODCS: the `library` (and `sql`) `quality` rules state them with an operator
 (`mustBe`, `mustNotBe`, `mustBeGreaterThan`, `mustBeGreaterOrEqualTo`, `mustBeLessThan`,
 `mustBeLessOrEqualTo`, `mustBeBetween`, `mustNotBeBetween`) in `rows` (the default) or
 `percent` of the rows of the table, and the `errorRate` service level holds the share of
@@ -374,9 +374,17 @@ schema:
           - metric: missingValues
             name: phone_mostly_present
             severity: warning   # the rows are flagged as warnings
+            arguments:          # the missing values: null and the empty string by default
+              missingValues: [null, '', '0000000000']
             mustBeLessThan: 5   # fewer than 5 % of the rows without phone
             unit: percent
 ```
+
+The JSON schema of ODCS only allows the operators on the `library` and `sql` rules: CDS
+also reads them on `custom` rules of the `dqx` engine, which the schema rejects.
+`latest_thresholds_query` of `cds.services.summary` returns the latest measures of the
+tables of a data product with a threshold, which the dashboards and the alerts of the demo
+read.
 
 A run appends, for each checked table:
 
@@ -644,8 +652,10 @@ Databricks AI/BI dashboard of the results of the quality service, from its contr
 | Results | the `errors_column` and `warnings_column` of `QualitySettings` |
 
 It has two pages. **Statistics** shows the status of the rows (without issue, with
-warnings, with errors: a row with both is in error), the occurrences of each check, and
-their count by table, check and severity. **Occurrences** lists each error and warning
+warnings, with errors: a row with both is in error), the occurrences of each check,
+their count by table, check and severity, and the latest measures of the
+[quality summary](#quality-summary) against the thresholds of the contracts, exceeded
+first (left out without summary). **Occurrences** lists each error and warning
 with the key of its row, its check, message and columns. The `DashboardSettings` of a
 data product, or of its group, enable it:
 

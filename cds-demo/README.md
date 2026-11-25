@@ -183,16 +183,32 @@ support channel:
 | --- | --- | --- | --- |
 | `frequency` | the 1st and the 15th of each month, at 6 am (`0 6 1,15 * *`): the register is published twice a month | | the schedule of the job |
 | `latency` | 18 days since the last change of each table: up to 17 days separate two loads | every day at 7 am | an alert |
-| `errorRate` | at most 1 % of the rows of each table with a quality error | after each load, the 1st and the 15th at noon | an alert |
+| `errorRate` | at most 1 % of the rows of each table with a quality error | after each load, the 1st and the 15th at noon | the quality alert |
 | `retention` | the history keeps the replaced versions 10 years | | the scd service |
 
 The manifest converts them for the deployment: the schedule of the job, and the queries
 of the two SQL alerts (see
-[deploy/README.md](deploy/README.md#alerts-of-the-service-levels)). Each query returns a
-row per table: its error rate, or the time of its last change, and whether it breaks its
-service level. The alerts are sent to the email support channel of the contracts, whose
-address is fictitious, and to the addresses of the deployment. The 5 % of rows in error
-of the synthetic data set trigger the error rate alert in `nprod`.
+[deploy/README.md](deploy/README.md#alerts-of-the-service-levels)). The alerts are sent
+to the email support channel of the contracts, whose address is fictitious, and to the
+addresses of the deployment.
+
+The quality alert reads the quality summary of the tables, `_quality_summary`, which the
+quality service appends to after checking them (see
+[Quality summary](../cds-framework/README.md#quality-summary)): it does not scan the
+tables. Its query returns the latest measures of each table against the thresholds of
+its contract, exceeded first: the `errorRate` service level, and the `quality` rules
+with thresholds. The latency alert returns a row per table: the time of its last change,
+and whether it breaks its service level.
+
+| Threshold | Contracts | Synthetic data set (`nprod`) |
+| --- | --- | --- |
+| `errorRate`: at most 1 % of the rows with errors | every table | 5 % of the rows: exceeded |
+| `domaine_en_majuscules`: no domain out of capitals (`invalidValues`, `mustBe: 0`) | `domaine_valeur` | exceeded |
+| `telephone_renseigne`: at most 5 % of the rows without phone number (`missingValues` of `0000000000`, `mustBeLessOrEqualTo: 5`, `percent`) | `municipalite`, `organisme_supramunicipal`, `arrondissement` | 4 % to 5 % of the rows: passed |
+
+The 5 % of rows in error of the synthetic data set trigger the quality alert in `nprod`;
+the phone numbers stay within their threshold, which the rows without number are still
+flagged with: a warning, the `severity` of the rule.
 
 The latency measures the last change of a table (`last_altered` of the information
 schema), which the metadata step updates after each load. It does not run when the load
@@ -351,8 +367,9 @@ The other services cover it as they cover `req`:
   [deploy/README.md](deploy/README.md)).
 - **Service levels**: its partial data contract (`repertoire_municipalites.odcs.yaml`)
   loads the tables every day at 5 am, as the directory is updated every day. The latency
-  alert checks every day at 8 am that they changed in the last 2 days, and the error rate
-  alert every day at 9 am that at most 1 % of their rows have an error. The history keeps
+  alert checks every day at 8 am that they changed in the last 2 days, and the quality
+  alert every day at 9 am that at most 1 % of their rows have an error, and at most 5 %
+  of the municipalities, organisations and boroughs no phone number. The history keeps
   the replaced versions 10 years. In `prod`, the tables are as recent as the files of its
   volume, uploaded by hand.
 - **Synthetic data set**: see [Synthetic data set](#synthetic-data-set). Its rows sharing

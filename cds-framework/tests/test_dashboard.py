@@ -201,3 +201,36 @@ def test_cli_dashboard(make_project: MakeProject, project: Path, capsys: pytest.
 
     assert main(["dashboard", str(project), "--data-product", "sales.orders"]) == 1
     assert "sales.orders has no dashboard: enable it with DashboardSettings(enabled=True)" in capsys.readouterr().err
+
+
+def test_the_thresholds_of_the_contracts(dashboard: dict[str, Any]) -> None:
+    query = sql(dashboard, "thresholds")
+
+    # The latest measures with a threshold, read from the quality summary of the schema.
+    assert "FROM `prod`.`sales_orders`.`_quality_summary`" in query
+    assert "WHERE data_product = 'sales.orders' AND table_name IN ('customer', 'order')" in query
+    assert "WHERE checked_at = latest_checked_at AND passed IS NOT NULL" in query
+    assert "WHEN 'mustBeLessThan' THEN concat('< ', format_number(threshold, " in query
+    assert "CASE WHEN passed THEN 'Passed' ELSE 'Exceeded' END AS status" in query
+    assert query.endswith("ORDER BY passed, table_name, measure")
+    [statistics] = [page for page in dashboard["serialized_dashboard"]["pages"] if page["name"] == "statistics"]
+    placed = {item["widget"]["name"]: item for item in statistics["layout"]}
+    assert placed["thresholds_by_table"]["position"] == {"x": 0, "y": 17, "width": 6, "height": 8}
+    # The table filter of the page applies to the thresholds.
+    table_filter = placed["statistics_table_filter"]["widget"]
+    assert "thresholds" in [item["query"]["datasetName"] for item in table_filter["queries"]]
+
+
+def test_no_thresholds_without_summary(make_project: MakeProject) -> None:
+    config = DASHBOARD_CONFIG.replace(
+        "from cds import DashboardSettings, DataProductConfig",
+        "from cds import DashboardSettings, DataProductConfig, QualitySettings",
+    ).replace(
+        "dashboard=DashboardSettings(enabled=True),",
+        "dashboard=DashboardSettings(enabled=True),\n        quality=QualitySettings(summary=False),",
+    )
+
+    dashboard = dashboard_of(project_with(make_project, **{"sales/orders/orders_config.py": config}))
+
+    assert "thresholds" not in [item["name"] for item in dashboard["serialized_dashboard"]["datasets"]]
+    assert "thresholds_by_table" not in [widget["name"] for widget in widgets(dashboard)]
