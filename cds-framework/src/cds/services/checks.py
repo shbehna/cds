@@ -19,9 +19,15 @@ The checks are DQX metadata dictionaries, applied with
 - ``relationships`` of type ``foreignKey``: ``foreign_key``, the referenced table being
   resolved in the data context;
 - ``quality`` rules: ODCS library metrics that DQX can check row by row (``nullValues``,
-  ``missingValues``, ``invalidValues`` and ``duplicateValues`` that must be 0) and
-  ``rowCount`` thresholds, and ``custom`` rules of the ``dqx`` engine, whose
-  implementation is a DQX check.
+  ``missingValues``, ``invalidValues`` and ``duplicateValues``) and ``rowCount``
+  thresholds, and ``custom`` rules of the ``dqx`` engine, whose implementation is a DQX
+  check.
+
+DQX flags each row a check fails, with the criticality of the ``severity`` of its rule.
+The thresholds of the rules (``mustBe``, ``mustBeLessThan``... in ``rows`` or
+``percent``) are kept in ``CheckSet.thresholds``, by check name: the quality summary
+compares the rows a check flags to them (see ``cds.services.summary``). A library rule
+without threshold is not checked.
 
 The ``quality_checks`` of the contract configuration are added to these checks. The
 rules and options no check implements are reported in ``CheckSet.unsupported``.
@@ -42,6 +48,7 @@ from cds.config import QualitySettings
 from cds.errors import ConfigurationError, ContractError
 from cds.injection import ContractInjection
 from cds.odcs import FOREIGN_KEY, QualityRule, Relationship, SchemaProperty
+from cds.services.summary import FAILED_ROWS, ROW_COUNT, Threshold, rule_thresholds
 from cds.services.tables import list_tables
 from cds.sql import quote_identifier, quote_name, string_literal
 
@@ -109,12 +116,14 @@ class CheckSet:
     ``unsupported`` describes the rules no check implements, and the ``allowedValues``
     that cannot be checked (missing, empty or too large reference). ``run_time``
     describes the checks whose arguments are read at run time, when they were not built
-    (see ``build_checks``).
+    (see ``build_checks``). ``thresholds`` holds the thresholds of the ``quality`` rules
+    of the contract, by name of the checks implementing them.
     """
 
     checks: list[dict[str, Any]] = field(default_factory=list)
     unsupported: list[str] = field(default_factory=list)
     run_time: list[str] = field(default_factory=list)
+    thresholds: dict[str, list[Threshold]] = field(default_factory=dict)
 
 
 def make_check(name: str, criticality: str, function: str, **arguments: object) -> dict[str, Any]:
@@ -519,26 +528,60 @@ class _ContractChecks:
             return
         if rule.type == "custom":
             if (rule.engine or "").lower() == DQX_ENGINE:
-                self.check_set.checks.extend(self._dqx_rule(rule, prop))
+                checks = self._dqx_rule(rule, prop)
+                thresholds = rule_thresholds(rule, self._where(prop))
+                if thresholds and any(not check.get("name") for check in checks):
+                    raise ContractError(
+                        f"{self._where(prop)}: the DQX checks of a rule with thresholds need a name: "
+                        "the quality summary compares the rows they flag to the thresholds."
+                    )
+                self._add_rule_checks([(check, thresholds) for check in checks])
             else:
                 self._not_checked(prop, f"custom rule for the engine {rule.engine!r}")
             return
         if rule.type == "library":
-            checks = self._library_rule(rule, prop)
-            if checks:
-                self.check_set.checks.extend(checks)
+            rule_checks = self._library_rule(rule, prop)
+            if rule_checks:
+                self._add_rule_checks(rule_checks)
             else:
                 self._not_checked(prop, f"library rule {rule.metric!r} with {dict(rule.thresholds) or 'no threshold'}")
             return
         self._not_checked(prop, f"{rule.type} rule {rule.name or ''}".rstrip())
 
-    def _library_rule(self, rule: QualityRule, prop: SchemaProperty | None) -> list[dict[str, Any]]:
-        metric = rule.metric or ""
+    def _add_rule_checks(self, checks: Sequence[tuple[dict[str, Any], Sequence[Threshold]]]) -> None:
+        """Adds the checks of a rule, and their thresholds.
+
+        Raises:
+            ContractError: If a check with thresholds has the name of another check: the
+                summary identifies the checks by name.
+        """
+        for check, thresholds in checks:
+            if thresholds:
+                name = str(check["name"])
+                if any(other.get("name") == name for other in self.check_set.checks):
+                    raise ContractError(
+                        f"{self.table.qualified_name}: two checks are named {name!r}: name the quality rule "
+                        "(name), the quality summary identifies its checks by name."
+                    )
+                self.check_set.thresholds[name] = list(thresholds)
+            self.check_set.checks.append(check)
+
+    def _library_rule(
+        self, rule: QualityRule, prop: SchemaProperty | None
+    ) -> list[tuple[dict[str, Any], Sequence[Threshold]]]:
         criticality = _criticality(rule)
-        if metric == "rowCount":
-            return [] if prop is not None else _row_count_checks(rule, criticality)
-        if not _must_be_zero(rule.thresholds):
+        if rule.metric == "rowCount":
+            if prop is not None:
+                return []
+            return _row_count_checks(rule, criticality, rule_thresholds(rule, self._where(prop), ROW_COUNT))
+        thresholds = rule_thresholds(rule, self._where(prop), FAILED_ROWS)
+        if not thresholds:
             return []
+        return [(check, thresholds) for check in self._row_checks(rule, prop, criticality)]
+
+    def _row_checks(self, rule: QualityRule, prop: SchemaProperty | None, criticality: str) -> list[dict[str, Any]]:
+        """The checks of a library rule flagging each row: nulls, missing, invalid or duplicate values."""
+        metric = rule.metric or ""
         column = prop.column if prop is not None else None
         if metric == "nullValues" and column:
             return [make_check(rule.name or f"{column}_is_null", criticality, "is_not_null", column=column)]
@@ -654,45 +697,54 @@ def _criticality(rule: QualityRule) -> str:
     return SEVERITIES.get(rule.severity.lower(), "error")
 
 
-def _must_be_zero(thresholds: Mapping[str, Any]) -> bool:
-    return (
-        thresholds.get("mustBe") == 0
-        or thresholds.get("mustBeLessOrEqualTo") == 0
-        or thresholds.get("mustBeLessThan") == 1
-    )
+def _row_count_checks(
+    rule: QualityRule, criticality: str, thresholds: Sequence[Threshold]
+) -> list[tuple[dict[str, Any], Sequence[Threshold]]]:
+    """The aggregate checks of a ``rowCount`` rule, each with the threshold it implements.
 
-
-def _row_count_checks(rule: QualityRule, criticality: str) -> list[dict[str, Any]]:
-    thresholds = rule.thresholds
-    limits: list[tuple[str, str, Any]] = []
-    if "mustBe" in thresholds:
-        limits.append(("equal", "is_aggr_equal", thresholds["mustBe"]))
-    if "mustNotBe" in thresholds:
-        limits.append(("not_equal", "is_aggr_not_equal", thresholds["mustNotBe"]))
-    if "mustBeGreaterThan" in thresholds:
-        limits.append(("minimum", "is_aggr_not_less_than", math.floor(thresholds["mustBeGreaterThan"]) + 1))
-    if "mustBeGreaterOrEqualTo" in thresholds:
-        limits.append(("minimum", "is_aggr_not_less_than", math.ceil(thresholds["mustBeGreaterOrEqualTo"])))
-    if "mustBeLessThan" in thresholds:
-        limits.append(("maximum", "is_aggr_not_greater_than", math.ceil(thresholds["mustBeLessThan"]) - 1))
-    if "mustBeLessOrEqualTo" in thresholds:
-        limits.append(("maximum", "is_aggr_not_greater_than", math.floor(thresholds["mustBeLessOrEqualTo"])))
-    if "mustBeBetween" in thresholds:
-        low, high = thresholds["mustBeBetween"]
-        limits.append(("minimum", "is_aggr_not_less_than", math.ceil(low)))
-        limits.append(("maximum", "is_aggr_not_greater_than", math.floor(high)))
+    ``mustBeBetween`` is checked by a minimum and a maximum: the summary holds the table
+    to the bound each one checks. ``mustNotBeBetween`` has no check.
+    """
+    limits: list[tuple[str, str, Any, Threshold]] = []
+    for threshold in thresholds:
+        operator, value = threshold.operator, rule.thresholds[threshold.operator]
+        if operator == "mustBe":
+            limits.append(("equal", "is_aggr_equal", value, threshold))
+        elif operator == "mustNotBe":
+            limits.append(("not_equal", "is_aggr_not_equal", value, threshold))
+        elif operator == "mustBeGreaterThan":
+            limits.append(("minimum", "is_aggr_not_less_than", math.floor(value) + 1, threshold))
+        elif operator == "mustBeGreaterOrEqualTo":
+            limits.append(("minimum", "is_aggr_not_less_than", math.ceil(value), threshold))
+        elif operator == "mustBeLessThan":
+            limits.append(("maximum", "is_aggr_not_greater_than", math.ceil(value) - 1, threshold))
+        elif operator == "mustBeLessOrEqualTo":
+            limits.append(("maximum", "is_aggr_not_greater_than", math.floor(value), threshold))
+        elif operator == "mustBeBetween":
+            low, high = value
+            limits.append(("minimum", "is_aggr_not_less_than", math.ceil(low), _bound(threshold, low, True)))
+            limits.append(("maximum", "is_aggr_not_greater_than", math.floor(high), _bound(threshold, high, False)))
     base = rule.name or "row_count"
     return [
-        make_check(
-            f"{base}_{suffix}" if len(limits) > 1 or not rule.name else base,
-            criticality,
-            function,
-            column="*",
-            aggr_type="count",
-            limit=limit,
+        (
+            make_check(
+                f"{base}_{suffix}" if len(limits) > 1 or not rule.name else base,
+                criticality,
+                function,
+                column="*",
+                aggr_type="count",
+                limit=limit,
+            ),
+            [threshold],
         )
-        for suffix, function, limit in limits
+        for suffix, function, limit, threshold in limits
     ]
+
+
+def _bound(threshold: Threshold, value: float, low: bool) -> Threshold:
+    """One bound of a ``mustBeBetween`` threshold, as checked by the minimum or the maximum."""
+    operator = "mustBeGreaterOrEqualTo" if low else "mustBeLessOrEqualTo"
+    return Threshold(operator, float(value), None, threshold.unit, threshold.metric)
 
 
 def _sql_value(value: object) -> str:

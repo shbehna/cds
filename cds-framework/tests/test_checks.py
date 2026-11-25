@@ -7,6 +7,7 @@ from fakes import FakeDataFrame, FakeSpark, Row
 from cds import ConfigurationError, ContractError, DataContext, ServiceContext
 from cds.services import checks as checks_module
 from cds.services.checks import CheckSet, build_checks, checked_tables, literal_values, make_check
+from cds.services.summary import Threshold
 
 RULES = """
     apiVersion: v3.2.0
@@ -37,6 +38,7 @@ RULES = """
                   validValues: [1, 2]
                 mustBe: 0
               - metric: nullValues
+                name: value_mostly_present
                 mustBeLessThan: 5
                 unit: percent
               - type: custom
@@ -143,8 +145,15 @@ def test_checks_from_quality_rules(make_project: MakeProject, spark: FakeSpark) 
         "criticality": "warn",
         "check": {"function": "is_not_less_than", "arguments": {"limit": 1, "column": "value"}},
     }
-    assert len(check_set.unsupported) == 3
-    assert any("nullValues" in note for note in check_set.unsupported)
+    # A rule tolerating some failures flags the rows, and keeps its threshold for the summary.
+    assert checks["value_mostly_present"]["check"] == {"function": "is_not_null", "arguments": {"column": "value"}}
+    assert check_set.thresholds["value_mostly_present"] == [Threshold("mustBeLessThan", 5, unit="percent")]
+    assert check_set.thresholds["value_is_null"] == [Threshold("mustBe", 0)]
+    assert check_set.thresholds["row_count_minimum"] == [Threshold("mustBeGreaterThan", 10, metric="rowCount")]
+    # The checks inferred from the schema, and the custom rules without thresholds, have none.
+    assert "id_is_not_unique" not in check_set.thresholds
+    assert len(check_set.thresholds) == 5
+    assert len(check_set.unsupported) == 2
     assert any("engine 'soda'" in note for note in check_set.unsupported)
     assert any("sql rule" in note for note in check_set.unsupported)
 
