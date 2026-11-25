@@ -11,6 +11,9 @@ schema:
   - name: municipalite
     physicalType: table
     businessName: Municipalité
+    customProperties:
+      - property: synonyms
+        value: [Municipalité locale, Ville]
     description: >-
       Municipalités locales, territoires non organisés et territoires autochtones du Québec
       (fichier source MUN.csv). Les conseillers municipaux sont dans la table
@@ -108,6 +111,7 @@ schema:
         logicalTypeOptions:
           pattern: "^[0-9]{10}$"
       - name: code_designation
+        businessName: Désignation de la municipalité
         description: Code de la désignation de la municipalité. Colonne source mcodedesi.
         logicalType: string
         physicalType: STRING

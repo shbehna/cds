@@ -9,6 +9,9 @@ schema:
   - name: domaine_valeur
     physicalType: table
     businessName: Domaine de valeur
+    customProperties:
+      - property: synonyms
+        value: [Liste de codes, Nomenclature]
     description: Valeurs des domaines de valeur du registre, comme les activités économiques (fichier source DomaineValeur.csv).
     quality:
       - type: custom

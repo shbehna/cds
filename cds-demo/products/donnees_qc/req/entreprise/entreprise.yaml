@@ -9,6 +9,9 @@ schema:
   - name: entreprise
     physicalType: table
     businessName: Entreprise
+    customProperties:
+      - property: synonyms
+        value: [Assujetti, Compagnie, Société]
     description: Entreprises inscrites au registre du Registraire des entreprises du Québec (fichier source Entreprise.csv).
     quality:
       - type: text
@@ -55,6 +58,10 @@ schema:
           - property: allowedValues
             value: { reference: domaine_valeur.code, filter: "domaine = 'REGIM_JURI'" }
       - name: code_intervalle_employes
+        businessName: Intervalle du nombre d'employés
+        customProperties:
+          - property: synonyms
+            value: ["Nombre d'employés", "Taille de l'entreprise"]
         description: Intervalle du nombre d'employés de l'entreprise au Québec (domaine de valeur INTVAL_EMPLO_QUE). Colonne source COD_INTVAL_EMPLO_QUE.
         logicalType: string
         physicalType: STRING
@@ -79,6 +86,10 @@ schema:
         logicalType: date
         physicalType: DATE
       - name: code_statut_immatriculation
+        businessName: Statut d'immatriculation
+        customProperties:
+          - property: synonyms
+            value: ["Statut de l'entreprise"]
         description: Code du statut de l'immatriculation (domaine de valeur STAT_IMMAT). Colonne source COD_STAT_IMMAT.
         logicalType: string
         physicalType: STRING
@@ -91,6 +102,10 @@ schema:
           - { value: "RO", label: "Radiée d'office" }
           - { value: "RX", label: "Radiée d'office (article 59)" }
       - name: code_forme_juridique
+        businessName: Forme juridique
+        customProperties:
+          - property: synonyms
+            value: [Statut juridique, "Type d'entreprise"]
         description: Code de la forme juridique de l'entreprise (domaine de valeur FORM_JURI). Colonne source COD_FORME_JURI.
         logicalType: string
         physicalType: STRING

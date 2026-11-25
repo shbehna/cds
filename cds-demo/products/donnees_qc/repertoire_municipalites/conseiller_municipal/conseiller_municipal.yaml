@@ -9,6 +9,9 @@ schema:
   - name: conseiller_municipal
     physicalType: table
     businessName: Conseiller municipal
+    customProperties:
+      - property: synonyms
+        value: [Élu municipal]
     description: >-
       Sièges des conseils municipaux et leurs conseillers (fichier source MUN.csv, colonnes
       con1 à con75). Les sièges vides du fichier n'ont pas de ligne.

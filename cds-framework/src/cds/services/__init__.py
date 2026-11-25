@@ -4,6 +4,7 @@ from cds.services.base import DEFAULT_MAX_WORKERS, Service, ServiceReport, Statu
 from cds.services.dashboard import DashboardService
 from cds.services.genie import GenieService
 from cds.services.metadata import MetadataService
+from cds.services.pages import PagesService
 from cds.services.quality import QualityService
 from cds.services.scd import ScdService
 from cds.services.schema import SchemaService
@@ -15,6 +16,7 @@ __all__ = [
     "DashboardService",
     "GenieService",
     "MetadataService",
+    "PagesService",
     "QualityService",
     "ScdService",
     "SchemaService",

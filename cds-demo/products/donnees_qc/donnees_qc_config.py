@@ -4,7 +4,7 @@ The defaults of the contracts of the group (tenant, tags) are in its partial dat
 contract, donnees_qc.odcs.yaml.
 """
 
-from cds import GroupConfig, MetadataSettings, NamingSettings, ScdSettings
+from cds import GroupConfig, MetadataSettings, NamingSettings, PagesSettings, ScdSettings
 
 config = GroupConfig(
     name="donnees_qc",
@@ -30,4 +30,8 @@ config = GroupConfig(
         discover_domain=True,
         discover_environments=["prod"],
     ),
+    # Each table, and each code list of its columns (their enum), has a Page in the Discover
+    # domain of the table: the business definition Genie Ontology uses. Published in prod,
+    # like the domain of the tables; drafts in nprod.
+    pages=PagesSettings(enabled=True),
 )

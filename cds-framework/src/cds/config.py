@@ -374,6 +374,34 @@ class DashboardSettings:
             )
 
 
+@dataclass(frozen=True)
+class PagesSettings:
+    """Settings of the Pages of a data product (see ``cds.pages``).
+
+    A Page is the governed definition of a business concept in a Databricks Discover
+    domain, which Genie Ontology uses to answer questions. The Pages of a data product are
+    generated from its contracts, in the Discover domains of its tables
+    (``MetadataSettings.discover_domain``). These settings are set on a data product or a
+    group, not on a contract.
+
+    Attributes:
+        enabled: Whether the data product has Pages. Default: ``False``.
+        code_lists: Whether the code lists of the columns (their ``enum``) have their own
+            Page, besides the Page of each table. Default: ``True``.
+    """
+
+    attribute: ClassVar[str] = "pages"
+
+    enabled: bool | None = None
+    code_lists: bool | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("enabled", "code_lists"):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, bool):
+                raise ConfigurationError(f"PagesSettings.{name} must be a boolean, got {value!r}.")
+
+
 DEFAULTS: Mapping[type[Settings], Settings] = {
     NamingSettings: NamingSettings(catalog="{environment}", schema="{group}_{data_product}"),
     SchemaSettings: SchemaSettings(on_breaking_change="replace"),
@@ -407,6 +435,7 @@ DEFAULTS: Mapping[type[Settings], Settings] = {
     GenieSettings: GenieSettings(
         enabled=False, instructions=(), sample_questions=(), examples=(), masked_classifications=()
     ),
+    PagesSettings: PagesSettings(enabled=False, code_lists=True),
 }
 
 
@@ -512,11 +541,13 @@ class GroupConfig(_LevelConfig):
             them in its partial ODCS file ``<group>/<group>.odcs.yaml``, but not both.
         genie: Settings of the Genie spaces of the data products of the group.
         dashboard: Settings of the quality dashboards of the data products of the group.
+        pages: Settings of the Pages of the data products of the group.
     """
 
     contract_defaults: Mapping[str, Any] | None = None
     genie: GenieSettings | None = None
     dashboard: DashboardSettings | None = None
+    pages: PagesSettings | None = None
 
     def __init__(
         self,
@@ -532,6 +563,7 @@ class GroupConfig(_LevelConfig):
         contract_defaults: Mapping[str, Any] | None = None,
         genie: GenieSettings | None = None,
         dashboard: DashboardSettings | None = None,
+        pages: PagesSettings | None = None,
     ) -> None:
         self._assign(locals())
 
@@ -551,11 +583,13 @@ class DataProductConfig(_LevelConfig):
             not both.
         genie: Settings of the Genie space of the data product.
         dashboard: Settings of the quality dashboard of the data product.
+        pages: Settings of the Pages of the data product.
     """
 
     contract_defaults: Mapping[str, Any] | None = None
     genie: GenieSettings | None = None
     dashboard: DashboardSettings | None = None
+    pages: PagesSettings | None = None
 
     def __init__(
         self,
@@ -571,6 +605,7 @@ class DataProductConfig(_LevelConfig):
         contract_defaults: Mapping[str, Any] | None = None,
         genie: GenieSettings | None = None,
         dashboard: DashboardSettings | None = None,
+        pages: PagesSettings | None = None,
     ) -> None:
         self._assign(locals())
 

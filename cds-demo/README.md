@@ -18,7 +18,7 @@ Unless stated otherwise, the sections below describe `req`.
 ```text
 products/                                   root folder of the data products
 └── donnees_qc/                             group
-    ├── donnees_qc_config.py                naming conventions, history table names, metadata
+    ├── donnees_qc_config.py                naming conventions, history table names, metadata, Pages
     ├── donnees_qc.odcs.yaml                contract defaults of the group: tenant, tags
     ├── sources.py                          reading of the CSV files, shared by the data products
     ├── req/                                data product
@@ -50,7 +50,7 @@ products/                                   root folder of the data products
 csv/                                        synthetic data set and its generator
 manifest/                                   what the deployment needs of the contracts, generated from them
 deploy/                                     deployment with Pulumi
-tests/                                      tests of the data products, the data set, the dashboards and the Genie spaces, without Spark
+tests/                                      tests of the data products, the data set, the dashboards, the Genie spaces and the Pages, without Spark
 ```
 
 ## Language
@@ -167,7 +167,8 @@ The tables then appear on the page of the subdomain, and on that of the domain. 
 keep the `domain` tag, `domain = Économie`. The history tables are not in the domain:
 their contract is that of their table. The [quality dashboard](#quality-dashboard) and the
 [Genie space](#genie-space) of `prod` join the subdomain of their tables: the
-`dashboard` and `genie` services tag them with the same governed tag.
+`dashboard` and `genie` services tag them with the same governed tag. The
+[Pages](#pages) are created in the subdomain of their tables.
 
 A Discover domain is built on its governed tag, and its name is the key of the tag. The
 deployment creates the governed tags and the domains, which the manifest lists, parents
@@ -319,6 +320,37 @@ each user: the addresses are masked. To see the space without deploying it:
 uv run cds genie cds-demo/products --data-product donnees_qc.req --environment nprod
 ```
 
+## Pages
+
+A [Page](https://docs.databricks.com/aws/en/uc-semantics/pages) is the business
+definition of a concept in a Discover domain, which
+[Genie Ontology](https://docs.databricks.com/aws/en/genie/genie-ontology/) uses to answer
+questions. The `pages` settings of
+[donnees_qc_config.py](products/donnees_qc/donnees_qc_config.py) give each table of the
+two data products, and each code list of their columns, a Page in the subdomain of the
+table, generated from the contracts (see
+[cds.pages](../cds-framework/README.md#pages)):
+
+- the Page of a table is titled by its `businessName`, such as **Entreprise**, and
+  documents its contract: description, data product, key, columns, relationships and
+  service levels. The deprecated `fusion_scission` has none;
+- the Page of a code list, such as **Forme juridique** or **Statut d'immatriculation**,
+  is titled by the `businessName` of its column, and lists its codes and labels (the
+  `enum` of the contract). The codes read from `domaine_valeur` (`allowedValues`), such
+  as the economic activities, have no Page: the Page of their table names their value
+  domain;
+- their synonyms, in French, are the `synonyms` custom property of the contracts: an
+  **Entreprise** is also an *Assujetti*, a *Compagnie* or a *Société*.
+
+The headings of the Pages are in English, and their content in French. They are
+published in `prod`, and drafts in `nprod`, like the domains of the tables. The `pages`
+step of the job creates them, and updates them on each run when the contracts change
+(see [deploy/README.md](deploy/README.md#pages)). To see them without deploying them:
+
+```bash
+uv run cds pages cds-demo/products --data-product donnees_qc.req --environment nprod
+```
+
 ## The directory of the municipalities
 
 The data product `repertoire_municipalites` is built from the four CSV files of the
@@ -381,6 +413,8 @@ The other services cover it as they cover `req`:
   ([questions.py](products/donnees_qc/repertoire_municipalites/questions.py)) on the
   vacant seats, the organisations of the positions, the codes in parentheses and the
   unknown values. The `confidential` names are not masked.
+- **Pages**: in the subdomain **Ministère des Affaires municipales et de l'Habitation**,
+  for its tables and the code lists of the designations and of the groups of titles.
 
 ## Run locally
 

@@ -9,6 +9,9 @@ schema:
   - name: nom_entreprise
     physicalType: table
     businessName: Nom d'entreprise
+    customProperties:
+      - property: synonyms
+        value: [Dénomination sociale, Nom commercial, Raison sociale]
     description: Noms, autres noms et versions des noms des entreprises (fichier source Nom.csv).
     quality:
       - type: custom
@@ -62,6 +65,7 @@ schema:
         primaryKey: true
         primaryKeyPosition: 5
       - name: code_statut_nom
+        businessName: Statut du nom
         description: Code du statut du nom (domaine de valeur STAT_NOM). Colonne source STAT_NOM.
         logicalType: string
         physicalType: STRING
@@ -72,6 +76,7 @@ schema:
           - { value: "R", label: "Réservé" }
           - { value: "V", label: "En vigueur" }
       - name: code_type_nom
+        businessName: Type de nom
         description: Code du type de nom (domaine de valeur TYP_NOM). Colonne source TYP_NOM_ASSUJ.
         logicalType: string
         physicalType: STRING
