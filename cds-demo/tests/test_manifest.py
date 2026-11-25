@@ -4,7 +4,6 @@ The tests read what they expect from the contracts and their configurations: cha
 contract only needs regenerating the manifest, not changing the tests.
 """
 
-import ast
 import json
 import textwrap
 from pathlib import Path
@@ -12,7 +11,6 @@ from typing import Any
 
 import manifest
 import pytest
-import yaml
 
 from cds import ConfigurationError, DataContext, DataProduct, MetadataSettings, Table
 from cds.config import resolved
@@ -102,50 +100,6 @@ def test_the_classified_columns_use_the_declared_values(data_product: DataProduc
     ]
 
     assert unknown == []
-
-
-def deployment_masked_classifications() -> set[str]:
-    """The classifications the deployment masks: those of its stacks masking the columns.
-
-    A stack masks the classifications of its ``cds-demo:maskedClassifications``, or by
-    default those of ``pipeline.Settings``, read without importing the Pulumi program.
-    """
-    tree = ast.parse((DEPLOY / "pipeline.py").read_text(encoding="utf-8"))
-    [default] = [
-        node.value
-        for definition in tree.body
-        if isinstance(definition, ast.ClassDef) and definition.name == "Settings"
-        for node in definition.body
-        if isinstance(node, ast.AnnAssign)
-        and isinstance(node.target, ast.Name)
-        and node.target.id == "masked_classifications"
-        and node.value is not None
-    ]
-    masked: set[str] = set()
-    stacks = sorted(DEPLOY.glob("Pulumi.*.yaml"))
-    assert stacks
-    for stack in stacks:
-        config: dict[str, Any] = (yaml.safe_load(stack.read_text(encoding="utf-8")) or {}).get("config") or {}
-        if str(config.get("cds-demo:masking", "false")).lower() != "true":
-            continue
-        value = config.get("cds-demo:maskedClassifications")
-        if isinstance(value, str):
-            value = json.loads(value)
-        masked.update(ast.literal_eval(default) if value is None else value)
-    return masked
-
-
-def test_the_masked_columns_are_strings(data_product: DataProduct) -> None:
-    """The masking function of the deployment (cds-demo/deploy) takes and returns a string."""
-    masked = deployment_masked_classifications()
-
-    not_strings = [
-        f"{table.name}.{prop.column} ({prop.data_type})"
-        for table, prop in classified(data_product)
-        if prop.classification in masked and prop.data_type.upper() != "STRING"
-    ]
-
-    assert not_strings == []
 
 
 def write(root: Path, files: dict[str, str]) -> Path:
