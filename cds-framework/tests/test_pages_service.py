@@ -17,16 +17,26 @@ from test_pages import CUSTOMER, FILES, PRODUCT
 
 from cds import DataContext, PagesService, RuntimeConfiguration, ServiceContext, Status
 from cds.pages import build_pages
-from cds.services.pages import PAGES_PROPERTY, changed_fields, page_body, recorded_pages
+from cds.services.pages import (
+    LEGACY_PAGES_PROPERTY,
+    changed_fields,
+    legacy_pages,
+    page_body,
+    page_property,
+    recorded_pages,
+)
 
 SCHEMA_PATH = "/api/2.1/unity-catalog/schemas/prod.sales_orders"
+# Maximum length of the value of a property in Unity Catalog.
+MAX_PROPERTY_LENGTH = 1024
 DOMAIN = "domains/0001"
 
 
 class FakeApi:
     """The Discover domains, the Pages and the schema properties of a workspace, as its REST API serves them.
 
-    The properties set with ``ALTER SCHEMA`` by the fake Spark session are recorded too.
+    The properties set with ``ALTER SCHEMA`` by the fake Spark session are recorded too,
+    and refused beyond the length Unity Catalog allows.
     """
 
     def __init__(self, spark: FakeSpark) -> None:
@@ -46,11 +56,17 @@ class FakeApi:
     def _alter_schema(self, statement: str) -> list[Row]:
         match = re.search(r"DBPROPERTIES \('([^']+)' = '((?:[^'\\]|\\.)*)'\)$", statement)
         assert match is not None, statement
-        self.properties[match.group(1)] = re.sub(r"\\(.)", r"\1", match.group(2))
+        value = re.sub(r"\\(.)", r"\1", match.group(2))
+        if len(value) > MAX_PROPERTY_LENGTH:
+            raise RuntimeError(
+                "[INVALID_PARAMETER_VALUE.PROPERTY_VALUE_TOO_LONG] Properties contain a value that's too long."
+            )
+        self.properties[match.group(1)] = value
         return []
 
     def recorded(self) -> dict[str, str]:
-        return recorded_pages(self.properties.get(PAGES_PROPERTY))
+        """The Pages recorded in the schema, by property."""
+        return recorded_pages(self.properties)
 
     def do(
         self,
@@ -146,7 +162,9 @@ def test_the_pages_are_created_and_recorded_in_the_schema(root: Path, spark: Fak
         "owner_ids": ["1"],
     }
     assert client["state"] == "PUBLISHED"
-    assert api.recorded() == {page.key: page_name for page_name, page in zip(api.pages, expected, strict=True)}
+    assert api.recorded() == {
+        page_property(page.key): page_name for page_name, page in zip(api.pages, expected, strict=True)
+    }
 
 
 def test_unchanged_pages_are_not_updated(root: Path, spark: FakeSpark, api: FakeApi) -> None:
@@ -203,7 +221,7 @@ def test_a_deleted_page_is_created_again(root: Path, spark: FakeSpark, api: Fake
 
     assert (status, message.split(", in ")[0]) == (Status.SUCCESS, "4 Page(s): 1 created, 3 unchanged")
     assert by_title(api)["Client"]["name"] != deleted
-    assert by_title(api)["Client"]["name"] == api.recorded()["table:customer"]
+    assert by_title(api)["Client"]["name"] == api.recorded()[page_property("table:customer")]
 
 
 def test_the_pages_no_longer_described_are_deleted(
@@ -226,7 +244,8 @@ def test_the_pages_no_longer_described_are_deleted(
 
     assert (status, message.split(", in ")[0]) == (Status.SUCCESS, "3 Page(s): 2 updated, 1 unchanged, 1 deleted")
     assert sorted(by_title(api)) == ["Order status", "Segment", "order"]
-    assert sorted(api.recorded()) == ["code_list:Ventes:order status", "code_list:Ventes:segment", "table:order"]
+    keys = ["code_list:Ventes:order status", "code_list:Ventes:segment", "table:order"]
+    assert sorted(api.recorded()) == sorted(page_property(key) for key in keys)
 
 
 def test_all_the_pages_are_deleted_without_discover_domain(
@@ -303,12 +322,70 @@ def test_the_service_is_skipped_without_pages(make_project: MakeProject, spark: 
 
 
 def test_the_recorded_pages_are_read_defensively() -> None:
-    assert recorded_pages(None) == {}
-    assert recorded_pages("not json") == {}
-    assert recorded_pages('["pages/1"]') == {}
-    assert recorded_pages(json.dumps({"table:a": "pages/1", "table:b": "../domains/1", "table:c": 3})) == {
+    key = page_property("table:a")
+    properties = {key: "pages/1", "cds.genie_space_id": "1", page_property("table:b"): "deleted"}
+    assert recorded_pages(properties) == {key: "pages/1"}
+    assert recorded_pages({page_property("table:c"): "../domains/1"}) == {}
+    assert legacy_pages(None) == {}
+    assert legacy_pages("not json") is None
+    assert legacy_pages('["pages/1"]') is None
+    assert legacy_pages(json.dumps({"table:a": "pages/1", "table:b": "../domains/1", "table:c": 3})) == {
         "table:a": "pages/1"
     }
+
+
+def test_the_property_of_a_page_is_short() -> None:
+    """The keys of the code lists name their domain and title, which may be long or hold any character."""
+    key = f"code_list:Économie/Registraire des entreprises du Québec:{'x' * 200}"
+
+    assert re.fullmatch(r"cds\.knowledge_page\.[0-9a-f]{16}", page_property(key))
+    assert page_property(key) == page_property(key)
+    assert page_property(key) != page_property(f"{key}y")
+
+
+def test_many_pages_are_recorded(make_project: MakeProject, spark: FakeSpark, api: FakeApi) -> None:
+    """Each Page has its own property: together, their ids exceed the length of a property value."""
+    contract = """
+        apiVersion: v3.2.0
+        kind: DataContract
+        id: sales.orders.table_{index}
+        version: 1.0.0
+        schema:
+          - name: table_{index}
+            businessName: A long business name of the table number {index}
+            properties:
+              - name: id
+                physicalType: BIGINT
+    """
+    tables = {f"sales/orders/table_{index}/table_{index}.yaml": contract.format(index=index) for index in range(30)}
+    root = make_project({**FILES, **tables})
+
+    status, message = run(service_for(root, spark, api))
+
+    assert (status, message.split(", in ")[0]) == (Status.SUCCESS, "34 Page(s): 34 created")
+    assert len(api.recorded()) == 34
+
+
+def test_the_pages_of_the_previous_versions_are_moved_to_their_own_properties(
+    root: Path, spark: FakeSpark, api: FakeApi
+) -> None:
+    service = service_for(root, spark, api)
+    run(service)
+    data_product = service.context.data_context.get_data_product("sales.orders")
+    by_key = {page.key: api.properties[page_property(page.key)] for page in build_pages(data_product, service.context)}
+    # As a previous version recorded them, with the Page of a table since removed.
+    api.pages["pages/9999"] = {**api.pages[by_key["table:order"]], "name": "pages/9999", "display_name": "removed"}
+    api.properties = {LEGACY_PAGES_PROPERTY: json.dumps({**by_key, "table:removed": "pages/9999"})}
+
+    status, message = run(service_for(root, spark, api))
+
+    assert (status, message.split(", in ")[0]) == (Status.SUCCESS, "4 Page(s): 4 unchanged, 1 deleted")
+    assert api.recorded() == {page_property(key): page_name for key, page_name in by_key.items()}
+    assert api.properties[LEGACY_PAGES_PROPERTY] == "{}"
+    assert api.properties[page_property("table:removed")] == "deleted"
+    assert "pages/9999" not in api.pages
+    # Moved, the Pages are no longer read from the old property.
+    assert run(service_for(root, spark, api))[1].split(", in ")[0] == "4 Page(s): 4 unchanged"
 
 
 def test_the_synonyms_are_compared_as_sets() -> None:
@@ -319,3 +396,15 @@ def test_the_synonyms_are_compared_as_sets() -> None:
     # A missing description is the empty description of the request.
     assert changed_fields({key: value for key, value in body.items() if key != "description"}, body) == []
     assert changed_fields({**body, "synonyms": ["a"], "state": "PUBLISHED"}, body) == ["synonyms", "state"]
+
+
+def test_an_unreadable_property_of_the_previous_versions_is_left_as_it_is(
+    root: Path, spark: FakeSpark, api: FakeApi
+) -> None:
+    """Emptying it would lose the ids of its Pages: they can still be recovered by hand."""
+    api.properties[LEGACY_PAGES_PROPERTY] = '{"table:customer": "pages/1"'
+
+    status, _ = run(service_for(root, spark, api))
+
+    assert status is Status.SUCCESS
+    assert api.properties[LEGACY_PAGES_PROPERTY] == '{"table:customer": "pages/1"'

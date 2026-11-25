@@ -172,8 +172,9 @@ subdomain of its tables, from the contracts (see
 [cds-demo/README.md](../README.md#pages)): published by the `prod` job, drafts by the
 `nprod` job, so that only those of `prod` are published. The next
 runs update them when the contracts change, and delete those of the removed tables and
-of the deprecated contracts. The job keeps their ids in the `cds.knowledge_pages`
-property of the schema of its data product (`donnees_qc_req`).
+of the deprecated contracts. The job keeps the id of each Page in a
+`cds.knowledge_page.<digest>` property of the schema of its data product
+(`donnees_qc_req`).
 
 The deployment does not manage the Pages, nor grant anything for them: the service
 principal creates them with `MANAGE PAGES`, which every user of the account has on the
