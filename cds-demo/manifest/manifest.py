@@ -44,8 +44,8 @@ from cds import DataContext, DataProduct, MetadataSettings, ServiceContext, Tabl
 from cds.config import resolved
 from cds.errors import ConfigurationError
 from cds.odcs import SlaProperty
-from cds.services.checks import checked_tables
-from cds.services.summary import latest_thresholds_query, summary_tables
+from cds.services.checks import build_checks, checked_tables
+from cds.services.summary import latest_thresholds_query, summary_table, summary_tables
 from cds.services.tags import DOMAIN_SEPARATOR, discover_domain
 from cds.sla import cron_schedule, duration, quartz_cron, support_emails, table_sla
 from cds.sql import quote_identifier, quote_name, string_literal
@@ -173,23 +173,42 @@ def quality_alert(data_context: DataContext, data_product: str) -> dict[str, Any
     latest measures of each table with a threshold, exceeded first, instead of scanning the
     tables. The alert runs on the schedule of the ``errorRate`` SLA, after the loads.
 
+    Only the tables with the SLA are read, on its schedule: a table whose ``quality``
+    rules have thresholds needs the SLA, else they would not be alerted.
+
     Returns:
-        The alert; ``None`` if no checked table has the ``errorRate`` SLA, or a summary.
+        The alert; ``None`` if no checked table with a summary has the ``errorRate`` SLA.
 
     Raises:
         ConfigurationError: If the SLA of the tables have different schedules, or one without
-            cron schedule.
+            cron schedule, or a table with thresholds has no ``errorRate`` SLA.
     """
     context = _context(data_context)
-    tables = checked_tables(data_context.get_data_product(data_product), context)
+    tables = [
+        table
+        for table in checked_tables(data_context.get_data_product(data_product), context)
+        if summary_table(table, context)
+    ]
     schedules = {}
     for table in tables:
         found = _scheduled(table, "errorRate")
         if found is not None:
             schedules[table.name] = found[2]
-    summaries = {_name(name): names for name, names in summary_tables(tables, context).items()}
-    if not schedules or not summaries:
+    unscheduled = [
+        table.name
+        for table in tables
+        if table.name not in schedules
+        and build_checks(table, context, include_configured=False, read_values=False).thresholds
+    ]
+    if unscheduled:
+        raise ConfigurationError(
+            f"{data_product}: the thresholds of {', '.join(unscheduled)} would not be alerted: give the "
+            "table an errorRate SLA with a cron schedule, which schedules the quality alert."
+        )
+    alerted = [table for table in tables if table.name in schedules]
+    if not alerted:
         return None
+    summaries = {_name(name): names for name, names in summary_tables(alerted, context).items()}
     query = (
         "SELECT table_name, measure, criticality, round(actual, 2) AS actual, unit, operator, threshold,\n"
         f"  threshold_high, checked_at, CASE WHEN passed THEN 0 ELSE 1 END AS {EXCEEDED}\n"

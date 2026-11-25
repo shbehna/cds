@@ -380,6 +380,10 @@ schema:
             unit: percent
 ```
 
+The values of `arguments.missingValues` are compared with the type of the column, without
+implicit cast: strings on a string column (`0` is `'0'`); on another column, numbers as
+numbers, and strings with the column as a string.
+
 The JSON schema of ODCS only allows the operators on the `library` and `sql` rules: CDS
 also reads them on `custom` rules of the `dqx` engine, which the schema rejects.
 `latest_thresholds_query` of `cds.services.summary` returns the latest measures of the

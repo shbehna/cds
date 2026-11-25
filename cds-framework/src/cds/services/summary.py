@@ -398,7 +398,10 @@ def latest_thresholds_query(summaries: Mapping[str, Sequence[str]], data_product
     """Query of the latest summary rows with a threshold of the tables of a data product.
 
     The rows of the latest run of each table (``checked_at``), with a threshold: its
-    ``errorRate`` and the checks of the rules with thresholds. Columns: ``table_name``,
+    ``errorRate`` and the checks of the rules with thresholds. The quality service writes
+    the rows of a table once it is checked, a failed run writing none: the latest run holds
+    the current thresholds of the table, and a threshold removed from its contract no
+    longer appears. Columns: ``table_name``,
     ``measure`` (the check, or the metric of the table), ``criticality``, ``metric``,
     ``actual``, ``unit``, ``operator``, ``threshold``, ``threshold_high``, ``passed``,
     ``checked_at`` and ``run_id``.
@@ -410,7 +413,7 @@ def latest_thresholds_query(summaries: Mapping[str, Sequence[str]], data_product
         data_product: Qualified name of the data product.
     """
     selects = [
-        f"  SELECT * FROM {quote_name(full_name)}\n"
+        f"  SELECT *, {string_literal(full_name)} AS summary_table FROM {quote_name(full_name)}\n"
         f"  WHERE data_product = {string_literal(data_product)} "
         f"AND table_name IN ({', '.join(string_literal(name) for name in names)})"
         for full_name, names in summaries.items()
@@ -420,7 +423,7 @@ def latest_thresholds_query(summaries: Mapping[str, Sequence[str]], data_product
         "  operator, threshold, threshold_high, passed, checked_at, run_id\n"
         "FROM (\n"
         # The latest run of each table, before keeping the rows with a threshold.
-        "  SELECT *, max(checked_at) OVER (PARTITION BY table_name) AS latest_checked_at\n"
+        "  SELECT *, max(checked_at) OVER (PARTITION BY summary_table, table_name) AS latest_checked_at\n"
         "  FROM (\n" + "\n  UNION ALL\n".join(selects) + "\n  ) AS summary\n"
         ") AS runs\n"
         "WHERE checked_at = latest_checked_at AND passed IS NOT NULL"

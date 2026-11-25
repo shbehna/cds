@@ -758,9 +758,9 @@ def test_the_quality_alert_was_the_error_rate_alert() -> None:
         "alert:donnees_qc.repertoire_municipalites:error-rate"
     ]
     assert names("donnees_qc.repertoire_municipalites", "latency") == []
-    # The first data product also had names without data product.
+    # The alerts of the first data product were named without it: only the names that existed.
     assert names(pipeline.FIRST_DATA_PRODUCT, "quality") == [
         f"alert:{pipeline.FIRST_DATA_PRODUCT}:error-rate",
-        "alert:quality",
         "alert:error-rate",
     ]
+    assert names(pipeline.FIRST_DATA_PRODUCT, "latency") == ["alert:latency"]

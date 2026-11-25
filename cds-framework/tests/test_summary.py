@@ -519,9 +519,10 @@ def test_the_latest_thresholds_of_the_tables(make_project: MakeProject, spark: F
         "SELECT table_name, coalesce(check_name, metric) AS measure, criticality, metric, actual, unit,\n"
         "  operator, threshold, threshold_high, passed, checked_at, run_id\n"
         "FROM (\n"
-        "  SELECT *, max(checked_at) OVER (PARTITION BY table_name) AS latest_checked_at\n"
+        "  SELECT *, max(checked_at) OVER (PARTITION BY summary_table, table_name) AS latest_checked_at\n"
         "  FROM (\n"
-        "  SELECT * FROM `dev`.`sales_orders`.`_quality_summary`\n"
+        "  SELECT *, 'dev.sales_orders._quality_summary' AS summary_table "
+        "FROM `dev`.`sales_orders`.`_quality_summary`\n"
         "  WHERE data_product = 'sales.orders' AND table_name IN ('customer')\n"
         "  ) AS summary\n"
         ") AS runs\n"
@@ -535,7 +536,8 @@ def test_the_latest_thresholds_of_the_tables(make_project: MakeProject, spark: F
         ("[null, '', 'N/A']", "`name` IS NOT NULL AND `name` <> '' AND `name` <> 'N/A'"),
         # Without null in the list, a null value is not missing.
         ("['0000000000']", "`name` IS NULL OR (`name` <> '0000000000')"),
-        ("[0, -1]", "`name` IS NULL OR (`name` <> 0 AND `name` <> -1)"),
+        # On a string column, the values are strings: no implicit cast, which fails in ANSI mode.
+        ("[0, -1]", "`name` IS NULL OR (`name` <> '0' AND `name` <> '-1')"),
     ],
 )
 def test_missing_values_listed_by_a_rule(
@@ -559,7 +561,24 @@ def test_missing_values_default_to_null_and_empty(make_project: MakeProject, spa
     assert make_check("name_is_missing", "error", "is_not_null_and_not_empty", column="name") in checks
 
 
-@pytest.mark.parametrize("values", ["[]", "'N/A'", "[[1]]"])
+def test_missing_values_of_a_typed_column(make_project: MakeProject, spark: FakeSpark) -> None:
+    contract = CUSTOMER.replace(
+        "          - name: created_on\n            physicalType: DATE\n",
+        "          - name: created_on\n            physicalType: DATE\n"
+        "          - name: score\n            physicalType: INT\n            quality:\n"
+        "              - {metric: missingValues, name: score_present, arguments: {missingValues: [null, -1, 'N/A']}, "
+        "mustBe: 0}\n",
+    )
+
+    checks = {check["name"]: check for check in checks_of(make_project, spark, contract).checks}
+
+    # The numbers are numbers; a string is compared with the column as a string.
+    assert checks["score_present"]["check"]["arguments"]["expression"] == (
+        "`score` IS NOT NULL AND `score` <> -1 AND CAST(`score` AS STRING) <> 'N/A'"
+    )
+
+
+@pytest.mark.parametrize("values", ["[]", "'N/A'", "[[1]]", "[.nan]", "[.inf]", "[true]"])
 def test_missing_values_are_validated(make_project: MakeProject, spark: FakeSpark, values: str) -> None:
     contract = name_rules("{metric: missingValues, arguments: {missingValues: " + values + "}, mustBe: 0}")
 

@@ -343,9 +343,39 @@ def test_the_quality_alert_reads_the_latest_thresholds(tmp_path: Path) -> None:
     query = alert["query"]
     assert "FROM `${environment}`.`donnees_qc_req`.`_quality_summary`" in query
     assert "WHERE data_product = 'donnees_qc.req' AND table_name IN ('t')" in query
-    assert "max(checked_at) OVER (PARTITION BY table_name)" in query
+    assert "max(checked_at) OVER (PARTITION BY summary_table, table_name)" in query
     assert "WHERE checked_at = latest_checked_at AND passed IS NOT NULL" in query
     assert query.endswith("ORDER BY exceeded DESC, table_name, measure")
+
+
+THRESHOLD_RULE = (
+    "{name: a, physicalType: STRING, "
+    "quality: [{metric: nullValues, name: a_present, mustBeLessThan: 5, unit: percent}]}"
+)
+
+
+def test_the_thresholds_need_an_error_rate_sla(tmp_path: Path) -> None:
+    contract = SLA_CONTRACT.format(name="u", cron="0 6 * * *").replace(
+        "{name: a, physicalType: STRING}", THRESHOLD_RULE
+    )
+    root = write(tmp_path, {"donnees_qc/req/t/t.yaml": checked_contract(), "donnees_qc/req/u/u.yaml": contract})
+
+    # Without errorRate SLA, its thresholds would not be alerted.
+    with pytest.raises(ConfigurationError, match=r"donnees_qc\.req: the thresholds of u would not be alerted"):
+        manifest.quality_alert(DataContext.discover(root), "donnees_qc.req")
+
+
+def test_the_quality_alert_reads_the_tables_with_the_sla(tmp_path: Path) -> None:
+    # A checked table without errorRate SLA, nor thresholds: on another schedule, it is not read.
+    other = SLA_CONTRACT.format(name="u", cron="0 6 * * *").replace(
+        "{name: a, physicalType: STRING}", "{name: a, physicalType: STRING, required: true}"
+    )
+    root = write(tmp_path, {"donnees_qc/req/t/t.yaml": checked_contract(), "donnees_qc/req/u/u.yaml": other})
+
+    alert = manifest.quality_alert(DataContext.discover(root), "donnees_qc.req")
+
+    assert alert is not None
+    assert "AND table_name IN ('t')" in alert["query"]
 
 
 def test_no_quality_alert_without_summary(tmp_path: Path) -> None:

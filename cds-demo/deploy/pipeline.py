@@ -459,11 +459,16 @@ def renamed(data_product: str, former: str) -> pulumi.ResourceOptions:
 
 
 def alert_aliases(data_product: str, name: str) -> pulumi.ResourceOptions:
-    """The options of an alert: its former names, from FORMER_ALERT_NAMES and for the first data product."""
-    names = [name, *([FORMER_ALERT_NAMES[name]] if name in FORMER_ALERT_NAMES else [])]
-    aliases = [pulumi.Alias(name=f"alert:{data_product}:{former}") for former in names[1:]]
+    """The options of an alert: the names it had.
+
+    An alert renamed in FORMER_ALERT_NAMES had the name ``alert:<data product>:<former>``.
+    The alerts of the first data product were named ``alert:<former>`` before the demo had
+    several data products (see renamed).
+    """
+    former = FORMER_ALERT_NAMES.get(name)
+    aliases = [pulumi.Alias(name=f"alert:{data_product}:{former}")] if former else []
     if data_product == FIRST_DATA_PRODUCT:
-        aliases += [pulumi.Alias(name=f"alert:{former}") for former in names]
+        aliases.append(pulumi.Alias(name=f"alert:{former or name}"))
     return pulumi.ResourceOptions(aliases=aliases or None)
 
 

@@ -179,7 +179,9 @@ alerts for each data product, in the `alerts` folder:
 
 Their queries run on the SQL warehouse of the dashboard, as the service principal. The
 quality alert reads the `_quality_summary` table of the schema, a row per measure of the
-latest run of each table with its actual value and threshold; the latency alert returns a
+latest run of each table with an `errorRate` service level, with its actual value and
+threshold (the manifest rejects a table whose rules have thresholds without it, as they
+would not be alerted); the latency alert returns a
 row per table. An alert triggers when one of its rows breaks its threshold. It
 then sends an email to the notification destination of its data product, **CDS demo
 alerts, &lt;data product&gt; (&lt;environment&gt;)**, holding the address of the support
