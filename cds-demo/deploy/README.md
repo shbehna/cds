@@ -85,8 +85,8 @@ The service principal is exempted: it runs the job, whose quality checks and his
 the data as it is. The dashboard runs its queries with its credentials: it leaves the
 classified columns out of the key of the rows it shows.
 
-The masking function takes and returns a string: only classify as `restricted` the columns of
-type `STRING`, which a test of the demo checks (`cds-demo/tests/test_manifest.py`).
+The masking function takes and returns a string: it only applies to the columns of type
+`STRING` classified as `restricted`.
 
 The deployment reads the classifications in the manifest
 [cds-demo/manifest/manifest.json](../manifest/manifest.json), generated from the

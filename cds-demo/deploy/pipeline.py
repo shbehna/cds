@@ -589,7 +589,7 @@ def governance(
     governance schema, for every user of the account except the deployment service
     principal, which runs the job and must read the data as it is, and the exempted
     principals. The function masks strings: a masked classification only applies to
-    STRING columns (cds-demo/tests/test_manifest.py).
+    STRING columns.
 
     The classification tag is a governed tag: the policy needs it. Tag policies belong to
     the account, shared by the environments: only one stack creates it (createTagPolicies).
