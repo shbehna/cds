@@ -172,25 +172,33 @@ alerts for each data product, in the `alerts` folder:
 
 | Alert | Triggers when | Checked |
 | --- | --- | --- |
-| **donnees_qc.req error rate SLA (&lt;environment&gt;)** | more than 1 % of the rows of a table have a quality error | after each load: the 1st and the 15th of each month at noon |
+| **donnees_qc.req quality SLA (&lt;environment&gt;)** | a table exceeds a threshold of its contract in the quality summary: more than 1 % of its rows with a quality error, or a `quality` rule | after each load: the 1st and the 15th of each month at noon |
 | **donnees_qc.req latency SLA (&lt;environment&gt;)** | a table has not changed for 18 days, as its load failed or the job did not run | every day at 7 am |
-| **donnees_qc.repertoire_municipalites error rate SLA (&lt;environment&gt;)** | more than 1 % of the rows of a table have a quality error | after each load: every day at 9 am |
+| **donnees_qc.repertoire_municipalites quality SLA (&lt;environment&gt;)** | a table exceeds a threshold of its contract in the quality summary | after each load: every day at 9 am |
 | **donnees_qc.repertoire_municipalites latency SLA (&lt;environment&gt;)** | a table has not changed for 2 days | every day at 8 am |
 
-Their queries run on the SQL warehouse of the dashboard, as the service principal, and
-return a row per table: the alert triggers when one of them breaks its service level. It
+Their queries run on the SQL warehouse of the dashboard, as the service principal. The
+quality alert reads the `_quality_summary` table of the schema, a row per measure of the
+latest run of each table with an `errorRate` service level, with its actual value and
+threshold (the manifest rejects a table whose rules have thresholds without it, as they
+would not be alerted); the latency alert returns a
+row per table. An alert triggers when one of its rows breaks its threshold. It
 then sends an email to the notification destination of its data product, **CDS demo
 alerts, &lt;data product&gt; (&lt;environment&gt;)**, holding the address of the support
 channel of its contracts (fictitious) and those of the GitHub secret `ALERT_EMAILS`, and another one when it is back to
 normal. Creating a notification destination requires a workspace administrator, which the
 service principal is.
 
-The error rate is checked once the job has loaded and checked the tables. If the quality
-step fails, the error rate of the tables cannot be measured: the failed run sends its own
-email.
+The quality alert is checked once the job has loaded and checked the tables. If the
+quality step fails, the summary keeps the measures of the previous run: the failed run
+sends its own email. The quality step identifies its run in the summary with the `run_id`
+parameter of the job, `{{job.run_id}}`. The summary table is created by the first run of
+the job: until then, the quality alert fails to run its query. The former error rate
+alert, which counted the errors in the tables, becomes the quality alert (alias of
+`alert:<data product>:error-rate`): the deployment updates it.
 
-In `nprod`, run the error rate alert after a run of the job (**Run now** on the alert):
-the error rate of the synthetic data set triggers it. As the schedules of the jobs are
+In `nprod`, run the quality alert after a run of the job (**Run now** on the alert): the
+error rate of the synthetic data set triggers it. As the schedules of the jobs are
 paused, the latency alerts trigger 18 days (`req`) and 2 days
 (`repertoire_municipalites`) after the last run.
 

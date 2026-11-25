@@ -376,3 +376,55 @@ def failures_query(full_name: str, result_columns: Sequence[str]) -> str | None:
         f"FROM (SELECT explode(array_distinct({expression})) AS name FROM {quote_name(full_name)}) AS results\n"
         "WHERE name IS NOT NULL\nGROUP BY name"
     )
+
+
+def summary_tables(tables: Sequence[Table], context: ServiceContext) -> dict[str, list[str]]:
+    """The summary tables of tables, by full name, with the names of their tables.
+
+    The tables without summary are left out (``QualitySettings.summary``).
+
+    Raises:
+        ConfigurationError: If the name of a summary table is invalid (see ``summary_table``).
+    """
+    found: dict[str, list[str]] = {}
+    for table in tables:
+        full_name = summary_table(table, context)
+        if full_name:
+            found.setdefault(full_name, []).append(table.name)
+    return found
+
+
+def latest_thresholds_query(summaries: Mapping[str, Sequence[str]], data_product: str) -> str:
+    """Query of the latest summary rows with a threshold of the tables of a data product.
+
+    The rows of the latest run of each table (``checked_at``), with a threshold: its
+    ``errorRate`` and the checks of the rules with thresholds. The quality service writes
+    the rows of a table once it is checked, a failed run writing none: the latest run holds
+    the current thresholds of the table, and a threshold removed from its contract no
+    longer appears. Columns: ``table_name``,
+    ``measure`` (the check, or the metric of the table), ``criticality``, ``metric``,
+    ``actual``, ``unit``, ``operator``, ``threshold``, ``threshold_high``, ``passed``,
+    ``checked_at`` and ``run_id``.
+
+    Args:
+        summaries: The summary tables, by unquoted full name, with the names of the tables
+            to read (see ``summary_tables``): the rows of the other tables, such as tables
+            removed from the data product, are left out.
+        data_product: Qualified name of the data product.
+    """
+    selects = [
+        f"  SELECT *, {string_literal(full_name)} AS summary_table FROM {quote_name(full_name)}\n"
+        f"  WHERE data_product = {string_literal(data_product)} "
+        f"AND table_name IN ({', '.join(string_literal(name) for name in names)})"
+        for full_name, names in summaries.items()
+    ]
+    return (
+        "SELECT table_name, coalesce(check_name, metric) AS measure, criticality, metric, actual, unit,\n"
+        "  operator, threshold, threshold_high, passed, checked_at, run_id\n"
+        "FROM (\n"
+        # The latest run of each table, before keeping the rows with a threshold.
+        "  SELECT *, max(checked_at) OVER (PARTITION BY summary_table, table_name) AS latest_checked_at\n"
+        "  FROM (\n" + "\n  UNION ALL\n".join(selects) + "\n  ) AS summary\n"
+        ") AS runs\n"
+        "WHERE checked_at = latest_checked_at AND passed IS NOT NULL"
+    )

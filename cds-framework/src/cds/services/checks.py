@@ -628,10 +628,13 @@ class _ContractChecks:
         column = prop.column if prop is not None else None
         if metric == "nullValues" and column:
             return [make_check(rule.name or f"{column}_is_null", criticality, "is_not_null", column=column)]
-        if metric == "missingValues" and column:
-            return [
-                make_check(rule.name or f"{column}_is_missing", criticality, "is_not_null_and_not_empty", column=column)
-            ]
+        if metric == "missingValues" and prop is not None:
+            name = rule.name or f"{prop.column}_is_missing"
+            values = rule.arguments.get("missingValues")
+            if values is None:
+                # The default missing values of ODCS: null and the empty string.
+                return [make_check(name, criticality, "is_not_null_and_not_empty", column=prop.column)]
+            return [_missing_values_check(name, criticality, prop, values, self._where(prop))]
         if metric == "invalidValues" and column:
             checks = []
             if rule.arguments.get("validValues"):
@@ -738,6 +741,58 @@ def _criticality(rule: QualityRule) -> str:
     if not rule.severity:
         return "error"
     return SEVERITIES.get(rule.severity.lower(), "error")
+
+
+def _missing_values_check(
+    name: str, criticality: str, prop: SchemaProperty, values: object, where: str
+) -> dict[str, Any]:
+    """The check of a ``missingValues`` rule listing the values that are missing, such as ``[null, '', 'N/A']``.
+
+    The values are compared with the type of the column, without implicit cast, which
+    fails in ANSI mode: on a string column, every value is a string (``0`` is ``'0'``); on
+    another column, the numbers are numbers, and the strings are compared with the column
+    as a string.
+
+    Raises:
+        ContractError: If the values are not a list of strings, finite numbers or nulls.
+    """
+    if isinstance(values, (str, bytes)) or not isinstance(values, Sequence) or not values:
+        raise ContractError(f"{where}: arguments.missingValues must be a non-empty list of values, got {values!r}")
+    if not all(
+        value is None
+        or isinstance(value, str)
+        or (isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value))
+        for value in values
+    ):
+        raise ContractError(
+            f"{where}: arguments.missingValues must hold strings, finite numbers or null, got {values!r}"
+        )
+    column = prop.column
+    quoted = quote_identifier(column)
+    string_column = prop.data_type.strip().upper().startswith(("STRING", "VARCHAR", "CHAR"))
+    differences = []
+    for value in dict.fromkeys(values):
+        if value is None:
+            continue
+        if string_column:
+            differences.append(f"{quoted} <> {string_literal(str(value))}")
+        elif isinstance(value, str):
+            differences.append(f"CAST({quoted} AS STRING) <> {string_literal(value)}")
+        else:
+            differences.append(f"{quoted} <> {value!r}")
+    if None in values:
+        expression = " AND ".join([f"{quoted} IS NOT NULL", *differences])
+    else:
+        # Null is not missing: it passes.
+        expression = f"{quoted} IS NULL OR ({' AND '.join(differences)})"
+    return make_check(
+        name,
+        criticality,
+        "sql_expression",
+        expression=expression,
+        msg=f"{column} is missing",
+        columns=[column],
+    )
 
 
 def _row_count_checks(

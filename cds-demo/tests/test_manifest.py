@@ -247,8 +247,15 @@ def test_the_alerts_check_the_sla_of_the_tables(data_context: DataContext, data_
         found = slas[alert["sla"]]
         [cron] = set(found.values())
         assert (alert["cron"], alert["quartz"]) == (cron, quartz_cron(cron))
-        # A row per table with the SLA.
-        assert all(f"'{table}' AS table_name" in alert["query"] for table in found)
+        if alert["sla"] == "latency":
+            # A row per table with the SLA.
+            assert all(f"'{table}' AS table_name" in alert["query"] for table in found)
+        else:
+            # The latest measures of the checked tables, read from their quality summary.
+            assert alert["name"] == "quality"
+            assert "`_quality_summary`" in alert["query"]
+            assert f"WHERE data_product = '{data_product.qualified_name}' AND table_name IN (" in alert["query"]
+            assert all(f"'{table}'" in alert["query"] for table in found)
         assert f"END AS {manifest.EXCEEDED}" in alert["query"]
         assert "${environment}" in alert["query"]
 
@@ -308,11 +315,75 @@ def test_the_latency_of_a_column_is_its_latest_value(tmp_path: Path) -> None:
     assert "'2 hours' AS latency" in alert["query"] and "INTERVAL '2' HOUR" in alert["query"]
 
 
-def test_an_alert_needs_a_cron_schedule(tmp_path: Path) -> None:
-    contract = SLA_CONTRACT.format(name="t", cron="0 6 * * *").replace(
-        "      - {property: frequency", "      - {property: errorRate, value: 1}\n      - {property: frequency"
+ERROR_RATE_SLA = "{property: errorRate, value: 1, scheduler: cron, schedule: '0 9 * * *'}"
+
+
+def checked_contract(error_rate: str = ERROR_RATE_SLA) -> str:
+    """A contract with a checked table (a required column) and an errorRate SLA."""
+    return (
+        SLA_CONTRACT.format(name="t", cron="0 6 * * *")
+        .replace("      - {property: frequency", "      - " + error_rate + "\n      - {property: frequency")
+        .replace("{name: a, physicalType: STRING}", "{name: a, physicalType: STRING, required: true}")
     )
-    root = write(tmp_path, {"donnees_qc/req/t/t.yaml": contract})
+
+
+def test_an_alert_needs_a_cron_schedule(tmp_path: Path) -> None:
+    root = write(tmp_path, {"donnees_qc/req/t/t.yaml": checked_contract("{property: errorRate, value: 1}")})
 
     with pytest.raises(ConfigurationError, match="the errorRate SLA needs a cron schedule"):
-        manifest.error_rate_alert(DataContext.discover(root), "donnees_qc.req")
+        manifest.quality_alert(DataContext.discover(root), "donnees_qc.req")
+
+
+def test_the_quality_alert_reads_the_latest_thresholds(tmp_path: Path) -> None:
+    root = write(tmp_path, {"donnees_qc/req/t/t.yaml": checked_contract()})
+
+    alert = manifest.quality_alert(DataContext.discover(root), "donnees_qc.req")
+
+    assert alert is not None and (alert["name"], alert["quartz"]) == ("quality", "0 0 9 * * ?")
+    query = alert["query"]
+    assert "FROM `${environment}`.`donnees_qc_req`.`_quality_summary`" in query
+    assert "WHERE data_product = 'donnees_qc.req' AND table_name IN ('t')" in query
+    assert "max(checked_at) OVER (PARTITION BY summary_table, table_name)" in query
+    assert "WHERE checked_at = latest_checked_at AND passed IS NOT NULL" in query
+    assert query.endswith("ORDER BY exceeded DESC, table_name, measure")
+
+
+THRESHOLD_RULE = (
+    "{name: a, physicalType: STRING, "
+    "quality: [{metric: nullValues, name: a_present, mustBeLessThan: 5, unit: percent}]}"
+)
+
+
+def test_the_thresholds_need_an_error_rate_sla(tmp_path: Path) -> None:
+    contract = SLA_CONTRACT.format(name="u", cron="0 6 * * *").replace(
+        "{name: a, physicalType: STRING}", THRESHOLD_RULE
+    )
+    root = write(tmp_path, {"donnees_qc/req/t/t.yaml": checked_contract(), "donnees_qc/req/u/u.yaml": contract})
+
+    # Without errorRate SLA, its thresholds would not be alerted.
+    with pytest.raises(ConfigurationError, match=r"donnees_qc\.req: the thresholds of u would not be alerted"):
+        manifest.quality_alert(DataContext.discover(root), "donnees_qc.req")
+
+
+def test_the_quality_alert_reads_the_tables_with_the_sla(tmp_path: Path) -> None:
+    # A checked table without errorRate SLA, nor thresholds: on another schedule, it is not read.
+    other = SLA_CONTRACT.format(name="u", cron="0 6 * * *").replace(
+        "{name: a, physicalType: STRING}", "{name: a, physicalType: STRING, required: true}"
+    )
+    root = write(tmp_path, {"donnees_qc/req/t/t.yaml": checked_contract(), "donnees_qc/req/u/u.yaml": other})
+
+    alert = manifest.quality_alert(DataContext.discover(root), "donnees_qc.req")
+
+    assert alert is not None
+    assert "AND table_name IN ('t')" in alert["query"]
+
+
+def test_no_quality_alert_without_summary(tmp_path: Path) -> None:
+    contract = checked_contract()
+    config = (
+        "from cds import ContractConfig, QualitySettings\n"
+        "config = ContractConfig(name='t', quality=QualitySettings(summary=False))\n"
+    )
+    root = write(tmp_path, {"donnees_qc/req/t/t.yaml": contract, "donnees_qc/req/t/t_config.py": config})
+
+    assert manifest.quality_alert(DataContext.discover(root), "donnees_qc.req") is None

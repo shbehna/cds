@@ -143,6 +143,7 @@ def test_jobs(settings: pipeline.Settings) -> pulumi.Output[None]:
             "genie_parent_path": "/Workspace/Shared/cds-demo/nprod/genie",
             "dashboard_warehouse_id": "warehouse-of-Serverless Starter Warehouse",
             "dashboard_parent_path": "/Workspace/Shared/cds-demo/nprod/dashboards",
+            "run_id": "{{job.run_id}}",
         }
         assert value(run_as, "service_principal_name") == "bf175dc4-c86b-4e88-83e9-9194c485a080"
 
@@ -745,3 +746,21 @@ def test_access_control() -> None:
 def test_the_stacks_grant_the_genie_space_to_the_users() -> None:
     for stack in ("nprod", "prod"):
         assert json.loads(stack_config(stack)["genieUsers"]) == ["users"], stack
+
+
+def test_the_quality_alert_was_the_error_rate_alert() -> None:
+    def names(data_product: str, alert: str) -> list[str]:
+        aliases = pipeline.alert_aliases(data_product, alert).aliases or []
+        return [str(alias.name) for alias in aliases if isinstance(alias, pulumi.Alias)]
+
+    # The alias updates the former alert instead of replacing it.
+    assert names("donnees_qc.repertoire_municipalites", "quality") == [
+        "alert:donnees_qc.repertoire_municipalites:error-rate"
+    ]
+    assert names("donnees_qc.repertoire_municipalites", "latency") == []
+    # The alerts of the first data product were named without it: only the names that existed.
+    assert names(pipeline.FIRST_DATA_PRODUCT, "quality") == [
+        f"alert:{pipeline.FIRST_DATA_PRODUCT}:error-rate",
+        "alert:error-rate",
+    ]
+    assert names(pipeline.FIRST_DATA_PRODUCT, "latency") == ["alert:latency"]

@@ -18,9 +18,11 @@ And for each data product (``data_products``), which the deployment runs in a jo
   of its ODPS document;
 - ``schedule``: the schedule of its job, from the ``frequency`` SLA of its tables, as a
   cron expression and in the Quartz syntax of Databricks;
-- ``alerts``: the SQL alerts checking the ``errorRate`` and ``latency`` SLA of its tables,
-  with their schedules. The query of an alert returns a row per table, whose ``exceeded``
-  column is 1 when the table breaks its SLA: the alert triggers when one of them does;
+- ``alerts``: the SQL alerts checking the thresholds of the quality of its tables and
+  their ``latency`` SLA, with their schedules. The query of an alert returns a row per
+  measure, whose ``exceeded`` column is 1 when it breaks its threshold: the alert
+  triggers when one of them does. The ``quality`` alert reads the quality summary of the
+  tables, which the quality service writes; the ``latency`` alert, their last change;
 - ``recipients``: the addresses of the email support channels of its contracts, which
   receive the alerts.
 
@@ -38,12 +40,14 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from cds import DataContext, DataProduct, MetadataSettings, QualitySettings, ServiceContext, Table
+from cds import DataContext, DataProduct, MetadataSettings, ServiceContext, Table
 from cds.config import resolved
 from cds.errors import ConfigurationError
 from cds.odcs import SlaProperty
+from cds.services.checks import build_checks, checked_tables
+from cds.services.summary import latest_thresholds_query, summary_table, summary_tables
 from cds.services.tags import DOMAIN_SEPARATOR, discover_domain
-from cds.sla import cron_schedule, duration, percentage, quartz_cron, support_emails, table_sla
+from cds.sla import cron_schedule, duration, quartz_cron, support_emails, table_sla
 from cds.sql import quote_identifier, quote_name, string_literal
 
 PRODUCTS = Path(__file__).resolve().parents[1] / "products"
@@ -160,36 +164,60 @@ def schedule(data_context: DataContext, data_product: str) -> dict[str, str] | N
     return _common_schedule(data_product, "frequency", schedules) if schedules else None
 
 
-def error_rate_alert(data_context: DataContext, data_product: str) -> dict[str, Any] | None:
-    """The alert on the ``errorRate`` SLA of a data product: the share of the rows with a quality error, in percent.
+def quality_alert(data_context: DataContext, data_product: str) -> dict[str, Any] | None:
+    """The alert on the thresholds of the quality of a data product, read from its quality summary.
 
-    Only the tables checked by the quality service, which writes the errors of each row,
-    are included. ``None`` if no table has the SLA.
+    The quality service appends the measures of each checked table to the summary table
+    of its schema, against the thresholds of its contract (``cds.services.summary``): its
+    ``errorRate`` SLA, and the ``quality`` rules with thresholds. The query returns the
+    latest measures of each table with a threshold, exceeded first, instead of scanning the
+    tables. The alert runs on the schedule of the ``errorRate`` SLA, after the loads.
+
+    Only the tables with the SLA are read, on its schedule: a table whose ``quality``
+    rules have thresholds needs the SLA, else they would not be alerted.
+
+    Returns:
+        The alert; ``None`` if no checked table with a summary has the ``errorRate`` SLA.
+
+    Raises:
+        ConfigurationError: If the SLA of the tables have different schedules, or one without
+            cron schedule, or a table with thresholds has no ``errorRate`` SLA.
     """
     context = _context(data_context)
-    selects = []
+    tables = [
+        table
+        for table in checked_tables(data_context.get_data_product(data_product), context)
+        if summary_table(table, context)
+    ]
     schedules = {}
-    for table in _tables(data_context, data_product):
-        found = _scheduled(table, "errorRate") if table.settings(QualitySettings).enabled else None
-        if found is None:
-            continue
-        prop, _, schedules[table.name] = found
-        errors = quote_identifier(resolved(table.settings(QualitySettings).errors_column))
-        selects.append(
-            f"  SELECT {string_literal(table.name)} AS table_name, {percentage(prop)!r} AS threshold,\n"
-            f"    try_divide(100 * count_if(coalesce(size({errors}), 0) > 0), count(*)) AS error_rate\n"
-            f"  FROM {quote_name(_name(context.full_table_name(table)))}"
+    for table in tables:
+        found = _scheduled(table, "errorRate")
+        if found is not None:
+            schedules[table.name] = found[2]
+    unscheduled = [
+        table.name
+        for table in tables
+        if table.name not in schedules
+        and build_checks(table, context, include_configured=False, read_values=False).thresholds
+    ]
+    if unscheduled:
+        raise ConfigurationError(
+            f"{data_product}: the thresholds of {', '.join(unscheduled)} would not be alerted: give the "
+            "table an errorRate SLA with a cron schedule, which schedules the quality alert."
         )
-    if not selects:
+    alerted = [table for table in tables if table.name in schedules]
+    if not alerted:
         return None
+    summaries = {_name(name): names for name, names in summary_tables(alerted, context).items()}
     query = (
-        "SELECT table_name, round(error_rate, 2) AS error_rate, threshold,\n"
-        f"  CASE WHEN error_rate > threshold THEN 1 ELSE 0 END AS {EXCEEDED}\n"
-        "FROM (\n" + "\n  UNION ALL\n".join(selects) + "\n) AS rates\nORDER BY table_name"
+        "SELECT table_name, measure, criticality, round(actual, 2) AS actual, unit, operator, threshold,\n"
+        f"  threshold_high, checked_at, CASE WHEN passed THEN 0 ELSE 1 END AS {EXCEEDED}\n"
+        f"FROM (\n{latest_thresholds_query(summaries, data_product)}\n) AS thresholds\n"
+        f"ORDER BY {EXCEEDED} DESC, table_name, measure"
     )
     return {
-        "name": "error-rate",
-        "title": "error rate",
+        "name": "quality",
+        "title": "quality",
         "sla": "errorRate",
         **_common_schedule(data_product, "errorRate", schedules),
         "query": query,
@@ -259,7 +287,7 @@ def data_product_manifest(data_context: DataContext, data_product: str) -> dict[
     document = data_context.get_data_product(data_product).document
     alerts = [
         alert
-        for alert in (error_rate_alert(data_context, data_product), latency_alert(data_context, data_product))
+        for alert in (quality_alert(data_context, data_product), latency_alert(data_context, data_product))
         if alert
     ]
     return {

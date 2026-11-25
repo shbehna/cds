@@ -29,17 +29,6 @@ schema:
               msg: La superficie terrestre dépasse la superficie totale.
       - type: custom
         engine: dqx
-        name: telephone_renseigne
-        description: Le numéro de téléphone est renseigné, et non 0000000000.
-        severity: warning
-        implementation:
-          check:
-            function: sql_expression
-            arguments:
-              expression: telephone <> '0000000000'
-              msg: Le numéro de téléphone n'est pas renseigné (0000000000).
-      - type: custom
-        engine: dqx
         name: date_prochaine_election_renseignee
         description: La date des prochaines élections est une vraie date, et non 0001-01-01.
         severity: warning
@@ -101,6 +90,17 @@ schema:
         physicalType: STRING
         logicalTypeOptions:
           pattern: "^[0-9]{10}$"
+        quality:
+          - metric: missingValues
+            name: telephone_renseigne
+            description: >-
+              Le numéro de téléphone est renseigné, et non 0000000000 : au plus 5 % des municipalités
+              n'ont pas de numéro.
+            severity: warning
+            arguments:
+              missingValues: ['0000000000']
+            mustBeLessOrEqualTo: 5
+            unit: percent
       - name: telecopieur
         description: Numéro de télécopieur de la municipalité, à dix chiffres ; 0000000000 s'il n'est pas renseigné. Colonne source mfax.
         logicalType: string

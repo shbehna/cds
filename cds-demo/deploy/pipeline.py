@@ -13,9 +13,10 @@ product from its contracts, in the genie and dashboards folders.
 
 The metadata step runs after the load: a failed load leaves the tables unchanged, which
 the latency alert detects. The job runs on the schedule of the frequency SLA of the
-contracts, paused unless pauseSchedule is false. SQL alerts check their latency and error
-rate SLA: they, and the failed runs of the job, email the support channels of the
-contracts and the addresses of ALERT_EMAILS (see alerts).
+contracts, paused unless pauseSchedule is false. SQL alerts check their latency SLA, and
+the thresholds of their quality in the quality summary the quality step writes (its runs
+identified by the run_id parameter): they, and the failed runs of the job, email the
+support channels of the contracts and the addresses of ALERT_EMAILS (see alerts).
 
 Each data product reads its files in a folder of its own under sourceRoot:
 <sourceRoot>/<group>/<data product>, /Volumes/ext/donnees_qc/req for donnees_qc.req.
@@ -143,11 +144,16 @@ DOMAINS: dict[str, DomainPresentation] = {
 
 # Placeholder of the environment in the queries of the manifest.
 ENVIRONMENT_PLACEHOLDER = "${environment}"
+# Former names of the alerts of the manifest: the quality alert was the error rate alert,
+# which only checked the errorRate SLA. The alias updates it instead of replacing it.
+FORMER_ALERT_NAMES: Mapping[str, str] = {"quality": "error-rate"}
 # Column of the alert queries of the manifest: 1 for a table breaking its SLA, 0 otherwise.
 EXCEEDED_COLUMN = "exceeded"
 # Environment variable holding the addresses receiving the alerts, set by the workflow
 # from the GitHub secret of the same name.
 ALERT_EMAILS_VARIABLE = "ALERT_EMAILS"
+# The run of the job, a dynamic value reference that Databricks replaces in the parameters.
+RUN_ID = "{{job.run_id}}"
 
 
 @dataclass(frozen=True)
@@ -452,6 +458,20 @@ def renamed(data_product: str, former: str) -> pulumi.ResourceOptions:
     return pulumi.ResourceOptions(aliases=[pulumi.Alias(name=former)] if data_product == FIRST_DATA_PRODUCT else None)
 
 
+def alert_aliases(data_product: str, name: str) -> pulumi.ResourceOptions:
+    """The options of an alert: the names it had.
+
+    An alert renamed in FORMER_ALERT_NAMES had the name ``alert:<data product>:<former>``.
+    The alerts of the first data product were named ``alert:<former>`` before the demo had
+    several data products (see renamed).
+    """
+    former = FORMER_ALERT_NAMES.get(name)
+    aliases = [pulumi.Alias(name=f"alert:{data_product}:{former}")] if former else []
+    if data_product == FIRST_DATA_PRODUCT:
+        aliases.append(pulumi.Alias(name=f"alert:{former or name}"))
+    return pulumi.ResourceOptions(aliases=aliases or None)
+
+
 def task_description(task: str) -> str:
     """The description of a task of the job: the services its notebook runs."""
     services = TASK_SERVICES.get(task, [task])
@@ -539,7 +559,7 @@ def alerts(
                 ),
                 purge_on_delete=True,
                 opts=pulumi.ResourceOptions.merge(
-                    renamed(data_product, f"alert:{definition['name']}"),
+                    alert_aliases(data_product, str(definition["name"])),
                     pulumi.ResourceOptions(depends_on=[directory]),
                 ),
             )
@@ -844,6 +864,8 @@ def deploy(settings: Settings) -> dict[str, databricks.Job]:
             # Read by the dashboard service: the warehouse of the dashboard, and its folder.
             "dashboard_warehouse_id": warehouse.id,
             "dashboard_parent_path": f"/Workspace{dashboard_folder}",
+            # Read by the quality service: the run of the job, in the quality summary.
+            "run_id": RUN_ID,
         }
         title = product.get("title")
         jobs[data_product] = databricks.Job(

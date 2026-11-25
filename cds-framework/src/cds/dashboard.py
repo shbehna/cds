@@ -11,9 +11,12 @@ checked tables. Everything comes from the contracts and the settings:
   table without primary key identifies its rows by all its columns;
 - the result columns of the quality service (``QualitySettings``).
 
-It has two pages: **Statistics** (the status of the rows, the occurrences of each check)
+It has two pages: **Statistics** (the status of the rows, the occurrences of each check,
+and the latest measures of the quality summary against the thresholds of the contracts)
 and **Occurrences** (each error and warning, with the key of its row). ``build_dashboard``
-returns its title and serialized configuration.
+returns its title and serialized configuration. The thresholds are read from the summary
+tables of the quality service (``cds.services.summary``); without summary, the table of
+the thresholds is left out.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from cds.context import ServiceContext
 from cds.data_context import DataProduct, Table
 from cds.errors import ConfigurationError
 from cds.services.checks import checked_tables
+from cds.services.summary import latest_thresholds_query, summary_tables
 from cds.sql import quote_identifier, quote_name, string_literal
 
 # Status of a row: a row with errors and warnings is in error.
@@ -135,6 +139,48 @@ def occurrences_by_check_query(rows: str) -> str:
         "SELECT table_name, result.name AS check_name, severity, count(*) AS occurrences\n"
         "FROM occurrences\n"
         "GROUP BY table_name, result.name, severity"
+    )
+
+
+# The ODCS operators of the thresholds, as text.
+_OPERATORS = {
+    "mustBe": "= ",
+    "mustNotBe": "≠ ",
+    "mustBeGreaterThan": "> ",
+    "mustBeGreaterOrEqualTo": "≥ ",
+    "mustBeLessThan": "< ",
+    "mustBeLessOrEqualTo": "≤ ",
+}
+PASSED = "Passed"
+EXCEEDED = "Exceeded"
+
+
+def _number(expression: str) -> str:
+    """A value of the summary as text: a number of rows, or a percentage with 2 decimals."""
+    return f"format_number({expression}, CASE WHEN unit = 'rows' THEN 0 ELSE 2 END)"
+
+
+def thresholds_query(summaries: Mapping[str, Sequence[str]], data_product: str) -> str:
+    """The latest measures of the tables against the thresholds of their contracts, exceeded first."""
+    suffix = "CASE WHEN unit = 'percent' THEN ' %' ELSE ' rows' END"
+    operators = "".join(
+        f"    WHEN {string_literal(operator)} THEN concat({string_literal(text)}, {_number('threshold')})\n"
+        for operator, text in _OPERATORS.items()
+    )
+    between = f"{_number('threshold')}, ' and ', {_number('threshold_high')}"
+    return (
+        f"WITH thresholds AS (\n{latest_thresholds_query(summaries, data_product)}\n)\n"
+        "SELECT table_name, measure, criticality,\n"
+        f"  concat({_number('actual')}, {suffix}) AS actual,\n"
+        "  concat(CASE operator\n"
+        f"{operators}"
+        f"    WHEN 'mustBeBetween' THEN concat('between ', {between})\n"
+        f"    WHEN 'mustNotBeBetween' THEN concat('not between ', {between})\n"
+        f"  END, {suffix}) AS threshold,\n"
+        f"  CASE WHEN passed THEN '{PASSED}' ELSE '{EXCEEDED}' END AS status,\n"
+        f"  date_format(checked_at, '{TIME_FORMAT}') AS checked_at\n"
+        "FROM thresholds\n"
+        "ORDER BY passed, table_name, measure"
     )
 
 
@@ -294,9 +340,11 @@ def occurrences_chart(name: str, dataset_name: str) -> dict[str, Any]:
 def serialized_dashboard(tables: Sequence[Table], context: ServiceContext, shown: Sequence[str]) -> dict[str, Any]:
     """The configuration of the dashboard of the quality of tables."""
     rows = rows_query(tables, context, shown)
-    status, by_check, occurrences = "row_status", "occurrences_by_check", "occurrences"
+    status, by_check, occurrences, thresholds = "row_status", "occurrences_by_check", "occurrences", "thresholds"
+    summaries = summary_tables(tables, context)
+    filtered = [status, by_check, *([thresholds] if summaries else [])]
     statistics = [
-        place(multi_select_filter("statistics_table_filter", "table_name", "Table", [status, by_check]), 0, 0, 2, 1),
+        place(multi_select_filter("statistics_table_filter", "table_name", "Table", filtered), 0, 0, 2, 1),
         place(pie_chart("row_status_chart", status), 0, 1, 3, 8),
         place(occurrences_chart("occurrences_by_check_chart", by_check), 3, 1, 3, 8),
         place(
@@ -317,6 +365,29 @@ def serialized_dashboard(tables: Sequence[Table], context: ServiceContext, shown
             8,
         ),
     ]
+    if summaries:
+        statistics.append(
+            place(
+                table_widget(
+                    "thresholds_by_table",
+                    thresholds,
+                    [
+                        ("table_name", "Table", "string"),
+                        ("measure", "Measure", "string"),
+                        ("criticality", "Criticality", "string"),
+                        ("actual", "Actual", "string"),
+                        ("threshold", "Threshold", "string"),
+                        ("status", "Status", "string"),
+                        ("checked_at", "Checked at (UTC)", "string"),
+                    ],
+                    "Thresholds of the contracts (latest run)",
+                ),
+                0,
+                17,
+                6,
+                8,
+            )
+        )
     details = [
         place(multi_select_filter("occurrences_table_filter", "table_name", "Table", [occurrences]), 0, 0, 2, 1),
         place(multi_select_filter("check_filter", "check_name", "Check", [occurrences]), 2, 0, 2, 1),
@@ -348,6 +419,11 @@ def serialized_dashboard(tables: Sequence[Table], context: ServiceContext, shown
             dataset(status, "Row status by table", row_status_query(rows)),
             dataset(by_check, "Occurrences by check", occurrences_by_check_query(rows)),
             dataset(occurrences, "Occurrences", occurrences_query(rows)),
+            *(
+                [dataset(thresholds, "Thresholds", thresholds_query(summaries, tables[0].data_product.qualified_name))]
+                if summaries
+                else []
+            ),
         ],
         "pages": [
             {
