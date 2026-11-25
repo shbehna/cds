@@ -31,21 +31,21 @@ flowchart LR
         quality["Data quality (DQX)"]
         scd["History (SCD Type 2)"]
         snapshot["Snapshot"]
-        genie["Genie space"]
-        dashboard["Quality dashboard"]
+        genie["Genie"]
+        alerts["Alerts"]
     end
 
     odps ~~~ odcs
     schema ~~~ metadata
     transformation ~~~ quality
     scd ~~~ snapshot
-    genie ~~~ dashboard
+    genie ~~~ alerts
     documents --> services
 
     classDef document fill:#dbeafe,stroke:#1d4ed8,color:#0b1f4d
     classDef service fill:#ecfdf5,stroke:#047857,color:#052e1f
     class odps,odcs document
-    class schema,metadata,transformation,quality,scd,snapshot,genie,dashboard service
+    class schema,metadata,transformation,quality,scd,snapshot,genie,alerts service
 ```
 
 The contracts drive every service. The data product document, when there is one, adds
