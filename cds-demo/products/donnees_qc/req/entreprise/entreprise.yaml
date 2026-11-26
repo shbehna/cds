@@ -64,7 +64,6 @@ schema:
         description: Indique si l'entreprise est en faillite. Colonne source IND_FAIL.
         logicalType: boolean
         physicalType: BOOLEAN
-        classification: restricted
       - name: date_immatriculation
         businessName: Date d'immatriculation
         description: Date à laquelle le numéro d'entreprise du Québec a été attribué à l'entreprise. Elle ne change jamais. Colonne source DAT_IMMAT.
